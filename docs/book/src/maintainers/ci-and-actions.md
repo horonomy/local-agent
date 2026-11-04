@@ -398,6 +398,21 @@ maintainer remains inactive, follow the
 before changing `pkgname` or the workflow clone target. After ownership
 transfers, coordinate the package rename or merge in one reviewed change.
 
+## Build resource discipline
+
+Before compiling, identify the affected package, features, target and tests. Use
+focused package checks during implementation, broader regression at integration
+boundaries, and complete mandatory verification at release checkpoints. Do not
+rebuild a workspace or duplicate target directories merely to recreate unchanged
+evidence. Coordinate any shared target by toolchain, target triple, features and
+active ownership; limit heavyweight builds and measure capacity first.
+
+The Landlock job keeps the same security filter on all runtime package test targets with
+`sandbox-landlock`, disables unrelated defaults and test debug information, and
+retains the hosted Linux kernel. This bounds compilation artifacts, not assertions.
+Actual Linux execution is still required; a workflow contract test is not a
+passing kernel test.
+
 ## Documentation validation policy
 
 The project owner retired mandatory `markdownlint-cli2` execution because its
