@@ -70,7 +70,8 @@ configuration, evidence, Git metadata or unrelated modifications.
 
 Use small, single-purpose commits named `<gitmoji> <scope>: <summary>`.
 Ticket PR titles use `[HORO-XXXX] <gitmoji> <scope>: <summary>`; their base is the
-milestone release branch.
+milestone release branch. The title validator also retains scoped Conventional
+Commits compatibility for existing automation and dependency updates.
 Include purpose, scope, acceptance criteria, actual tests, risks and limitations.
 Independent technical review is not self-review or a substitute for required
 human/code-owner approval. Never bypass mandatory checks or unresolved reviews.
