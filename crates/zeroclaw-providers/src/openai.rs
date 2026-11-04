@@ -1962,6 +1962,58 @@ mod tool_round_policy_tests {
         body
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn wire_body_waits_for_runtime_proxy_config_guard() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::{net::TcpListener, sync::oneshot, time::timeout};
+        use zeroclaw_config::schema::{ProxyConfig, ProxyScope, set_runtime_proxy_config};
+
+        let proxy_guard = crate::RuntimeProxyTestGuard::acquire().await;
+        let proxy_hits = Arc::new(AtomicUsize::new(0));
+        let hits = Arc::clone(&proxy_hits);
+        let proxy = Router::new().fallback(move || {
+            hits.fetch_add(1, Ordering::SeqCst);
+            async { Json(serde_json::json!({"choices": [{"message": {"content": "proxy"}}]})) }
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        let proxy_server = ::zeroclaw_spawn::spawn!(async move {
+            axum::serve(listener, proxy).await.unwrap();
+        });
+        set_runtime_proxy_config(ProxyConfig {
+            enabled: true,
+            http_proxy: Some(format!("http://{proxy_addr}")),
+            scope: ProxyScope::Services,
+            services: vec!["model_provider.openai".to_string()],
+            ..Default::default()
+        });
+
+        let (started_tx, started_rx) = oneshot::channel();
+        let mut task = ::zeroclaw_spawn::spawn!(async move {
+            let _ = started_tx.send(());
+            wire_body(0, false, None, 0).await
+        });
+        started_rx.await.unwrap();
+        let guarded_result = timeout(std::time::Duration::from_millis(500), &mut task).await;
+        proxy_server.abort();
+        let _ = proxy_server.await;
+        drop(proxy_guard);
+        assert!(
+            guarded_result.is_err(),
+            "wire_body must wait for the runtime proxy config guard"
+        );
+        let body = match timeout(std::time::Duration::from_secs(5), &mut task).await {
+            Ok(result) => result.expect("wire_body must succeed after proxy reset"),
+            Err(_) => {
+                task.abort();
+                let _ = task.await;
+                panic!("wire_body must finish after the proxy guard is released");
+            }
+        };
+        assert_eq!(proxy_hits.load(Ordering::SeqCst), 0);
+        assert_eq!(body["model"], "fixture-model");
+    }
+
     #[tokio::test]
     async fn native_tool_round_flags_reach_stream_and_chat_wires_without_changing_defaults() {
         for wire in 0..3 {
