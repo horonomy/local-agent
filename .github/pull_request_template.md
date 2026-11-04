@@ -42,7 +42,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Docs-only changes: replace with markdown lint (`scripts/ci/docs_quality_gate.sh`) and added-link integrity (`scripts/ci/docs_links_gate.sh`). Bootstrap scripts: add `bash -n install.sh`.
+Docs-only changes: use repository-owned prose checks (`scripts/ci/docs_quality_gate.sh`), added-link integrity (`scripts/ci/docs_links_gate.sh`), internal links and the applicable documentation build. The vulnerable third-party Markdown formatter is retired and must not be executed. Bootstrap scripts: add `bash -n install.sh`.
 
 - **CI checks relied on and why they cover this change:** (for example, `Docs Style` covers the changed Markdown lines)
 - **Known CI coverage gap, if any:** (for example, `None after the docs and links gates`)

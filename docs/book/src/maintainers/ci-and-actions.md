@@ -29,7 +29,7 @@ Composite job with multiple matrix legs:
 - **parallel-runtime-test**: repeated same-process runtime/channel tests from `scripts/ci/parallel_runtime_test_gate.sh`, run in parallel with the main test job for relevant PR paths and unconditionally on `master` pushes and merge queue runs
 - **security**: `cargo deny check`
 - **nix-eval**: evaluates the NixOS module assertions (`nixos-module-eval` flake check)
-- **docs-style**: markdown lint, em-dash prose check, and changed-line link gate via `scripts/ci/docs_quality_gate.sh` and `scripts/ci/docs_links_gate.sh`
+- **docs-style**: authored-source prose checks, policy regressions, and changed-line link integrity via `scripts/ci/docs_quality_gate.sh` and `scripts/ci/docs_links_gate.sh`
 
 Linux jobs in the required gate run on Blacksmith except for the kernel-dependent Landlock check: the compile-heavy fleet on `blacksmith-8vcpu-ubuntu-2404`, and the housekeeping set (`fmt`, the change detectors, repository guards, docs and policy gates, the Nix checks, the container smoke, `security`, `web-permission-tests`, and the `gate` aggregator itself) on `blacksmith-4vcpu-ubuntu-2404`. The one deliberate Linux exception is `test-landlock`, which stays on GitHub-hosted `ubuntu-latest` because the Landlock LSM check depends on the hosted kernel. Windows task-owner recovery uses `blacksmith-8vcpu-windows-2025`; macOS and the other Windows jobs keep their GitHub-hosted platform runners. This split exists because GitHub's hosted-runner assignment stalled org-wide on 2026-09-14 while Blacksmith kept serving: with the housekeeping jobs moved, a hosted outage costs only the platform-specific checks instead of the whole required gate. All jobs name their runner labels and cache-provider inputs directly; `tests/architecture/ci_runner_labels.rs` checks the Linux inventories (compile fleet, housekeeping fleet, and the hosted-Linux allowlist) plus the recovery-only Windows runner and cache-writer contract. Work jobs do not wait on `fmt`; the deliberate trade-off is extra runner work on PRs that fail formatting. `CI Required Gate` still needs `fmt` directly and aggregates required results, so formatting errors still block merge. The separately label-gated advisory Windows workflow remains outside that gate. Its Linux selector also runs on the Blacksmith 4vcpu class. Branch protection pins the composite gate job. The `master` push run keeps the same quality signal while seeding trusted Rust caches for later PR runs.
 
@@ -398,6 +398,21 @@ maintainer remains inactive, follow the
 before changing `pkgname` or the workflow clone target. After ownership
 transfers, coordinate the package rename or merge in one reviewed change.
 
+## Documentation validation policy
+
+The project owner retired mandatory `markdownlint-cli2` execution because its
+dependency tree contains unresolved security vulnerabilities. Do not install or
+execute that formatter to satisfy a release gate. Its formatting result is not a
+product-correctness or security acceptance criterion.
+
+The `Docs Style` job remains a real required-gate dependency: it runs the existing
+repository-owned prose check and its regression tests, changed-link validation,
+and all authored internal-link checks. Documentation build correctness, generated
+reference fidelity, code-to-documentation parity, and independent release QA remain
+mandatory. A skipped or unavailable build is not a passing documentation result.
+This retirement does not change Rust formatting, tests, security checks, review
+requirements or workstation-enforced controls.
+
 ## Build cache behavior
 
 Most Rust-heavy jobs in `ci.yml` cache through the local `./.github/actions/rust-cache` composite, which receives `use-blacksmith: 'true'` from its Blacksmith compile callers, matching the runner label those jobs name directly. Both values are checked-in constants in `ci.yml`, not an Actions variable. `vars` is unreadable in fork-origin `pull_request` runs, so the former `CI_USE_BLACKSMITH` toggle silently sent every fork PR (90% of this repo's PRs) to GitHub-hosted runners with a cold cache, because master had stopped seeding the GitHub Actions cache when it moved to Blacksmith. With the constants, those fork PR jobs use `useblacksmith/rust-cache` (Blacksmith NVMe sticky disk) on Blacksmith runners like the corresponding master jobs; changing the label and the provider inputs on the Linux compile jobs, which `tests/architecture/ci_runner_labels.rs` keeps in lockstep, moves that fleet back to `ubuntu-latest` + `Swatinem/rust-cache` in one reviewed commit. Both action references live in the composite regardless of the selection, so both must stay in the allowlist. Windows task-owner recovery is the direct-`Swatinem/rust-cache` exception on Blacksmith, with its own master-seeded dependency cache. The macOS and Windows build legs stay on `Swatinem/rust-cache` against the GitHub Actions cache, and the `fmt`, `nix-eval`, and `docs-style` jobs (none of which compile the workspace) use no Rust cache. `codeql.yml` pins the same Blacksmith label for its Rust scan, so no workflow reads the `CI_USE_BLACKSMITH` variable any more; it can be deleted from the repository settings. These behaviors are worth knowing when triaging cache-related flakes:
@@ -488,7 +503,7 @@ Any PR that adds or changes a `uses:` action source must include an allowlist im
 - Keep `ci.yml`, `dev/ci.sh`, and `.githooks/pre-push` aligned. Shared gates must live in `scripts/ci/`; each caller invokes the helper instead of copying its commands. For the standalone firmware protocol gate, the documented local entry point is `./dev/ci.sh firmware-protocol`.
 - Keep `scripts/ci/prepare_docker_context.sh`, `docker-image-pr.yml`, and the Docker job in `release-stable-manual.yml` aligned so PR validation exercises the same context shape the release workflow publishes.
 - Run `python3 scripts/ci/release_attestation_contract_test.py` after changing the release attestation, checksum, SBOM, or verification-archive sequence.
-- The `docs-style` gate job runs `bash scripts/ci/docs_quality_gate.sh` (markdown lint + em-dash prose check) and `bash scripts/ci/docs_links_gate.sh` (changed-line link gate). Run both scripts locally before pushing docs changes.
+- The `docs-style` gate job runs `bash scripts/ci/docs_quality_gate.sh` (repository-owned prose check, without third-party formatter execution) and `bash scripts/ci/docs_links_gate.sh` (changed-line link gate). Run both scripts locally before pushing docs changes.
 
 ## Emergency rollback
 
