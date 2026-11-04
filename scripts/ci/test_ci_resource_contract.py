@@ -35,6 +35,19 @@ class CiResourceContractTests(unittest.TestCase):
         gate = self.workflow.split("\n  gate:\n", 1)[1]
         self.assertIn("test-landlock", gate.split("\n    steps:", 1)[0])
 
+    def test_native_gnu_matrix_declares_shared_cross_binding(self) -> None:
+        manual = (ROOT / ".github/workflows/cross-platform-build-manual.yml").read_text(
+            encoding="utf-8"
+        )
+        matrix = manual.split("\n  stable-gnu-build:\n", 1)[1].split("\n    steps:", 1)[0]
+        self.assertEqual(matrix.count("            use_cross: false\n"), 4)
+        self.assertNotIn("use_cross: true", matrix)
+        caller = manual.split("\n  stable-gnu-build:\n", 1)[1].split(
+            "      - name: Build release\n", 1
+        )[1].split("      - name:", 1)[0]
+        self.assertIn("uses: ./.github/actions/build-release-payloads", caller)
+        self.assertIn("use_cross: ${{ matrix.use_cross || 'false' }}", caller)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
         self.assertNotIn("blacksmith", self.landlock)
