@@ -106,5 +106,5 @@ host authorization; do not execute the retired vulnerable Markdown formatter.
 - Bound independent subagents and keep one writer per worktree. Return concise
   findings and local evidence references, not large transcripts. Checkpoint before
   context pressure, reclaim only safely authorized inactive build outputs, and
-  preserve Local Agent and Libra resources. Apply the persistent five-attempt or
-  60-active-minute problem budget in the engineering lifecycle.
+  preserve Local Agent and other active project resources. Apply the persistent
+  five-attempt or 60-active-minute problem budget in the engineering lifecycle.

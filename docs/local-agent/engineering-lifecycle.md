@@ -238,12 +238,22 @@ commits; return concise findings and exact source/test references. Preserve a
 handoff before context pressure and never recover by repeatedly reading entire
 agent transcripts or restarting an exhausted request.
 
-Measure free space before heavyweight work. Reuse valid build artifacts and remove
-only safely authorized obsolete, regenerable outputs after checking inactivity
-and evidence needs. Preserve active Local Agent and Libra resources, worktrees,
-required binaries and relevant caches. A denied cleanup is not permission to use
-another route. Push reviewed source regularly when actual controls permit and
-verify the remote commit; local commits alone are not a remote backup.
+Before compiling, identify the affected package, feature set, target triple and
+required tests. Never default to a full Rust workspace build for a small change.
+Measure free capacity and expected footprint before expensive compilation; reuse
+valid artifacts for the same source/profile instead of rebuilding unchanged proof.
+
+Coordinate target-directory reuse by toolchain, target triple, features and active
+ownership. Do not create a large target for every short-lived worktree or blindly
+share one among concurrent writers. Bound heavyweight build concurrency and reduce
+it under CPU, memory or disk pressure. Pause new heavy work when headroom is unsafe,
+then reclaim only authorized inactive, regenerable outputs and resume when actual
+measurements permit. Keep concise records of unusual artifact growth.
+
+Preserve Local Agent and other active project resources, worktrees, required
+binaries and QA evidence. A denied cleanup is not permission to use another route. Push
+reviewed source regularly when actual controls permit and verify the remote
+commit; local commits alone are not a remote backup.
 
 No instruction in this document automatically trusts inherited hooks, grants OS
 permissions, changes branch protection, authorizes public publication, or clears
