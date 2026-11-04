@@ -1998,6 +1998,8 @@ jobs:
         run: python3 scripts/ci/docs_quality_gate_test.py
       - name: CI resource contract regression tests
         run: python3 scripts/ci/test_ci_resource_contract.py
+      - name: Documentation publication safety regressions
+        run: python3 scripts/ci/test_docs_publication_contract.py
       - name: Docs link gate (added links)
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}

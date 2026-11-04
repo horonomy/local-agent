@@ -154,7 +154,7 @@ Runs on every PR open/edit/synchronize. Runs the validator unit tests (`scripts/
 
 ### Deploy mdBook docs to Pages (`docs-deploy.yml`)
 
-Triggered on tag push (and `workflow_dispatch`); builds and publishes versioned docs to the `gh-pages` branch. See [Release Runbook → Versioned documentation deployment](./release-runbook.md#step-7-versioned-documentation-deployment) for the version-floor and bootstrap rules.
+The inherited workflow retains its real multi-locale build, but Local Agent disables the Pages publish step and stable-promotion job and restricts the workflow token to read-only repository access. No Local Agent docs destination or deployment credentials are approved. This guard must remain until a separately reviewed publishing setup replaces upstream-domain routing. See [Release Runbook → Versioned documentation deployment](./release-runbook.md#step-7-versioned-documentation-deployment) for the version-floor and bootstrap rules.
 
 ### Docker Image PR Check (`docker-image-pr.yml`)
 
