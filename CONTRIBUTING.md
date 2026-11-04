@@ -1,165 +1,97 @@
-# Contributing to ZeroClaw
+# Contributing to Local Agent
 
-Thanks for your interest. Every kind of contribution helps — code, docs, bug reports, design feedback. This file is the first stop; the full contributor guide lives in the [docs book](docs/book/src/contributing/how-to.md).
+Local Agent (Sakura Shrimp) is an independent ZeroClaw-derived project at
+`horonomy/local-agent`. Keep upstream licenses, notices, contributor attribution
+and historical architecture decisions intact. This page changes engineering
+workflow, not licensing or legal contribution terms.
 
----
+## Start with the project contract
 
-## ⚠️ Branch Migration Notice (March 2026)
+Read [AGENTS.md](AGENTS.md) and the
+[engineering lifecycle](docs/local-agent/engineering-lifecycle.md). They define
+Local Agent workflow where inherited ZeroClaw contribution or team procedures
+differ. Use the [architecture map](docs/book/src/contributing/architecture-map.md)
+to load relevant technical references rather than the entire documentation tree.
 
-**`master` is the ONLY default branch. The `main` branch no longer exists.**
+1. Reconcile the existing approved ticket and acceptance criteria before coding.
+2. Reuse or create the appropriate isolated ticket worktree from the verified
+   milestone branch. Preserve staged changes, other writers and valid worktrees.
+3. Implement the smallest complete increment and add relevant regression coverage.
+4. Run focused tests, formatting and scoped lint/type checks; fix findings and
+   obtain independent technical review.
+5. Make small Gitmoji commits, push reviewed source when authorized controls permit,
+   and verify the remote SHA. Ticket PRs target `release/mvp-X.0`; release PRs target
+   the verified default branch (currently `master`). Never direct-push to it.
+6. Integrate only after applicable CI, human/code-owner review, conflict, branch
+   currency and review-thread gates pass. Use merge commits, not squash automation.
 
-If you have an existing fork or local clone that tracks `main`, update it:
+Do not follow inherited instructions to delete a branch, force-push, skip a hook,
+write to upstream or deploy through ZeroClaw infrastructure. Such instructions
+are not Local Agent setup steps.
 
-```bash
-git checkout master
-git branch -D main 2>/dev/null          # delete local main if it exists
-git remote set-head origin master
-git fetch origin --prune                 # remove stale remote refs
+## Risk-based verification
 
-# If your fork still has a main branch, delete it
-git push origin --delete main 2>/dev/null
-```
+| Stage | Evidence |
+| --- | --- |
+| Implementation | Focused deterministic tests at the changed behavior, a bug regression, relevant formatting and scoped lint/type checks. |
+| PR integration | Relevant integration/regression and feature-combination tests, exact-head CI coverage, independent review and required approvals. |
+| Release checkpoint | Complete required suite, cumulative Golden Journeys, security/licenses, supported platforms, documentation builds/parity and independent QA at the candidate SHA. |
 
-All PRs target **`master`**. PRs targeting `main` will be rejected.
+Avoid workspace-wide rebuilds after each small change. Reuse unchanged evidence
+only when its revision and scope still match. Missing, failed or skipped checks
+must be reported as such; focused passes never establish release readiness.
+Workstation-enforced receipts and permissions remain separate requirements, not
+something this repository document can disable.
 
----
-
-## First-time contributors
-
-1. **Find an issue.** Look for [`good first issue`](https://github.com/zeroclaw-labs/zeroclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) labels — these are scoped for newcomers and include enough context to get moving.
-2. **Pick a small scope.** Typo fixes, doc improvements, test additions, and small bug fixes are the fastest path to a merged PR.
-3. **Fork → branch → change → test → PR.** PRs target `master`. Use `feat/*` or `fix/*` branch names.
-4. **Open a draft PR early** if you get stuck and ask questions in the description.
-
-For the full mechanics — code style, testing levels, PR template requirements, review process — see **[How to contribute](docs/book/src/contributing/how-to.md)**. For non-trivial architecture, workflow, config, security, or agent-assisted changes, use the **[Architecture and contribution map](docs/book/src/contributing/architecture-map.md)** to find the right foundation and architecture context before implementing.
-
-## Keep contributions moving
-
-Contributors are not expected to respond instantly, but should remain in contact throughout the review process to avoid their contributions becoming inactive. The policies below explain contributor expectations and how inactive work is handled.
-
-**Pull requests:** Respond to actionable review feedback. Resolve conflicts or update your branch when a maintainer asks, or leave a comment explaining what is blocking you. A PR that remains unresponsive after a documented author-action request and follow-up period may be closed for backlog hygiene. Closing the PR does not reject the underlying bug or idea. If the work remains valuable, maintainers may carry it forward through a takeover or superseding PR while preserving contributor attribution. See [PR backlog pruning](docs/book/src/maintainers/reviewer-playbook.md#pr-backlog-pruning) and [Superseding PRs](docs/book/src/maintainers/superseding.md).
-
-Before requesting or re-requesting review, inspect the current PR state yourself. Relevant checks should pass, obvious failures and conflicts should be resolved, prior review findings should be addressed, and the PR description and validation evidence should match the current head. Perform a focused self-review of the production and user-visible paths changed by the PR.
-
-Do not rely on maintainers to check the test status or determine whether you have addressed every review finding. When the PR is ready, post one concise comment summarizing what changed and requesting re-review, and also use GitHub's re-request review control so the appropriate reviewers are formally requested again.
-
-**Issues:** If you open an issue, follow the discussion when you can and add new details as they become available. Other participants may also provide evidence that the issue remains relevant. A substantive update, such as a current reproduction, logs, or a concrete affected use case, can keep it active; a generic `+1` cannot. Issues without current evidence may close for backlog hygiene, but updated evidence can support reopening the issue or filing a new one. See the [issue stale policy](docs/book/src/maintainers/labels.md#issue-stale-policy) for the canonical rules.
-
-## Development setup
-
-```bash
-# Clone
-git clone https://github.com/zeroclaw-labs/zeroclaw.git
-cd zeroclaw
-
-# Enable the pre-push hook (runs fmt, clippy, tests before every push)
-git config core.hooksPath .githooks
-
-# Build and test
-cargo build
-cargo test --locked
-
-# Format and lint (required before PR)
-./scripts/ci/rust_quality_gate.sh
-
-# Rustdoc warnings (required CI lint step; fatal via .cargo/config.toml).
-# Excludes zeroclaw-desktop — same surface as docs-deploy / xtask build_api.
-cargo doc --no-deps --workspace --exclude zeroclaw-desktop
-
-# Full CI parity in Docker
-./dev/ci.sh all
-```
-
-Pre-push hook opt-ins (set the env var to enable for one push):
-
-| Variable | Effect |
-|---|---|
-| `ZEROCLAW_STRICT_LINT=1` | Strict lint pass on the full repo |
-| `ZEROCLAW_DOCS_LINT=1` | Markdown gate on changed lines |
-| `ZEROCLAW_DOCS_LINKS=1` | Link check on added links only |
-
-Skip the hook for rapid iteration with `git push --no-verify`. CI runs the same checks regardless.
-
-## Local secret management
-
-ZeroClaw supports layered secret management for local development.
-
-**Storage options:**
-
-1. **Environment variables** (recommended for development) — copy `.env.example` to `.env` and fill in values. `.env` is git-ignored.
-2. **Config file** (`~/.zeroclaw/config.toml`) — when `secrets.encrypt = true` (default), values are encrypted with the key at `~/.zeroclaw/.secret_key`. Use `zeroclaw quickstart` for guided setup.
-
-**API key resolution order:**
-
-1. Explicit key passed from config or CLI.
-2. `ZEROCLAW_<lowercase_dotted_path>` env-var override (lands on the in-memory `Config` at load time; see below).
-
-Set credentials in your config file (`~/.zeroclaw/config.toml` by default; custom workspaces override the path) under `[providers.models.<type>.<alias>]`, or inject at runtime via the V0.8.0 schema-mirror grammar:
+A scoped Rust example is:
 
 ```sh
-ZEROCLAW_providers__models__anthropic__default__api_key=sk-ant-...
-ZEROCLAW_providers__models__openrouter__prod_v2__model=anthropic/claude-sonnet-4-6
-ZEROCLAW_gateway__request_timeout_secs=120
+cargo test --offline --locked -p <owner-crate> --test <target>
+cargo clippy --offline --locked -p <owner-crate> --all-targets -- -D warnings
+cargo fmt --all -- --check
 ```
 
-The lowercase tail mirrors the dotted TOML path 1:1; each `__` (double underscore) is a path separator (`.` in TOML) and each single `_` is either a snake-case joiner inside a field name (`api_key` → `api-key`) or a literal char inside an alias key (`prod_v2`). Aliases are `[a-z0-9][a-z0-9_]{0,62}` — lowercase letters, digits, and single underscores; no leading underscore, no hyphen, no uppercase. Bootstrap variables (`ZEROCLAW_WORKSPACE`, `ZEROCLAW_CONFIG_DIR`) keep their UPPERCASE form; the case rule disambiguates them from the schema-mirror surface.
+Use the existing actual hook configuration. This checkout has `.githooks/`, not a
+repository `.pre-commit-config.yaml`; inspect hooks before trusting or installing
+them. No bypass flags, fabricated passing receipts or automatic new dependencies.
 
-V0.8.0 eradicated every per-provider env-var fallback (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, …), the generic `ZEROCLAW_API_KEY` / `API_KEY`, and the legacy `ZEROCLAW_PROVIDER` / `PROVIDER` / `ZEROCLAW_MODEL` dispatchers. Legacy names have no runtime effect — they're silently ignored. See `docs/book/src/reference/env-vars.md` for the migration table and the `💉` visibility behavior.
+## Documentation is part of the change
 
-**Never commit:** `.env`, API keys / tokens / passwords / OAuth tokens / webhook signing secrets, `~/.zeroclaw/.secret_key`, or any personal identifier in tests or fixtures. The full content discipline is in **[Privacy & PII](docs/book/src/contributing/privacy.md)**.
+Assess documentation impact for every behavior change. Update affected source in
+the same PR or a clearly linked blocking PR. Validate documented commands,
+release-profile claims, navigation, internal links, generated references and real
+mdBook builds. The vulnerable third-party Markdown formatter is retired; never
+execute its old invocation merely to satisfy inherited instructions.
 
-**Pre-commit secret scan.** `.githooks/pre-commit` runs `gitleaks protect --staged --redact` when `gitleaks` is installed; if it's not installed, the hook prints a warning and continues. Install one of:
+The [engineering lifecycle](docs/local-agent/engineering-lifecycle.md) owns current
+documentation policy. Existing scripts and CI need the separately reviewed tool
+retirement change before their old formatter path is safe to run. Meaningful link,
+build and product-parity checks remain required. Keep ADRs in
+`docs/book/src/architecture/decisions/` and do not rewrite accepted upstream history.
+No documentation deployment through ZeroClaw's domain, accounts or credentials.
 
-- [gitleaks](https://github.com/gitleaks/gitleaks) (what the hook uses)
-- [trufflehog](https://github.com/trufflesecurity/trufflehog)
-- [git-secrets](https://github.com/awslabs/git-secrets)
+## Governance and security
 
-Quick manual audit of the staged diff:
+Ordinary approved features and bounded fixes do not require a ZeroClaw Core Team
+vote. Material security, authority or cross-component ownership changes need a
+durable design decision and appropriate review. Actual CODEOWNERS and repository
+protections remain binding; unavailable inherited owners require a reviewed
+routing change, not an invented approval or self-merge exception.
 
-```bash
-git diff --cached | grep -iE '(api[_-]?key|secret|token|password|bearer|sk-)'
-git status --short | grep -E '\.env$'
-```
+Preserve sandboxing, explicit tool approvals, default-deny provider endpoint/model
+authorization and closed remote surfaces in the minimal profile. A configured key
+is not approval. Standalone Local Agent must not require AASM.
 
-**If a secret lands in a commit by accident:** rotate the credential immediately, then purge history with `git filter-repo` or BFG and force-push (coordinate with maintainers). `git revert` alone is not enough — history still contains the secret. Also remove the leaked value from any PR, issue, discussion, or comment that quoted it.
+Never commit secrets, real-user fixtures, private workstation configuration,
+corporate data, raw execution logs, model/session captures or generated reports.
+Use synthetic inputs and permitted text-only evidence. Captured visual media stays
+local under workstation rules, including restrictions on model-context loading.
+A leak requires credential rotation and an authorized remediation plan; history
+rewrites, force-pushes and external deletion are not automatic recovery steps.
 
-## Where to find everything else
+## License and attribution
 
-The book is the source of truth for everything contributor-facing. Quick links:
-
-| Topic | Page |
-|---|---|
-| The full contribution flow | [How to contribute](docs/book/src/contributing/how-to.md) |
-| What to read before architecture-sensitive changes | [Architecture and contribution map](docs/book/src/contributing/architecture-map.md) |
-| Communication channels | [Communication](docs/book/src/contributing/communication.md) |
-| Filing an RFC | [RFC process](docs/book/src/contributing/rfcs.md) |
-| Privacy & PII rules | [Privacy](docs/book/src/contributing/privacy.md) |
-| Testing taxonomy | [Testing](docs/book/src/contributing/testing.md) |
-| PR review protocol | [PR review protocol](docs/book/src/contributing/pr-review-protocol.md) |
-| Trait extension examples | [Extension examples](docs/book/src/developing/extension-examples.md) |
-| Contributor License Agreement | [CLA](docs/book/src/contributing/cla.md) |
-| Project foundations (governance, culture, infrastructure) | [Foundations](docs/book/src/foundations/README.md) |
-
-For maintainer-facing content (PR workflow, reviewer playbook, release runbook, labels), see the [Maintainers section](docs/book/src/maintainers/index.md).
-
-## Quick rules
-
-- **One concern per PR.** Avoid mixing refactor + feature + infra.
-- **Small PRs first.** Prefer `XS/S/M`. Split large work into stacked PRs.
-- **Template is mandatory.** Complete every section in `.github/pull_request_template.md`.
-- **Validation evidence is required** — actual command output, not "CI will check."
-- **Privacy and identity discipline is a merge gate.** Never commit real names, emails, tokens, or PII.
-- **AI-assisted collaboration is welcome.** Do not add bot/AI attribution trailers or generated tool footers to PR bodies or commit-message tails. Human `Co-authored-by` trailers remain appropriate for incorporated contributor work when they follow the superseding and privacy rules.
-- **Squash-merge with conventional commits** is the merge style.
-
-## Reporting
-
-- **Bugs** — use the bug template; include OS, `zeroclaw --version`, and `zeroclaw doctor` output.
-- **Features** — use the feature template; focus on use case and constraints.
-- **Security** — see `SECURITY.md` for responsible disclosure. Do not file public issues for vulnerabilities.
-
-## License
-
-Dual-licensed: [MIT](LICENSE-MIT) OR [Apache 2.0](LICENSE-APACHE). Contributors automatically grant rights under both — see the [CLA](docs/book/src/contributing/cla.md).
-
-By submitting a contribution you agree to the CLA. No separate signature required.
+Preserve the upstream license files: [MIT](LICENSE-MIT) and
+[Apache 2.0](LICENSE-APACHE), plus [NOTICE](NOTICE). The inherited
+[CLA record](docs/book/src/contributing/cla.md) remains attribution/legal context;
+this workflow update does not create or change legal contribution terms.

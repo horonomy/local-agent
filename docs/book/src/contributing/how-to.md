@@ -1,5 +1,16 @@
 # How to Contribute
 
+> **Local Agent workflow:** use the root `AGENTS.md` and
+> `docs/local-agent/engineering-lifecycle.md` for
+> ticket/release branches, risk-based testing, Gitmoji commits, merge commits and
+> review authority. The inherited ZeroClaw process below is upstream context where
+> it differs; it does not select an upstream team, squash strategy or public
+> destination for Local Agent. Actual security, code-owner and CI gates still apply.
+> Upstream-only approval counts and exception timers below
+> do not establish Local Agent requirements. Local review follows the lifecycle
+> and the repository's actual required approvals; no new count or exception is
+> implied by this note.
+
 We accept code, docs, bug reports, and feedback from anyone willing to file them clearly. This page covers the mechanics: how to get a change in, what we look for in review, and what to expect after you open a PR.
 
 See [Communication](./communication.md) for non-code contributions (reporting issues, feedback, getting help).

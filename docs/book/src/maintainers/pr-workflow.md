@@ -1,5 +1,16 @@
 # PR Workflow
 
+> **Local Agent authority:** the root `AGENTS.md` and
+> `docs/local-agent/engineering-lifecycle.md` own
+> Local Agent review and integration. The inherited upstream Core Team roster,
+> timers, voting and squash procedures below are not Local Agent appointments or
+> merge permissions. Preserve actual CODEOWNERS, required checks, human review,
+> conflict, branch-currency and thread gates; never infer an exception from this
+> contextual distinction. The approval counts, expedited second-Core lane and
+> waiting periods below describe ZeroClaw only, not a Local Agent requirement or
+> exception. Local Agent still requires independent review and every approval
+> imposed by its approved policy, actual CODEOWNERS and repository protections.
+
 The maintainer-side governance contract for PRs targeting `master`. Branch-protection settings, the DoR/DoD readiness contracts, and the failure-recovery protocol live here. Day-to-day reviewing lives in the [Reviewer Playbook](./reviewer-playbook.md). The contributor-facing flow lives in [How to contribute](../contributing/how-to.md).
 
 ## Governance goals
