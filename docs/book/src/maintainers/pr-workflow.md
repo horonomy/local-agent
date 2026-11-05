@@ -1,5 +1,15 @@
 # PR Workflow
 
+> **Local Agent authority:** the root `AGENTS.md` and
+> `docs/local-agent/engineering-lifecycle.md` own
+> Local Agent review and integration through the single-maintainer contract.
+> `@Chisanan232` owns integration, with independent Claude Code or Codex technical
+> review and findings resolution. Agent review is not a GitHub human approval.
+> Honor actual configured approval rules, exact-head CI, security, conflicts,
+> branch currency and thread gates; never bypass a genuine requirement.
+> The inherited Core Team roster, quorum, timers and squash procedures below are
+> ZeroClaw historical context, not Local Agent appointments or merge permissions.
+
 The maintainer-side governance contract for PRs targeting `master`. Branch-protection settings, the DoR/DoD readiness contracts, and the failure-recovery protocol live here. Day-to-day reviewing lives in the [Reviewer Playbook](./reviewer-playbook.md). The contributor-facing flow lives in [How to contribute](../contributing/how-to.md).
 
 ## Governance goals

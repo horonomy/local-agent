@@ -1,16 +1,13 @@
-# CLAUDE.md — ZeroClaw (Claude Code)
+# CLAUDE.md - Local Agent
 
-> **Shared instructions live in [`AGENTS.md`](./AGENTS.md).**
-> This file contains only Claude Code-specific directives.
+Read [AGENTS.md](AGENTS.md) for the shared project contract and its targeted
+engineering references. Keep Claude-specific configuration local; this file does
+not install hooks, grant tool permissions or override workstation policy.
 
-## Claude Code Settings
-
-Claude Code should read and follow all instructions in `AGENTS.md` at the repository root for project conventions, commands, risk tiers, workflow rules, and anti-patterns.
-
-## Hooks
-
-_No custom hooks defined yet._
-
-## Slash Commands
-
-_No custom slash commands defined yet._
+Use the single-maintainer owner-review contract in
+[the engineering lifecycle](docs/local-agent/engineering-lifecycle.md); independent
+agent technical review is not a GitHub human approval. Use available skills only
+after reconciling their scope with AGENTS.md. Inherited
+ZeroClaw skills must not select an upstream repository, team or merge strategy for
+Local Agent. Preserve effective host controls and report an enforced denial
+separately from a repository instruction conflict.
