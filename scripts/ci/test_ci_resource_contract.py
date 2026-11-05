@@ -96,6 +96,32 @@ class CiResourceContractTests(unittest.TestCase):
         ]:
             self.assertNotIn("timeout-minutes:", rows[name])
 
+    def test_cli_tests_bound_artifacts_without_changing_symbol_ratchet(self) -> None:
+        cli = self.workflow.split("\n  test-cli-only:\n", 1)[1].split(
+            "\n  memory-postgres-test:\n", 1
+        )[0]
+        self.assertIn('CARGO_PROFILE_TEST_DEBUG: "0"', cli)
+        self.assertIn('CARGO_BUILD_JOBS: "2"', cli)
+        self.assertNotIn("CARGO_PROFILE_DEV_DEBUG", cli)
+        self.assertIn("timeout-minutes: 45", cli)
+        self.assertIn(
+            "cargo nextest run --locked -p zeroclaw --no-default-features --features "
+            '"${{ steps.features.outputs.list }}" --lib --bins --test component '
+            "--test integration --test system --test architecture",
+            cli,
+        )
+        self.assertIn(
+            "cargo build --locked -p zeroclaw --bin zeroclaw --no-default-features "
+            '--features "${{ steps.features.outputs.list }}"',
+            cli,
+        )
+        self.assertIn(
+            "bash scripts/ci/cli_only_ratchet.sh run "
+            "x86_64-unknown-linux-gnu target/debug/zeroclaw",
+            cli,
+        )
+        self.assertNotIn("continue-on-error:", cli)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
         self.assertNotIn("blacksmith", self.landlock)
