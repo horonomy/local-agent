@@ -1,5 +1,15 @@
 # How to Contribute
 
+> **Local Agent workflow:** use the root `AGENTS.md` and
+> `docs/local-agent/engineering-lifecycle.md` for
+> ticket/release branches, risk-based testing, Gitmoji commits, merge commits and
+> review authority under the single-maintainer contract: independent agent
+> technical review and accountable owner integration. This is not a GitHub human
+> approval or permission to bypass configured approval rules, security or CI.
+> The inherited ZeroClaw process below is historical context where it differs;
+> it does not select an upstream team, quorum, timer, squash strategy or public
+> destination for Local Agent.
+
 We accept code, docs, bug reports, and feedback from anyone willing to file them clearly. This page covers the mechanics: how to get a change in, what we look for in review, and what to expect after you open a PR.
 
 See [Communication](./communication.md) for non-code contributions (reporting issues, feedback, getting help).
@@ -111,7 +121,7 @@ Title mirrors the squash commit:
 feat(scope): short description
 ```
 
-Body uses the PR template. **The testing section is required**: explain how the change was checked, and paste the checks that match the change. The reviewer-run A/B recipe under `How you can test` is only needed when manual verification adds useful signal; mark it `N/A` for docs-only, pure-refactor, or trivial changes without a meaningful reviewer test path. For docs-only PRs, use `scripts/ci/docs_quality_gate.sh` and `scripts/ci/docs_links_gate.sh` or explain why link checking had no added links to inspect. For Rust/code PRs, use the evidence that matches the changed surface: required CI checks, focused crate or regression tests, manual smoke, or full workspace checks when broad coverage proves something narrower evidence would miss. Fresh required CI is enough when it covers the changed surface; extra local Cargo is not required just to duplicate the same head, target, and feature set.
+Body uses the PR template. **The testing section is required**: explain how the change was checked, and paste the checks that match the change. The reviewer-run A/B recipe under `How you can test` is only needed when manual verification adds useful signal; mark it `N/A` for docs-only, pure-refactor, or trivial changes without a meaningful reviewer test path. For docs-only PRs, use the repository-owned prose check in `scripts/ci/docs_quality_gate.sh`, link validation in `scripts/ci/docs_links_gate.sh`, and the applicable documentation build. The vulnerable third-party Markdown formatter is retired; do not execute it or treat its result as a release requirement. Explain when there are no added links to inspect. For Rust/code PRs, use the evidence that matches the changed surface: required CI checks, focused crate or regression tests, manual smoke, or full workspace checks when broad coverage proves something narrower evidence would miss. Fresh required CI is enough when it covers the changed surface; extra local Cargo is not required just to duplicate the same head, target, and feature set.
 
 <!-- >>> generated:review-ci-evidence-how-to by `cargo generate review-docs` - do not edit <<< -->
 Add more evidence when the PR depends on a known CI coverage gap: platform-specific tests, cross-platform lint, desktop app coverage, release target builds, stale CI beyond the [base-drift-only review case](./pr-review-protocol.md#ci-freshness-and-base-drift), or unavailable CI. "It works on my machine" is not evidence.

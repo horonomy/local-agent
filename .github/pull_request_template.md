@@ -1,6 +1,7 @@
 ## Summary
 
-- **Base branch:** `master` (all contributions)
+- **Base branch:** `release/mvp-X.0` for task PRs; verified default branch for milestone release PRs.
+- **Review and integration:** Follow the single-maintainer contract in `docs/local-agent/engineering-lifecycle.md`: independent technical review and accountable owner integration. An AI review is not a GitHub human approval; preserve actual configured approvals, CI, security and unresolved-thread gates.
 - **What changed and why:** (2 to 5 bullets; the diff shows *what*, you explain *why*)
 - **Scope boundary:** (what this PR explicitly does NOT change)
 - **Blast radius:** (what other subsystems or consumers could be affected)
@@ -42,7 +43,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Docs-only changes: replace with markdown lint (`scripts/ci/docs_quality_gate.sh`) and added-link integrity (`scripts/ci/docs_links_gate.sh`). Bootstrap scripts: add `bash -n install.sh`.
+Docs-only changes: use repository-owned prose checks (`scripts/ci/docs_quality_gate.sh`), added-link integrity (`scripts/ci/docs_links_gate.sh`), internal links and the applicable documentation build. The vulnerable third-party Markdown formatter is retired and must not be executed. Bootstrap scripts: add `bash -n install.sh`.
 
 - **CI checks relied on and why they cover this change:** (for example, `Docs Style` covers the changed Markdown lines)
 - **Known CI coverage gap, if any:** (for example, `None after the docs and links gates`)
@@ -93,9 +94,8 @@ Medium/high-risk PRs must fill:
 
 **Labels** live in the GitHub label UI, not in the body. The PR path labeler owns path/scope labels from `.github/labeler.yml`, and the PR size labeler owns canonical `size:*` labels. Maintainers and reviewers with label permissions still set `risk:*` and any missing manual labels via the sidebar. Contributors without label permission can note obvious label mismatches in a comment. Canonical colon-scoped labels use no-space spelling; during migration, copy exact live label spelling from the GitHub UI.
 
-**Do not add bot/AI attribution footers** such as `Co-authored-by: Claude ...`
-or `Created with Claude Code` to the PR body or commit-message tail. Human
-co-author trailers are appropriate only for incorporated contributor work under
-the supersede-attribution section and privacy contract.
+**Attribution:** Preserve contributor attribution and the required tool-authorship
+metadata. Do not rewrite upstream history or represent agent findings as a human
+reviewer's GitHub approval.
 
 **Privacy contract** (`docs/book/src/contributing/privacy.md`) is a merge gate. Never commit real identities, secrets, personal emails, or PII in diff, tests, fixtures, or docs.
