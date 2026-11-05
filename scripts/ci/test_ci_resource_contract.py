@@ -122,6 +122,25 @@ class CiResourceContractTests(unittest.TestCase):
         )
         self.assertNotIn("continue-on-error:", cli)
 
+    def test_opt_in_tools_bound_test_debug_without_changing_feature_proofs(
+        self,
+    ) -> None:
+        tools = self.workflow.split("\n  test-tool-features:\n", 1)[1].split(
+            "\n  test-cli-only:\n", 1
+        )[0]
+        self.assertIn('CARGO_PROFILE_TEST_DEBUG: "0"', tools)
+        self.assertIn("timeout-minutes: 40", tools)
+        self.assertNotIn("CARGO_BUILD_JOBS", tools)
+        self.assertNotIn("CARGO_PROFILE_DEV_DEBUG", tools)
+        self.assertIn("cargo nextest run --locked --no-fail-fast", tools)
+        self.assertIn("--features tools-compat", tools)
+        self.assertIn("--lib --test integration", tools)
+        self.assertIn(
+            "--features zeroclaw-config/tool-notion --lib --run-ignored only", tools
+        )
+        self.assertIn("config_only_notion_feature_does_not_compile_owner", tools)
+        self.assertNotIn("continue-on-error:", tools)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
         self.assertNotIn("blacksmith", self.landlock)
