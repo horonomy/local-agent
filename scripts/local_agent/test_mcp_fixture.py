@@ -59,6 +59,47 @@ class McpFixtureTests(unittest.TestCase):
         self.assertEqual(outputs[2]["result"]["content"][0]["text"], "smoke")
         self.assertFalse(outputs[2]["result"]["isError"])
 
+    def test_tool_error_then_echo_preserves_the_live_stdio_session(self) -> None:
+        outputs = run_fixture(
+            request(1, "initialize", {}),
+            request(2, "tools/list", {}),
+            request(3, "tools/call", {"name": "fail", "arguments": {}}),
+            request(
+                4,
+                "tools/call",
+                {"name": "echo", "arguments": {"text": "recovered"}},
+            ),
+        )
+        self.assertEqual([item["id"] for item in outputs], [1, 2, 3, 4])
+        self.assertEqual(
+            [tool["name"] for tool in outputs[1]["result"]["tools"]],
+            ["echo", "fail"],
+        )
+        self.assertEqual(
+            outputs[2]["result"],
+            {
+                "content": [{"type": "text", "text": "synthetic tool failure"}],
+                "isError": True,
+            },
+        )
+        self.assertEqual(
+            outputs[3]["result"],
+            {"content": [{"type": "text", "text": "recovered"}], "isError": False},
+        )
+
+    def test_failure_tool_is_stateless_and_refuses_extra_arguments(self) -> None:
+        outputs = run_fixture(
+            request(1, "tools/call", {"name": "fail", "arguments": {}}),
+            request(2, "tools/call", {"name": "fail", "arguments": {}}),
+            request(3, "tools/call", {"name": "fail", "arguments": {"text": "x"}}),
+        )
+        self.assertEqual(outputs[0]["result"], outputs[1]["result"])
+        self.assertTrue(outputs[0]["result"]["isError"])
+        self.assertEqual(
+            outputs[2]["error"],
+            {"code": -32602, "message": "Invalid fail arguments"},
+        )
+
     def test_echo_is_bounded_and_invalid_arguments_are_json_rpc_errors(self) -> None:
         outputs = run_fixture(
             request(
