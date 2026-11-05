@@ -570,8 +570,8 @@ fn assert_release_trace(
     failure: &str,
     features: &str,
 ) {
-    let fails = !failure.is_empty()
-        && !(context.target == "aarch64-linux-android"
+    let fails = !(failure.is_empty()
+        || context.target == "aarch64-linux-android"
             && matches!(failure, "zerocode" | "zerorelay"));
     assert_eq!(
         observed.status,
