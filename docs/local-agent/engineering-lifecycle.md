@@ -50,11 +50,10 @@ For an owner-authored PR, the owner-review and integration workflow is:
    integration may be executed under the owner's standing authorization without
    inventing a separate human review or repeated routine founder decisions.
 
-No active non-author approval requirement was found in the initial inspection of
-`master` or `release/mvp-0.0`; both protection endpoints reported unprotected and
-repository/evaluated branch rules were empty. Recheck live settings at integration;
-this observation is not permanent exemption, approval or passing CI evidence.
-Repository instructions do not change workstation controls or publishing permission.
+Inspect live approval rules at integration and keep administrative inspection
+evidence local. A prior inspection is not a permanent exemption, approval or
+passing CI evidence. Repository instructions do not change workstation controls
+or publishing permission.
 
 The existing [architecture map](../book/src/contributing/architecture-map.md) routes
 technical references. Its linked ZeroClaw governance pages remain useful upstream
