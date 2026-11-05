@@ -955,6 +955,51 @@ mod tests {
         result.expect("shutdown is a clean exit");
     }
 
+    #[tokio::test]
+    async fn readiness_is_closed_when_watch_registration_fails() {
+        let watched = tempfile::tempdir().unwrap();
+        let channel = test_channel(
+            FilesystemConfig {
+                paths: vec![
+                    watched
+                        .path()
+                        .join("missing")
+                        .to_string_lossy()
+                        .into_owned(),
+                ],
+                ..FilesystemConfig::default()
+            },
+            "fs-ready-error",
+        );
+        let (tx, _rx) = mpsc::channel(1);
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        assert!(channel.listen_with_ready(tx, ready_tx).await.is_err());
+        assert!(ready_rx.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn dropped_readiness_receiver_preserves_idle_shutdown() {
+        let watched = tempfile::tempdir().unwrap();
+        let channel = test_channel(
+            FilesystemConfig {
+                paths: vec![watched.path().to_string_lossy().into_owned()],
+                ..FilesystemConfig::default()
+            },
+            "fs-ready-dropped",
+        );
+        let (tx, rx) = mpsc::channel(1);
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        drop(ready_rx);
+        drop(rx);
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            channel.listen_with_ready(tx, ready_tx),
+        )
+        .await
+        .expect("dropped readiness receiver must not prevent shutdown")
+        .expect("shutdown remains clean");
+    }
+
     /// The dispatch loop still processes synthetic watcher events and exits
     /// cleanly when the event source ends.
     #[tokio::test]
