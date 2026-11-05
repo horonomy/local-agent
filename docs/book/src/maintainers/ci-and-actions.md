@@ -418,7 +418,10 @@ handling and required gates are unchanged; less debug data reduces backtrace
 detail, not assertions. Cold hosted runs also need explicit 30-minute component
 and 40-minute runtime-suite budgets; the other backend legs retain 20 minutes.
 These are finite job deadlines, not test skips or passing evidence. Actual backend
-verification remains required.
+verification remains required. The CLI-only job separately disables only test
+profile debug information and bounds Cargo to two jobs after hosted disk
+exhaustion. It retains dev-profile symbols for the unchanged artifact ratchet's
+`nm` inspection, all test targets and the existing 45-minute deadline.
 
 ## Documentation validation policy
 
