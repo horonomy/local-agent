@@ -1,13 +1,6 @@
-//! Architecture gate for Quality Gate and Advisory Windows Tests runner selection.
-//!
-//! The compile-heavy jobs name their Blacksmith runner label directly instead
-//! of reading it from a `fmt` output. `runs-on` resolves before a job is
-//! created, so reading it from another job forced every compile job to wait for
-//! a GitHub-hosted runner to pick up the formatting check first. Writing the
-//! constant once per job is what removes that wait, and this gate is what keeps
-//! the copies honest: a stray label sends one job to a different runner class,
-//! and a stray cache-provider input sends it to a cache the rest of the fleet
-//! never writes.
+//! Architecture gate for standard GitHub-hosted runner and cache selection.
+//! Runner labels stay explicit so job scheduling does not depend on formatting.
+//! The inventories preserve every compile, housekeeping and kernel-specific job.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -16,25 +9,11 @@ use std::path::Path;
 
 use regex::Regex;
 
-/// The one runner label the compile-heavy fleet may use. Moving the fleet means
-/// changing this constant and every job below in the same reviewed commit.
-const RUNNER_LABEL: &str = "blacksmith-8vcpu-ubuntu-2404";
+/// Fixed standard images avoid ubuntu-latest image migration and paid runners.
+const RUNNER_LABEL: &str = "ubuntu-24.04";
+const HOUSEKEEPING_LABEL: &str = RUNNER_LABEL;
+const WINDOWS_RECOVERY_LABEL: &str = "windows-2025";
 
-/// The runner label for housekeeping jobs: formatting, change detection,
-/// repository guards, docs and policy gates, the Nix checks, the container
-/// smoke, the Windows-test selector, and the required-gate aggregator. None of
-/// them needs 8 vCPUs, but all of them were stranded on `ubuntu-latest` during
-/// the 2026-09-14 hosted-runner assignment outage while the Blacksmith fleet
-/// ran untouched, so the whole required gate stalled on jobs whose combined
-/// work is minutes. Hosting them on Blacksmith removes GitHub's hosted pool
-/// from the required gate's critical path entirely.
-const HOUSEKEEPING_LABEL: &str = "blacksmith-4vcpu-ubuntu-2404";
-
-/// Only task-owner recovery uses the measured Blacksmith Windows runner.
-/// Compilation and service smoke keep their GitHub-hosted images.
-const WINDOWS_RECOVERY_LABEL: &str = "blacksmith-8vcpu-windows-2025";
-
-/// Every housekeeping job in the two workflows on the Blacksmith 4-vCPU class.
 /// Workflow-qualified IDs keep same-named jobs in different workflows distinct.
 const HOUSEKEEPING_JOBS: [&str; 19] = [
     "ci.yml/fmt",
@@ -58,17 +37,10 @@ const HOUSEKEEPING_JOBS: [&str; 19] = [
     "windows-tests.yml/windows-test-scope",
 ];
 
-/// Jobs that stay on GitHub-hosted `ubuntu-latest` because they depend on the
-/// hosted image itself. `test-landlock` exercises the Landlock LSM, which the
-/// GitHub kernel enables; a different runner class could silently skip that
-/// security coverage. Adding a job here requires a reason of that kind, not
-/// convenience: during a hosted outage, every entry in this list is a check
-/// that cannot run.
+/// Landlock must retain the GitHub-hosted Linux kernel security check.
 const HOSTED_LINUX_JOBS: [&str; 1] = ["test-landlock"];
 
-/// Every job that compiles the workspace on the Blacksmith fleet. A new compile
-/// job must be added here, which is the point: the list is the inventory this
-/// gate checks the workflow against.
+/// Every job that compiles the workspace on the standard Linux image.
 const COMPILE_JOBS: [&str; 14] = [
     "lint",
     "build",
@@ -90,15 +62,6 @@ const COMPILE_JOBS: [&str; 14] = [
 /// its `runner` input. They have no `runs-on` of their own, so they are kept
 /// apart from COMPILE_JOBS but still count toward the fleet inventory.
 const REUSABLE_COMPILE_JOBS: [&str; 1] = ["crates-preflight"];
-
-/// `use-blacksmith` inputs the rust-cache composite may receive. The matrix
-/// expression belongs to `build`, whose macOS leg stays on the GitHub-hosted
-/// cache; `'false'` also belongs to the separate Windows jobs and the web job.
-const ALLOWED_CACHE_INPUTS: [&str; 3] = [
-    "'true'",
-    "'false'",
-    "${{ matrix.target == 'x86_64-unknown-linux-gnu' }}",
-];
 
 fn ci_workflow() -> String {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -194,9 +157,8 @@ fn compile_jobs_pin_the_runner_label_instead_of_reading_it_from_fmt() {
 }
 
 #[test]
-fn only_the_declared_compile_jobs_claim_the_blacksmith_fleet() {
+fn only_the_declared_linux_jobs_claim_the_standard_image() {
     let blocks = runner_workflow_jobs();
-
     let claiming: BTreeSet<String> = blocks
         .iter()
         .filter(|(_, block)| block.contains(RUNNER_LABEL))
@@ -205,60 +167,40 @@ fn only_the_declared_compile_jobs_claim_the_blacksmith_fleet() {
     let declared: BTreeSet<String> = COMPILE_JOBS
         .into_iter()
         .chain(REUSABLE_COMPILE_JOBS)
+        .chain(HOSTED_LINUX_JOBS)
         .map(|name| format!("ci.yml/{name}"))
+        .chain(HOUSEKEEPING_JOBS.into_iter().map(str::to_string))
         .collect();
-
     assert_eq!(
         claiming, declared,
-        "every job using {RUNNER_LABEL} must be listed in COMPILE_JOBS or \
-         REUSABLE_COMPILE_JOBS, so the fleet inventory stays reviewable in one place"
+        "standard Linux jobs must retain their inventory"
     );
 }
 
 #[test]
-fn rust_cache_callers_pass_a_reviewed_provider_input() {
-    let workflow = ci_workflow();
-
-    for line in workflow.lines() {
-        let Some((_, value)) = line.trim_start().split_once("use-blacksmith: ") else {
-            continue;
-        };
-        assert!(
-            ALLOWED_CACHE_INPUTS.contains(&value.trim()),
-            "unexpected rust-cache provider input {value:?}: a job that writes a \
-             cache the rest of the fleet never reads silently loses its cache"
-        );
-    }
+fn rust_cache_uses_only_the_pinned_hosted_provider() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let action = fs::read_to_string(root.join(".github/actions/rust-cache/action.yml")).unwrap();
+    assert!(action.contains("uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6"));
+    assert!(!action.contains("useblacksmith/"));
+    assert!(!ci_workflow().contains("use-blacksmith:"));
 }
 
 #[test]
 fn windows_recovery_pins_its_runner_and_trusted_cache_writer() {
     let blocks = runner_workflow_jobs();
-    let windows_label =
-        Regex::new(r"blacksmith-[a-z0-9-]*windows-[a-z0-9-]+").expect("valid runner-label pattern");
-    let claiming: BTreeSet<&str> = blocks
-        .iter()
-        .filter(|(_, block)| windows_label.is_match(block))
-        .map(|(name, _)| name.as_str())
-        .collect();
-    assert_eq!(
-        claiming,
-        BTreeSet::from(["ci.yml/windows-task-owner-recovery"]),
-        "only task-owner recovery may use a Blacksmith Windows runner"
-    );
-
     let recovery = &blocks["ci.yml/windows-task-owner-recovery"];
     assert!(
         recovery.contains(&format!("    runs-on: {WINDOWS_RECOVERY_LABEL}\n")),
-        "recovery must pin the measured Windows runner"
+        "recovery must pin the standard Windows image"
     );
     assert!(
         recovery.contains("uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6")
             && !recovery.contains("uses: ./.github/actions/rust-cache"),
-        "recovery must use the tested pinned cache action, not the archived Blacksmith fork"
+        "recovery must use the tested pinned cache action, not an external runner cache"
     );
     assert!(
-        recovery.contains("          shared-key: windows-recovery-blacksmith\n"),
+        recovery.contains("          shared-key: windows-recovery-hosted\n"),
         "recovery needs its own stable cache rather than the GitHub compilation cache"
     );
     assert!(
@@ -271,7 +213,7 @@ fn windows_recovery_pins_its_runner_and_trusted_cache_writer() {
 }
 
 #[test]
-fn housekeeping_jobs_pin_the_four_vcpu_label() {
+fn housekeeping_jobs_pin_the_standard_image() {
     let blocks = runner_workflow_jobs();
 
     for name in HOUSEKEEPING_JOBS {
@@ -286,43 +228,46 @@ fn housekeeping_jobs_pin_the_four_vcpu_label() {
 }
 
 #[test]
-fn only_the_declared_housekeeping_jobs_claim_the_four_vcpu_class() {
+fn runner_labels_remain_standard_across_workflows() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for entry in fs::read_dir(root.join(".github/workflows")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("yml") {
+            continue;
+        }
+        let workflow = fs::read_to_string(&path).unwrap();
+        for line in workflow.lines().filter(|line| {
+            line.trim_start().starts_with("runs-on:")
+                || line.trim_start().starts_with("- os:")
+                || line.trim_start().starts_with("runner:")
+        }) {
+            assert!(!line.contains("blacksmith-"), "{}: {line}", path.display());
+            assert!(
+                !line.contains("-large") && !line.contains("-xlarge"),
+                "{}: {line}",
+                path.display()
+            );
+        }
+    }
     let blocks = runner_workflow_jobs();
-
-    let claiming: BTreeSet<&str> = blocks
-        .iter()
-        .filter(|(_, block)| block.contains(HOUSEKEEPING_LABEL))
-        .map(|(name, _)| name.as_str())
-        .collect();
-    let declared: BTreeSet<&str> = HOUSEKEEPING_JOBS.into_iter().collect();
-
-    assert_eq!(
-        claiming, declared,
-        "every job using {HOUSEKEEPING_LABEL} must be listed in \
-         HOUSEKEEPING_JOBS, so this inventory stays reviewable in one place"
-    );
+    assert!(blocks["ci.yml/test-landlock"].contains("    runs-on: ubuntu-24.04\n"));
 }
 
 #[test]
-fn hosted_linux_stays_an_explicit_allowlist() {
-    let blocks = runner_workflow_jobs();
-
-    let hosted: BTreeSet<String> = blocks
-        .iter()
-        .filter(|(_, block)| block.contains("    runs-on: ubuntu-latest\n"))
-        .map(|(name, _)| name.clone())
-        .collect();
-    let declared: BTreeSet<String> = HOSTED_LINUX_JOBS
-        .into_iter()
-        .map(|name| format!("ci.yml/{name}"))
-        .collect();
-
-    assert_eq!(
-        hosted, declared,
-        "a Linux job may use GitHub-hosted ubuntu-latest only when it depends \
-         on the hosted image itself (see HOSTED_LINUX_JOBS): every job here is \
-         one these workflows cannot run during a hosted-runner outage"
-    );
+fn milestone_branches_retain_the_same_quality_gate_triggers() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for name in [
+        "ci.yml",
+        "windows-tests.yml",
+        "docker-image-pr.yml",
+        "codeql.yml",
+    ] {
+        let workflow = fs::read_to_string(root.join(".github/workflows").join(name)).unwrap();
+        assert!(
+            workflow.contains("branches: [master, 'release/**']"),
+            "{name} must retain master and add milestone release coverage"
+        );
+    }
 }
 
 #[test]
@@ -356,9 +301,7 @@ fn reusable_compile_jobs_pass_the_fleet_label() {
     let workflow = ci_workflow();
     let blocks = job_blocks(&workflow);
 
-    // These jobs compile the workspace and block the required gate. Without
-    // an explicit `runner`, the called workflow falls back to GitHub-hosted
-    // `ubuntu-latest`, which a hosted-runner outage would strand.
+    // Reusable jobs must receive the same fixed standard image as their callers.
     for name in REUSABLE_COMPILE_JOBS {
         let block = blocks
             .get(name)
