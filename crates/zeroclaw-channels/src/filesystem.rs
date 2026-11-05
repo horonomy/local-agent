@@ -54,10 +54,25 @@ impl FilesystemChannel {
         &self.alias
     }
 
-    async fn watch_and_dispatch(&self, tx: &mpsc::Sender<ChannelMessage>) -> anyhow::Result<()> {
+    /// Listen and signal when every configured path has an active watcher.
+    pub async fn listen_with_ready(
+        &self,
+        tx: mpsc::Sender<ChannelMessage>,
+        ready: tokio::sync::oneshot::Sender<()>,
+    ) -> anyhow::Result<()> {
+        self.watch_and_dispatch(&tx, Some(ready)).await
+    }
+
+    async fn watch_and_dispatch(
+        &self,
+        tx: &mpsc::Sender<ChannelMessage>,
+        ready: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> anyhow::Result<()> {
         use zeroclaw_log::Instrument;
         let span = zeroclaw_log::attribution_span!(self);
-        self.watch_and_dispatch_inner(tx).instrument(span).await
+        self.watch_and_dispatch_inner(tx, ready)
+            .instrument(span)
+            .await
     }
 
     fn compile_globs_or_log(
@@ -78,6 +93,7 @@ impl FilesystemChannel {
     async fn watch_and_dispatch_inner(
         &self,
         tx: &mpsc::Sender<ChannelMessage>,
+        ready: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> anyhow::Result<()> {
         let config = &self.config;
         config.validate()?;
@@ -112,6 +128,9 @@ impl FilesystemChannel {
         }
 
         zeroclaw_runtime::health::mark_component_ok("filesystem");
+        if let Some(ready) = ready {
+            let _ = ready.send(());
+        }
 
         self.dispatch_loop(raw_rx, tx, &include, &exclude).await
     }
@@ -219,7 +238,7 @@ impl Channel for FilesystemChannel {
     }
 
     async fn listen(&self, tx: mpsc::Sender<ChannelMessage>) -> anyhow::Result<()> {
-        self.watch_and_dispatch(&tx).await
+        self.watch_and_dispatch(&tx, None).await
     }
 
     fn self_handle(&self) -> Option<String> {
@@ -1002,7 +1021,7 @@ mod tests {
 
         let (probe_tx, _probe_rx) = mpsc::channel(1);
         let err = channel
-            .watch_and_dispatch(&probe_tx)
+            .watch_and_dispatch(&probe_tx, None)
             .await
             .expect_err("invalid include glob must fail the listener closed");
         assert!(
