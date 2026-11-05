@@ -423,6 +423,11 @@ profile debug information and bounds Cargo to two jobs after hosted disk
 exhaustion. It retains dev-profile symbols for the unchanged artifact ratchet's
 `nm` inspection, all test targets and the existing 45-minute deadline.
 
+The opt-in tool test job disables test-profile debug information after a hosted
+runner exhausted disk during the opt-in test step. Its feature-enabled suite and
+config-only negative compilation proof retain all commands, cases and failure
+behavior; the 40-minute deadline and compiler parallelism are unchanged.
+
 ## Documentation validation policy
 
 The project owner retired mandatory `markdownlint-cli2` execution because its
