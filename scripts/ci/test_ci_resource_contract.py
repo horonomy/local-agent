@@ -103,7 +103,7 @@ class CiResourceContractTests(unittest.TestCase):
         self.assertIn('CARGO_PROFILE_TEST_DEBUG: "0"', cli)
         self.assertIn('CARGO_BUILD_JOBS: "2"', cli)
         self.assertNotIn("CARGO_PROFILE_DEV_DEBUG", cli)
-        self.assertIn("timeout-minutes: 45", cli)
+        self.assertIn("timeout-minutes: 60", cli)
         self.assertIn(
             "cargo nextest run --locked -p zeroclaw --no-default-features --features "
             '"${{ steps.features.outputs.list }}" --lib --bins --test component '

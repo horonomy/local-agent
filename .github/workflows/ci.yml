@@ -1646,7 +1646,8 @@ jobs:
     needs: [master-debounce]
     if: ${{ !cancelled() && needs.master-debounce.result != 'failure' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Cold test and dev artifact builds must both finish before the symbol ratchet.
+    timeout-minutes: 60
     env:
       # Bound test artifacts while preserving dev symbols for the artifact ratchet.
       CARGO_PROFILE_TEST_DEBUG: "0"
