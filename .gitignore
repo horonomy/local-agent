@@ -127,3 +127,19 @@ target/openapi.json
 /v[0-9]*.toml
 .worktrees/
 .zero-to-5/
+
+# Local Agent additions (HORO-2376): session state and local-only evidence.
+# These ignores do not authorize exporting already tracked/history objects.
+.claude/.current-ticket
+.claude/.current-worktree
+.claude/.current-release
+/.local-agent/
+/.local-evidence/
+/local-evidence/
+/benchmark-results/
+/test-results/
+/playwright-report/
+/blob-report/
+*.local-agent.log
+*.local-agent.trace
+*.local-agent.jsonl
