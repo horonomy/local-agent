@@ -6,32 +6,71 @@ use std::process::Command;
 
 const DEFAULT_TAG: &str = "master";
 
-pub fn run(tag: Option<&str>) -> anyhow::Result<()> {
+pub fn run(locale: Option<&str>, tag: Option<&str>) -> anyhow::Result<()> {
     let root = repo_root();
+    let entries = locale_entries();
+    selected_locales(&entries, locale)?;
     require_tool("cargo", "https://rustup.rs")?;
     ensure_cargo_tool("mdbook", "mdbook")?;
-    ensure_cargo_tool("mdbook-xgettext", "mdbook-i18n-helpers")?;
+    if locale.is_none() {
+        ensure_cargo_tool("mdbook-xgettext", "mdbook-i18n-helpers")?;
+    }
     ensure_cargo_tool("mdbook-gettext", "mdbook-i18n-helpers")?;
     ensure_cargo_tool("mdbook-mermaid", "mdbook-mermaid")?;
 
     build_api(&root)?;
-    build_locales(&root, tag)?;
+    build_selected_locales(&root, tag, locale)?;
     crate::cmd::mdbook::linkcheck::check_internal_links(&root, tag.unwrap_or(DEFAULT_TAG))?;
-    assemble(&root, tag)?;
+    if locale.is_none() {
+        assemble(&root, tag)?;
+    }
+    let output = book_dir(&root)
+        .join("book")
+        .join(tag.unwrap_or(DEFAULT_TAG));
     println!(
         "==> Done. Open: {}",
-        book_dir(&root)
-            .join("book")
-            .join(tag.unwrap_or(DEFAULT_TAG))
-            .join("index.html")
+        output
+            .join(if locale.is_some() {
+                "en/index.html"
+            } else {
+                "index.html"
+            })
             .display()
     );
     Ok(())
 }
 
 pub fn build_locales(root: &std::path::Path, tag: Option<&str>) -> anyhow::Result<()> {
+    build_selected_locales(root, tag, None)
+}
+
+fn selected_locales<'a>(
+    entries: &'a [LocaleEntry],
+    locale: Option<&str>,
+) -> anyhow::Result<Vec<&'a LocaleEntry>> {
+    match locale {
+        None => Ok(entries.iter().collect()),
+        Some("en") => entries
+            .first()
+            .filter(|entry| entry.code == "en")
+            .map(|entry| vec![entry])
+            .ok_or_else(|| {
+                anyhow::Error::msg("English must be the primary locale for verification")
+            }),
+        Some(code) => anyhow::bail!(
+            "unsupported verification locale '{code}'; use --locale en or omit --locale for all locales"
+        ),
+    }
+}
+
+fn build_selected_locales(
+    root: &std::path::Path,
+    tag: Option<&str>,
+    locale: Option<&str>,
+) -> anyhow::Result<()> {
     let book = book_dir(root);
-    let entries = locale_entries();
+    let all_entries = locale_entries();
+    let entries = selected_locales(&all_entries, locale)?;
     println!(
         "==> Building mdBook for locales: {}",
         entries
@@ -40,11 +79,11 @@ pub fn build_locales(root: &std::path::Path, tag: Option<&str>) -> anyhow::Resul
             .collect::<Vec<_>>()
             .join(" ")
     );
-    prepare_generated_book_inputs(root, &entries)?;
+    prepare_generated_book_inputs(root, &all_entries)?;
     let mdbook = mdbook_program()?;
     let preprocessor_env = mdbook_xtask_preprocessor_env();
     let tag_dir = tag.unwrap_or(DEFAULT_TAG);
-    let primary_locale = entries.first().map(|e| e.code.clone());
+    let primary_locale = all_entries.first().map(|e| e.code.clone());
     for entry in &entries {
         let dest = format!("book/{}/{}", tag_dir, entry.code);
         let mut cmd = Command::new(&mdbook);
@@ -357,7 +396,28 @@ pub fn extract_shared_chrome(version_dir: &Path, shared_dir: &Path) -> anyhow::R
 
 #[cfg(test)]
 mod tests {
-    use super::{llms_output_table, strip_chrome_hash, strip_source_anchors};
+    use super::{llms_output_table, selected_locales, strip_chrome_hash, strip_source_anchors};
+
+    #[test]
+    fn verification_selects_only_registered_english_and_default_keeps_all() {
+        let entries = ["en", "fr"].map(|code| crate::util::LocaleEntry {
+            code: code.to_owned(),
+            label: code.to_owned(),
+        });
+        assert_eq!(selected_locales(&entries, None).unwrap().len(), 2);
+        let english = selected_locales(&entries, Some("en")).unwrap();
+        assert_eq!(english.len(), 1);
+        assert_eq!(english[0].code, "en");
+        assert!(selected_locales(&entries, Some("fr")).is_err());
+        assert!(selected_locales(&entries, Some("unknown")).is_err());
+        assert!(selected_locales(&entries[1..], Some("en")).is_err());
+        let reordered = ["fr", "en"].map(|code| crate::util::LocaleEntry {
+            code: code.to_owned(),
+            label: code.to_owned(),
+        });
+        assert!(selected_locales(&reordered, Some("en")).is_err());
+        assert_eq!(selected_locales(&reordered, None).unwrap().len(), 2);
+    }
 
     #[test]
     fn llms_output_table_names_only_the_llms_backend() {

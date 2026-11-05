@@ -28,6 +28,7 @@ Without the submodule checked out, English still builds (the English source live
 cargo mdbook serve                       # serve all locales at http://localhost:3000/en/
 cargo mdbook serve --locale ja           # live-reload against Japanese source
 cargo mdbook build                       # static build of every locale into docs/book/book/
+cargo mdbook build --locale en           # English verification only; no publication assembly
 cargo mdbook refs                        # regenerate the auto-generated reference pages
 cargo generate review-docs               # regenerate tracked PR-review policy zones
 cargo mdbook sync                        # translation-cache pass: re-extract + merge .po files
@@ -41,6 +42,11 @@ cargo mdbook check                       # validate .po format (run before a tra
 </div>
 
 > Always go through the `cargo mdbook …` wrapper for mdBook builds and translation work. Running `mdbook build` directly from `docs/book/` skips the xtask step that renders `theme/lang-switcher.js` from `locales.toml`, which fails the build with `failed to open theme/lang-switcher.js for hashing`. Tracked PR-review zones use the separate `cargo generate review-docs` command shown above.
+
+The English verification route retains generated references, snippets, configured
+preprocessors, rustdoc, LLM text output and rendered-link checks. It writes the
+English output only and does not create the publication redirect, version metadata
+or shared-chrome layer; it is not a complete deployable multilingual site.
 
 ## Required tools
 
