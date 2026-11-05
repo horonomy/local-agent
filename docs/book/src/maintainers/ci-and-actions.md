@@ -415,7 +415,10 @@ passing kernel test. Plugin-backend jobs also disable dev/test debug
 artifacts and bound Cargo to two compile jobs after a standard runner exhausted
 disk while building channel-egress checks. Test commands, selected cases, failure
 handling and required gates are unchanged; less debug data reduces backtrace
-detail, not assertions. Actual backend verification remains required.
+detail, not assertions. Cold hosted runs also need explicit 30-minute component
+and 40-minute runtime-suite budgets; the other backend legs retain 20 minutes.
+These are finite job deadlines, not test skips or passing evidence. Actual backend
+verification remains required.
 
 ## Documentation validation policy
 

@@ -737,13 +737,15 @@ jobs:
             # `check-plugin-backends` never produce, so under the shared key
             # it recompiled ~620 dependency crates on every run.
             cache-key: plugins-cranelift-components
+            # Cold hosted compilation plus the egress suite exceeded 20 minutes.
+            timeout-minutes: 30
           - name: plugins cranelift runtime
             features: plugins-wasm-cranelift
             suite: runtime
             cache-key: plugins-cranelift-runtime
-            # Six serial test steps. Warm-cache runs reached 18-20 minutes
-            # and hit the shared 20-minute limit (#10558).
-            timeout-minutes: 30
+            # Cold hosted runs reached the final CLI component suite at 30 minutes.
+            # Keep every serial test step and leave time for that suite and cleanup.
+            timeout-minutes: 40
           - name: plugins pulley backend
             features: plugins-wasm-pulley
             suite: check
