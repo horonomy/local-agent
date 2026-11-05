@@ -426,6 +426,11 @@ both cold test compilation and the separate dev artifact build after the former
 45-minute budget expired during compilation. This adds time, not coverage waivers;
 fresh candidate execution must still complete the ratchet successfully.
 
+The opt-in tool test job disables test-profile debug information after a hosted
+runner exhausted disk during the opt-in test step. Its feature-enabled suite and
+config-only negative compilation proof retain all commands, cases and failure
+behavior; the 40-minute deadline and compiler parallelism are unchanged.
+
 ## Documentation validation policy
 
 The project owner retired mandatory `markdownlint-cli2` execution because its
