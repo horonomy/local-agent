@@ -91,6 +91,75 @@ class GovernanceContractTests(unittest.TestCase):
                 self.assertNotIn("required human/code-owner", authority)
                 self.assertIn("historical context", authority)
 
+    def test_zero_human_review_policy_preserves_independent_engineering_gates(
+        self,
+    ) -> None:
+        lifecycle = (ROOT / "docs/local-agent/engineering-lifecycle.md").read_text()
+        self.assertIn("Zero human PR reviews are required", lifecycle)
+        self.assertIn("zero human approvals", lifecycle)
+        self.assertIn("separate Claude Code or Codex", lifecycle)
+        self.assertIn("preserving required status checks", lifecycle)
+        self.assertIn("Do not bypass an active requirement", lifecycle)
+        self.assertIn("Do not ask the founder to nominate", lifecycle)
+
+    def test_active_entrypoints_explicitly_exclude_human_review_requirements(
+        self,
+    ) -> None:
+        paths = (
+            "AGENTS.md",
+            "CLAUDE.md",
+            "CONTRIBUTING.md",
+            ".github/pull_request_template.md",
+            "crates/zeroclaw-runtime/AGENTS.md",
+            "docs/book/src/contributing/agent-guidelines.md",
+            "docs/book/src/contributing/pr-review-protocol.md",
+            ".claude/skills/github-issue-triage/SKILL.md",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                entry = "\n".join((ROOT / path).read_text().splitlines()[:30])
+                self.assertIn("no human PR review", entry)
+                self.assertIn("engineering-lifecycle.md", entry)
+
+    def test_local_skill_guards_do_not_require_human_review(self) -> None:
+        for skill in (
+            "github-pr",
+            "github-pr-review-session",
+            "squash-merge",
+            "pr-architecture-check",
+        ):
+            with self.subTest(skill=skill):
+                text = (ROOT / f".claude/skills/{skill}/SKILL.md").read_text()
+                guard = text.split("## Local Agent execution scope", 1)[1].split(
+                    "\n## ", 1
+                )[0]
+                self.assertIn("no human PR review", guard)
+                self.assertNotRegex(
+                    guard, r"requires? (?:a |two |separate )?human (?:review|approval)"
+                )
+
+    def test_local_review_and_merge_sections_scope_upstream_procedures(self) -> None:
+        source = (ROOT / "docs/book/src/contributing/how-to.md").read_text()
+        review = source.split("> **Local Agent PR review:**", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("no human PR review", review)
+        self.assertIn("separate Claude Code or Codex", review)
+        self.assertIn("upstream history", review)
+        integration = source.split("> **Local Agent integration:**", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("normal merge commits", integration)
+        self.assertIn("exact-candidate founder approval", integration)
+        self.assertIn("upstream ZeroClaw only", integration)
+
+    def test_pr_template_preserves_text_only_actual_interface_evidence(self) -> None:
+        source = (ROOT / ".github/pull_request_template.md").read_text()
+        self.assertIn("workstation data-handling policy takes precedence", source)
+        self.assertIn("do not attach, link, encode or send captures to a model", source)
+        self.assertIn("Verify the actual interface locally", source)
+        self.assertIn("Policy-compliant text-only evidence", source)
+        self.assertIn("never upload restricted captures", source)
+        self.assertNotIn("**Screenshot or exact-output evidence:**", source)
+
     def test_historical_attribution_is_not_rewritten_as_current_ownership(self) -> None:
         for name in ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE"):
             self.assertTrue((ROOT / name).is_file())
