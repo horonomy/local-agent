@@ -411,7 +411,11 @@ The Landlock job keeps the same security filter on all runtime package test targ
 `sandbox-landlock`, disables unrelated defaults and test debug information, and
 retains the hosted Linux kernel. This bounds compilation artifacts, not assertions.
 Actual Linux execution is still required; a workflow contract test is not a
-passing kernel test.
+passing kernel test. Plugin-backend jobs also disable dev/test debug
+artifacts and bound Cargo to two compile jobs after a standard runner exhausted
+disk while building channel-egress checks. Test commands, selected cases, failure
+handling and required gates are unchanged; less debug data reduces backtrace
+detail, not assertions. Actual backend verification remains required.
 
 ## Documentation validation policy
 

@@ -48,6 +48,20 @@ class CiResourceContractTests(unittest.TestCase):
         self.assertIn("uses: ./.github/actions/build-release-payloads", caller)
         self.assertIn("use_cross: ${{ matrix.use_cross || 'false' }}", caller)
 
+    def test_plugin_backend_builds_bound_debug_and_parallel_artifacts(self) -> None:
+        backend = self.workflow.split("\n  check-plugin-backends:\n", 1)[1].split(
+            "\n  check-32bit:\n", 1
+        )[0]
+        for setting in [
+            'CARGO_PROFILE_DEV_DEBUG: "0"',
+            'CARGO_PROFILE_TEST_DEBUG: "0"',
+            'CARGO_BUILD_JOBS: "2"',
+        ]:
+            self.assertIn(setting, backend)
+        self.assertIn("Run plugin component tests", backend)
+        self.assertIn("Run channel egress boundary e2e", backend)
+        self.assertNotIn("continue-on-error:", backend)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
         self.assertNotIn("blacksmith", self.landlock)
