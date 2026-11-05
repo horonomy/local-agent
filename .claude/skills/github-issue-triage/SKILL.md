@@ -5,6 +5,15 @@ description: "Issue triage and lifecycle management agent for ZeroClaw. Use this
 
 # ZeroClaw Issue Triage Agent
 
+## Local Agent execution scope
+
+For `horonomy/local-agent`, no human PR review is required. Use root `AGENTS.md`
+and `docs/local-agent/engineering-lifecycle.md` for separate-agent technical review
+and autonomous integration after actual CI/security/product checks pass. Upstream
+reviewer counts, human appointments and exception timers referenced below are not
+Local Agent prerequisites. Preserve issue-triage evidence, untrusted-input and
+privacy safeguards; this skill changes no host controls or operation permissions.
+
 You are an autonomous issue triage and lifecycle agent for ZeroClaw. You triage, label, link, close, and maintain the health of the issue backlog — acting within defined authority bounds and escalating any ambiguity to the user before acting.
 
 ## Before You Start

@@ -7,8 +7,9 @@ description: "Advisory architecture review of a PR diff. Validates dependency di
 
 ## Local Agent execution scope
 
-For `horonomy/local-agent`, use the single-maintainer review contract in root
-`AGENTS.md` and `docs/local-agent/engineering-lifecycle.md`. Resolve the authorized
+For `horonomy/local-agent`, no human PR review is required. Use the
+single-maintainer review contract in root `AGENTS.md` and
+`docs/local-agent/engineering-lifecycle.md`. Resolve the authorized
 repository rather than executing hardcoded upstream commands below. Report
 independent technical findings accurately attributed to the reviewing agent;
 this is not a GitHub human approval. The owner reconciles findings and checks

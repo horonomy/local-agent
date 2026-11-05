@@ -21,34 +21,37 @@ and the applicable required checks.
 
 ### Single-maintainer review and integration
 
-Local Agent currently uses a founder-approved single-maintainer model.
-`@Chisanan232` owns the repository and accountable integration decisions.
-`.github/CODEOWNERS` routes consultation to that actual owner; it does not appoint
-ZeroClaw maintainers, require another GitHub account, or create a human approval.
-Upstream Core Team votes, reviewer counts and exception timers do not apply here.
+Local Agent uses the founder-approved single-maintainer model.
+Zero human PR reviews are required by project policy. There is no non-author
+human approval, upstream reviewer quorum or human-review exception timer.
+`@Chisanan232` owns accountable integration; CODEOWNERS identifies ownership,
+not an additional reviewer or approval prerequisite. Do not ask the founder to nominate
+reviewers, recruit collaborators or reconfirm this settled review policy.
 
-Every substantive change requires independent technical review by a Claude Code
-or Codex reviewer distinct from the implementation session. Record the reviewer,
-exact candidate commit, review scope, findings and their resolution. Security,
-regression and compatibility consequences determine review depth. An AI review is
-not a GitHub human approval; do not submit it as an approval by a separate human,
-impersonate a reviewer or fabricate a review state.
+Every approved development PR requires independent technical review by a
+separate Claude Code or Codex review agent, distinct from its implementation
+session. Record the exact candidate, review scope, findings and resolution.
+Security, regression and compatibility consequences determine review depth.
+An AI technical review is not a GitHub human approval: never impersonate a human
+reviewer or fabricate a GitHub approval state.
 
-For an owner-authored PR, the owner-review and integration workflow is:
+The autonomous owner-authorized integration workflow is:
 
-1. Reconcile the approved acceptance criteria, diff, provenance and rollback.
-2. Obtain independent technical review and resolve all substantive findings.
-3. Verify the exact candidate's applicable CI, security, integration and documented
-   validation gates, mergeability, branch currency and unresolved review threads.
-4. Inspect actual branch protection and repository rules before merging. Honor
-   every configured approval requirement. Do not bypass an active requirement:
-   if a rule requires a separate non-author human approval, reconcile that policy
-   through explicitly authorized repository administration before integration;
-   neither ownership nor this document makes it passed.
-5. Record the accountable owner integration decision and the evidence above,
-   merge using a normal merge commit, and verify the resulting commit. Routine
-   integration may be executed under the owner's standing authorization without
-   inventing a separate human review or repeated routine founder decisions.
+1. Reconcile acceptance criteria, source changes, provenance and rollback.
+2. Obtain independent technical review and fix all blocking findings. Repeat
+   focused tests and independent review until the current revision is acceptable.
+3. Verify actual exact-candidate CI, security, product and release checks, branch
+   currency, mergeability and unresolved findings or review threads.
+4. Inspect live branch protection and rulesets. Do not bypass an active requirement.
+   If a rule requires human approval, use the authorized repository-owner
+   administration process to set that requirement to zero human approvals while
+   preserving required status checks and other applicable security controls.
+   Verify the resulting rules before merging; never claim an approval was obtained.
+   If administration is denied, retain the real external blocker without inventing
+   a project human-review requirement or using an administrator bypass.
+5. Record accountable integration evidence, merge normally with a merge commit,
+   verify the resulting commit, and continue the next approved task. Routine
+   integration requires no additional founder or human-review decision.
 
 Inspect live approval rules at integration and keep administrative inspection
 evidence local. A prior inspection is not a permanent exemption, approval or
@@ -100,10 +103,10 @@ Ticket PR titles use `[HORO-XXXX] <gitmoji> <scope>: <summary>`; their base is t
 milestone release branch. The title validator also retains scoped Conventional
 Commits compatibility for existing automation and dependency updates.
 Include purpose, scope, acceptance criteria, actual tests, risks and limitations.
-Independent technical review and accountable owner integration follow the
-single-maintainer contract above. They never substitute for a separate human
-approval actually required by live repository rules. Never bypass mandatory
-checks or unresolved reviews.
+Independent technical review and accountable integration follow the zero-human
+review contract above. Reconcile any active GitHub human-approval rule through
+owner administration as specified there; no approval may be bypassed or fabricated.
+Never bypass mandatory checks or unresolved blocking findings.
 
 After all mandatory acceptance, cumulative Golden Journeys, security, privacy,
 licensing and supported-platform gates pass against an exact release-branch SHA,

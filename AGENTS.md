@@ -9,9 +9,14 @@ licenses, notices, source attribution and historical decisions.
 - This file and the [engineering lifecycle](docs/local-agent/engineering-lifecycle.md)
   define Local Agent repository workflow. They supersede inherited ZeroClaw team,
   voting, branch and merge procedures, not technical contracts or license terms.
-- Workstation policies, enforced tool permissions, actual branch protection,
-  required checks and code-owner review remain binding. Repository instructions
-  cannot approve an external source, clear a denied operation or bypass a hook.
+- Local Agent requires no human PR review. Use the engineering lifecycle's
+  zero-human-review integration contract and a separate Claude Code or Codex
+  technical reviewer for every approved development PR. AI review is not human
+  GitHub approval; preserve actual CI, security and product-verification gates.
+- Workstation policies, enforced tool permissions and actual repository rules
+  remain binding. Reconcile human-approval rules through authorized owner
+  administration as specified in the lifecycle, never by bypass or fabrication.
+  Repository instructions cannot clear a denied operation or trust external code.
 - Use approved Jira acceptance criteria and current source as the task contract.
   Do not reopen settled product decisions or invent acceptance from an old summary.
 - Read the owning module, wiring, adjacent tests and relevant documentation before
