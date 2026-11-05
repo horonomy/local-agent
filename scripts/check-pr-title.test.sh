@@ -59,6 +59,19 @@ assert_accept "fix(my-scope): scope with hyphen"
 assert_accept "fix(ci):  description with double space after colon"
 assert_accept "feat(providers/compatible/openai): deeply nested scope"
 
+# --- ACCEPT: Local Agent ticketed Gitmoji titles ---
+assert_accept "[HORO-2420] 📝 policy: Align Local Agent engineering workflow"
+assert_accept "[HORO-2385] 🛡️ providers: Require explicit deployment approval"
+assert_accept "[HORO-2430] 🔧 ci/runner: Use standard hosted runners"
+
+# --- REJECT: malformed Local Agent titles ---
+assert_reject "[HORO-2420] policy: Missing Gitmoji"
+assert_reject "[HORO-2420] 📝 : Missing scope"
+assert_reject "[HORO-2420] 📝 policy: "
+assert_reject "[HORO] 📝 policy: Missing ticket number"
+assert_reject "[HORO-2420] ordinary policy: Not a Gitmoji"
+assert_reject $'[HORO-2420] 📝 policy: Valid first line\nInjected second line'
+
 # --- REJECT: invalid format ---
 assert_reject ""
 assert_reject "fix something"
