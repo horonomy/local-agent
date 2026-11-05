@@ -20,6 +20,15 @@ Full field reference: [config reference](../reference/config.md#channels).
 
 The broad system roots `/`, `/home`, `/etc`, `/var`, `/proc`, `/sys`, `/dev`, and `/tmp` are rejected at config validation unless `allow_broad_roots` is set. Symlink event paths are rejected before any metadata, hash, or content read by default; `follow_symlinks` opts in but still requires the canonical target to resolve inside a watched root.
 
+## Listener readiness
+
+Rust callers that must create a file only after watch registration can use
+`FilesystemChannel::listen_with_ready` and await its per-listener one-shot signal.
+The signal is sent only after every configured watch is registered successfully;
+startup failure closes it without reporting readiness. Dropping the receiver does
+not stop the listener. Ordinary `Channel::listen`, configuration and event handling
+are unchanged. A fixed startup sleep does not establish that a watcher is armed.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
