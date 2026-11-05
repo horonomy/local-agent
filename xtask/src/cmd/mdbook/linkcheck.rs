@@ -13,8 +13,11 @@ pub fn check_internal_links(root: &Path, tag: &str) -> anyhow::Result<()> {
         .join("book")
         .join(tag)
         .join(&locale);
-    if !base.is_dir() {
-        return Ok(());
+    if !base.is_dir() || !base.join("index.html").is_file() {
+        anyhow::bail!(
+            "rendered primary-locale output is missing at {}",
+            base.display()
+        );
     }
 
     let mut broken: Vec<(PathBuf, String)> = Vec::new();
@@ -135,6 +138,23 @@ fn normalize(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_or_empty_primary_output_does_not_pass_link_validation() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(check_internal_links(temp.path(), "test").is_err());
+        let output = crate::util::book_dir(temp.path()).join("book/test/en");
+        std::fs::create_dir_all(&output).unwrap();
+        assert!(check_internal_links(temp.path(), "test").is_err());
+        std::fs::write(output.join("index.html"), "<html></html>").unwrap();
+        assert!(check_internal_links(temp.path(), "test").is_ok());
+        std::fs::write(
+            output.join("index.html"),
+            "<a href=\"missing.html\">missing</a>",
+        )
+        .unwrap();
+        assert!(check_internal_links(temp.path(), "test").is_err());
+    }
 
     #[test]
     fn extract_hrefs_pulls_quoted_links() {
