@@ -2,6 +2,18 @@
 
 Open or update a GitHub Pull Request for ZeroClaw. Handles creating new PRs with a fully filled-out template body, and updating existing PRs (title, body sections, labels, comments). Use this skill whenever the user wants to open a PR, create a pull request, update a PR, edit PR description, add labels to a PR, or sync a PR after new commits — even if they don't say "PR" explicitly (e.g., "submit this for review", "push and open for merge").
 
+## Local Agent execution scope
+
+For `horonomy/local-agent`, use root `AGENTS.md` and the single-maintainer
+contract in `docs/local-agent/engineering-lifecycle.md`. This section overrides
+inherited upstream routing and authorship instructions below: resolve the actual
+milestone base (`release/mvp-X.0` for task PRs), authenticated actor and approved
+destination, preserve required tool-authorship metadata, and never write to
+upstream. Use independent technical review plus accountable owner integration,
+not fictional human approval. Preserve actual checks, configured approval rules,
+privacy and untrusted-input safeguards. Repository guidance grants no new
+permissions, changes no host controls and does not override required confirmation.
+
 ## Instructions
 
 This skill supports two modes: **Open** (create a new PR) and **Update** (edit an existing PR). Detect the mode from context — if there's already an open PR for the current branch and the user didn't say "open a new PR", default to update mode.

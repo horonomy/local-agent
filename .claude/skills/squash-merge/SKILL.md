@@ -2,6 +2,17 @@
 
 Squash-merge a PR into `zeroclaw-labs/zeroclaw` `master` with fully preserved commit history in the squash message body. Use this skill when the user explicitly mentions squash-merging, merging a specific PR number, landing a PR, or 合入 — e.g. "squash-merge #123", "merge PR 456", "land #789", "合入 #123", "/squash-merge 123". Do **not** trigger on vague phrases like "ship it" or "merge it" without a PR number or clear upstream-merge context.
 
+## Local Agent execution scope
+
+For `horonomy/local-agent`, do not execute the inherited squash procedure below.
+Use the single-maintainer owner-review contract in root `AGENTS.md` and
+`docs/local-agent/engineering-lifecycle.md`: independent technical review,
+resolved findings, actual checks and configured approval rules, then an accountable
+owner integration decision using a normal merge commit. Verify the candidate,
+base and resulting commit; never use an admin bypass, fabricate human approval,
+write to upstream or rewrite contributor history. This skill grants no new
+permissions and changes no host controls or required confirmation.
+
 ## Related Skills
 
 | Step | Skill | When |
