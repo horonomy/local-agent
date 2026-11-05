@@ -29,13 +29,13 @@ Composite job with multiple matrix legs:
 - **parallel-runtime-test**: repeated same-process runtime/channel tests from `scripts/ci/parallel_runtime_test_gate.sh`, run in parallel with the main test job for relevant PR paths and unconditionally on `master` pushes and merge queue runs
 - **security**: `cargo deny check`
 - **nix-eval**: evaluates the NixOS module assertions (`nixos-module-eval` flake check)
-- **docs-style**: markdown lint, em-dash prose check, and changed-line link gate via `scripts/ci/docs_quality_gate.sh` and `scripts/ci/docs_links_gate.sh`
+- **docs-style**: authored-source prose checks, policy regressions, and changed-line link integrity via `scripts/ci/docs_quality_gate.sh` and `scripts/ci/docs_links_gate.sh`
 
-Linux jobs in the required gate run on Blacksmith except for the kernel-dependent Landlock check: the compile-heavy fleet on `blacksmith-8vcpu-ubuntu-2404`, and the housekeeping set (`fmt`, the change detectors, repository guards, docs and policy gates, the Nix checks, the container smoke, `security`, `web-permission-tests`, and the `gate` aggregator itself) on `blacksmith-4vcpu-ubuntu-2404`. The one deliberate Linux exception is `test-landlock`, which stays on GitHub-hosted `ubuntu-latest` because the Landlock LSM check depends on the hosted kernel. Windows task-owner recovery uses `blacksmith-8vcpu-windows-2025`; macOS and the other Windows jobs keep their GitHub-hosted platform runners. This split exists because GitHub's hosted-runner assignment stalled org-wide on 2026-09-14 while Blacksmith kept serving: with the housekeeping jobs moved, a hosted outage costs only the platform-specific checks instead of the whole required gate. All jobs name their runner labels and cache-provider inputs directly; `tests/architecture/ci_runner_labels.rs` checks the Linux inventories (compile fleet, housekeeping fleet, and the hosted-Linux allowlist) plus the recovery-only Windows runner and cache-writer contract. Work jobs do not wait on `fmt`; the deliberate trade-off is extra runner work on PRs that fail formatting. `CI Required Gate` still needs `fmt` directly and aggregates required results, so formatting errors still block merge. The separately label-gated advisory Windows workflow remains outside that gate. Its Linux selector also runs on the Blacksmith 4vcpu class. Branch protection pins the composite gate job. The `master` push run keeps the same quality signal while seeding trusted Rust caches for later PR runs.
+Local Agent uses standard GitHub-hosted runners only. Linux compile and housekeeping jobs pin `ubuntu-24.04`, including the Landlock check whose kernel support is part of security coverage. Task-owner recovery pins `windows-2025`; other existing macOS and Windows matrix entries remain unchanged. No larger runner or external runner subscription is required. Runner labels and the pinned GitHub-hosted Rust cache are checked by `tests/architecture/ci_runner_labels.rs`. Compile jobs do not wait on `fmt`; the required gate still consumes formatting and every selected check. A queued or unavailable runner is not a passing check. Existing `master` triggers are retained, and the same PR and push checks also cover `release/**` milestone branches; this adds validation rather than removing a gate. This migration changes execution infrastructure, not job permissions, test commands, selection rules or required-gate dependencies.
 
 Pull requests and merge-queue entries that change `[workspace.package] version` to a stable `X.Y.Z` also run `crates-preflight`, which calls `pub-crates.yml` with `stage: preflight`, no secret, and the compile fleet's runner label. `crates-preflight-changes` decides this with `scripts/ci/crates_preflight_trigger.sh`; every other change skips both, and a skipped job does not fail the gate. Because the job is a reusable-workflow call with no `runs-on`, `tests/architecture/ci_runner_labels.rs` inventories it separately and requires it to pass the fleet label.
 
-The runner inventories cover both `ci.yml` and `windows-tests.yml`, with workflow-qualified job identities so same-named jobs cannot hide one another. The Linux/macOS `build` matrix does not wait on any detector. The separate Windows compile, service and recovery jobs wait on the Blacksmith `windows-required-changes` detector. That detector reads package ownership with `cargo metadata --locked --offline --no-deps`, without registry resolution or downloads. The non-Rust `path-changes` detector remains independent of this package graph.
+The runner inventories cover both `ci.yml` and `windows-tests.yml`, with workflow-qualified job identities so same-named jobs cannot hide one another. The Linux/macOS `build` matrix does not wait on any detector. The separate Windows compile, service and recovery jobs wait on the `windows-required-changes` detector. That detector reads package ownership with `cargo metadata --locked --offline --no-deps`, without registry resolution or downloads. The non-Rust `path-changes` detector remains independent of this package graph.
 
 On `master` pushes only, the compile-heavy jobs (and the detectors that gate the Windows clippy and parallel-runtime jobs) first wait five minutes in `master-debounce`. Master pushes arrive in bursts, and the run-level `cancel-in-progress` otherwise cancels a superseded push only after its compile fleet has started; with the wait, a push superseded inside the window is cancelled while that cheap job is still sleeping. The job is skipped on pull requests and merge-queue runs, and a skipped job resolves without a runner, so their latency is unchanged. Because GitHub propagates a skipped ancestor through an implicit `success()`, every job downstream of `master-debounce` carries an explicit `!cancelled()` condition plus a result check for each dependency, and `tests/architecture/ci_runner_labels.rs` fails if one does not. `CI Required Gate` needs `master-debounce`, so a debounce failure cannot leave skipped compile jobs behind a green gate. The trade-off is five extra minutes before a master run starts compiling, which also delays seeding the master Rust caches by the same amount.
 
@@ -55,9 +55,9 @@ Required Windows compilation stays automatic without a label, but it checks only
 
 The service smoke builds `windows_service_smoke_fixture`, which owns its synthetic daemon and argument dispatch. Root CLI changes in `src/main.rs` do not automatically select it. Service source, runtime module wiring, the fixture and smoke script, config/spawn dependencies, and relevant manifest/build controls retain coverage. The task-owner recovery job retains direct control-plane and runtime module-wiring triggers. Package manifests and build scripts select these native jobs when their reverse dependency closure reaches runtime; unrelated gateway or standalone-app manifests do not. The recovery shell entrypoint delegates to the same package selector rather than maintaining a second ownership registry.
 
-The recovery tests run in their own `windows-task-owner-recovery` job on `blacksmith-8vcpu-windows-2025`, in parallel with compilation because their runtime unit-test harness cannot reuse `cargo check` output. An unselected job skips before allocating a Windows runner. `CI Required Gate` directly consumes the detector and each required Windows job, rejects missing selection outputs, and requires every selected job to succeed. A selected-but-skipped, failed or cancelled job cannot count as an intentional skip.
+The recovery tests run in their own `windows-task-owner-recovery` job on standard `windows-2025`, in parallel with compilation because their runtime unit-test harness cannot reuse `cargo check` output. An unselected job skips before allocating a Windows runner. `CI Required Gate` directly consumes the detector and each required Windows job, rejects missing selection outputs, and requires every selected job to succeed. A selected-but-skipped, failed or cancelled job cannot count as an intentional skip.
 
-Recovery calls the pinned `Swatinem/rust-cache` action directly with `shared-key: windows-recovery-blacksmith`, rather than assuming the GitHub build runner's cache has a compatible Rust environment hash. Only successful `push` runs on `refs/heads/master` save this dedicated dependency cache; PR and merge-queue runs only restore it. A miss builds normally and does not skip either test. Default workspace-artifact cleanup remains enabled, so the runtime harness still compiles. This adds a cache namespace that consumes repository storage; compilation and service smoke keep their existing runners and caches.
+Recovery calls the pinned `Swatinem/rust-cache` action directly with `shared-key: windows-recovery-hosted`, rather than assuming the GitHub build runner's cache has a compatible Rust environment hash. Only successful `push` runs on `refs/heads/master` save this dedicated dependency cache; PR and merge-queue runs only restore it. A miss builds normally and does not skip either test. Default workspace-artifact cleanup remains enabled, so the runtime harness still compiles. This adds a cache namespace that consumes repository storage; compilation and service smoke keep their existing runners and caches.
 
 ### Label-gated Advisory Windows Tests (`windows-tests.yml`)
 
@@ -154,13 +154,13 @@ Runs on every PR open/edit/synchronize. Runs the validator unit tests (`scripts/
 
 ### Deploy mdBook docs to Pages (`docs-deploy.yml`)
 
-Triggered on tag push (and `workflow_dispatch`); builds and publishes versioned docs to the `gh-pages` branch. See [Release Runbook → Versioned documentation deployment](./release-runbook.md#step-7-versioned-documentation-deployment) for the version-floor and bootstrap rules.
+The inherited workflow retains its real multi-locale build, but Local Agent disables the Pages publish step and stable-promotion job and restricts the workflow token to read-only repository access. No Local Agent docs destination or deployment credentials are approved. This guard must remain until a separately reviewed publishing setup replaces upstream-domain routing. See [Release Runbook → Versioned documentation deployment](./release-runbook.md#step-7-versioned-documentation-deployment) for the version-floor and bootstrap rules.
 
 ### Docker Image PR Check (`docker-image-pr.yml`)
 
 Runs only when Docker image, Compose, or release-Docker context files change. It validates the merged default-plus-Alpine Compose configuration and, for changes beyond Compose-only edits, builds the default and Debian prebuilt smoke images plus the source Dockerfiles without pushing them. When the only Docker-path change is `release-stable-manual.yml`, it builds just the prebuilt smoke images: the release workflow's Docker job packages prebuilt binaries through `scripts/ci/prepare_docker_context.sh`, which those images exercise, and it never consumes the source Dockerfiles. A diff that also touches any source-image input (a Dockerfile, the Containerfile, Compose files, `.dockerignore`, the config template, the Docker context scripts, or this workflow) still builds the full source matrix. The default and Alpine source images build for `linux/amd64` and `linux/arm64`; the Debian source image builds for `linux/amd64`. Separate Alpine and Debian `linux/amd64` lanes enable `plugins-wasm-runtime-only` so their builder contexts continuously prove that the repository WIT contract is available to plugin-enabled source builds.
 
-The all-features `Containerfile` source image builds for `linux/amd64` when that file or the Docker workflow changes. It uses an isolated cache scope and is neither loaded nor pushed. The Alpine amd64 lane runs both binaries, starts the built image through the merged Compose configuration, and checks the gateway health and dashboard surfaces. The Alpine arm64 lane is compile- and image-assembly coverage only. It cross-builds on `blacksmith-8vcpu-ubuntu-2404`, the existing 32 GB heavy Rust runner class, because its release link exhausted memory on `ubuntu-latest`. Other Docker jobs remain on `ubuntu-latest`; release optimization, build flags and matrix size are unchanged. Compose-only changes use a reduced Alpine amd64 matrix so they still exercise the runtime contract without rebuilding unrelated images. All jobs have read-only repository permissions and no registry write permission.
+The all-features `Containerfile` source image builds for `linux/amd64` when that file or the Docker workflow changes. It uses an isolated cache scope and is neither loaded nor pushed. The Alpine amd64 lane runs both binaries, starts the built image through the merged Compose configuration, and checks the gateway health and dashboard surfaces. The Alpine arm64 lane is compile- and image-assembly coverage only. It cross-builds on standard `ubuntu-24.04`. Default and Alpine ARM64 source builds reuse the existing bounded temporary swap helper with guarded cleanup; this does not change release optimization, build flags or matrix size. Memory sufficiency still requires a successful real CI build, not just valid workflow syntax. Other jobs in this Docker workflow also pin `ubuntu-24.04`. Compose-only changes use a reduced Alpine amd64 matrix so they still exercise the runtime contract without rebuilding unrelated images. All jobs have read-only repository permissions and no registry write permission.
 
 ### Docker Publish (`docker-publish.yml`)
 
@@ -398,9 +398,49 @@ maintainer remains inactive, follow the
 before changing `pkgname` or the workflow clone target. After ownership
 transfers, coordinate the package rename or merge in one reviewed change.
 
+## Build resource discipline
+
+Before compiling, identify the affected package, features, target and tests. Use
+focused package checks during implementation, broader regression at integration
+boundaries, and complete mandatory verification at release checkpoints. Do not
+rebuild a workspace or duplicate target directories merely to recreate unchanged
+evidence. Coordinate any shared target by toolchain, target triple, features and
+active ownership; limit heavyweight builds and measure capacity first.
+
+The Landlock job keeps the same security filter on all runtime package test targets with
+`sandbox-landlock`, disables unrelated defaults and test debug information, and
+retains the hosted Linux kernel. This bounds compilation artifacts, not assertions.
+Actual Linux execution is still required; a workflow contract test is not a
+passing kernel test. Plugin-backend jobs also disable dev/test debug
+artifacts and bound Cargo to two compile jobs after a standard runner exhausted
+disk while building channel-egress checks. Test commands, selected cases, failure
+handling and required gates are unchanged; less debug data reduces backtrace
+detail, not assertions. Cold hosted runs also need explicit 30-minute component
+and 40-minute runtime-suite budgets; the other backend legs retain 20 minutes.
+These are finite job deadlines, not test skips or passing evidence. Actual backend
+verification remains required. The CLI-only job separately disables only test
+profile debug information and bounds Cargo to two jobs after hosted disk
+exhaustion. It retains dev-profile symbols for the unchanged artifact ratchet's
+`nm` inspection, all test targets and the existing 45-minute deadline.
+
+## Documentation validation policy
+
+The project owner retired mandatory `markdownlint-cli2` execution because its
+dependency tree contains unresolved security vulnerabilities. Do not install or
+execute that formatter to satisfy a release gate. Its formatting result is not a
+product-correctness or security acceptance criterion.
+
+The `Docs Style` job remains a real required-gate dependency: it runs the existing
+repository-owned prose check and its regression tests, changed-link validation,
+and all authored internal-link checks. Documentation build correctness, generated
+reference fidelity, code-to-documentation parity, and independent release QA remain
+mandatory. A skipped or unavailable build is not a passing documentation result.
+This retirement does not change Rust formatting, tests, security checks, review
+requirements or workstation-enforced controls.
+
 ## Build cache behavior
 
-Most Rust-heavy jobs in `ci.yml` cache through the local `./.github/actions/rust-cache` composite, which receives `use-blacksmith: 'true'` from its Blacksmith compile callers, matching the runner label those jobs name directly. Both values are checked-in constants in `ci.yml`, not an Actions variable. `vars` is unreadable in fork-origin `pull_request` runs, so the former `CI_USE_BLACKSMITH` toggle silently sent every fork PR (90% of this repo's PRs) to GitHub-hosted runners with a cold cache, because master had stopped seeding the GitHub Actions cache when it moved to Blacksmith. With the constants, those fork PR jobs use `useblacksmith/rust-cache` (Blacksmith NVMe sticky disk) on Blacksmith runners like the corresponding master jobs; changing the label and the provider inputs on the Linux compile jobs, which `tests/architecture/ci_runner_labels.rs` keeps in lockstep, moves that fleet back to `ubuntu-latest` + `Swatinem/rust-cache` in one reviewed commit. Both action references live in the composite regardless of the selection, so both must stay in the allowlist. Windows task-owner recovery is the direct-`Swatinem/rust-cache` exception on Blacksmith, with its own master-seeded dependency cache. The macOS and Windows build legs stay on `Swatinem/rust-cache` against the GitHub Actions cache, and the `fmt`, `nix-eval`, and `docs-style` jobs (none of which compile the workspace) use no Rust cache. `codeql.yml` pins the same Blacksmith label for its Rust scan, so no workflow reads the `CI_USE_BLACKSMITH` variable any more; it can be deleted from the repository settings. These behaviors are worth knowing when triaging cache-related flakes:
+Rust-heavy jobs in `ci.yml` use the local `./.github/actions/rust-cache` composite, which delegates to the existing pinned `Swatinem/rust-cache` action. The retired Blacksmith sticky-disk action and provider-selection input are absent. Existing `shared-key`, `save-if` and `cache-on-failure` inputs are preserved. Windows task-owner recovery keeps its direct pinned cache action and dedicated `windows-recovery-hosted` namespace. Only trusted default-branch runs write the relevant shared caches; PR and merge-queue restrictions remain unchanged. Cache misses build normally and never waive checks. Standard GitHub-hosted execution must remain within the repository's free-use entitlement and configured spending limits; no paid runner or billing configuration is enabled by this workflow.
 
 - **Matrix legs need distinct cache keys.** A cache key is derived from the job id (or `shared-key`), the runner OS and architecture, the toolchain, `CARGO*`/`RUST*` environment variables, and the lockfile. Matrix legs that differ only in feature flags or cargo arguments therefore resolve to the same key; the leg that saves first owns it and every other leg restores a mismatched dependency set. Before per-leg keys, the cranelift plugin-backend leg recompiled about 620 dependency crates (roughly four minutes) on every run, master included, because it shared a key with the pulley and runtime-only legs. `check` and `check-plugin-backends` therefore give every leg a comma-free `cache-key` matrix field passed as `shared-key`; legs whose dependency sets genuinely match may share one. A new Rust matrix job should do the same.
 - **Cache writes are master-only.** `save-if` is conditioned on `github.ref == 'refs/heads/master'`, so PR runs read the master-seeded cache but never update it. PR branches can't pollute the shared cache with branch-specific artifacts. The `push` trigger on `master` is what gives the workflow a trusted cache-writing run after merges.
@@ -436,8 +476,7 @@ All third-party refs are pinned to a full commit SHA with a trailing version com
 | `actions/attest` (`v4.2.2`) | `release-stable-manual.yml` | Generate GitHub-hosted Build Level 2 provenance for release assets |
 | `actions/labeler` (`v6.1.0`) | `pr-path-labeler.yml` | Apply path/scope labels from `.github/labeler.yml` |
 | `dtolnay/rust-toolchain` (`stable`, `v1`) | `ci.yml`, `platform-tests.yml`, `pub-crates.yml`, `release-stable-manual.yml`, `cross-platform-build-manual.yml`, `cross-platform-clippy.yml`, `daily-audit.yml`, `docs-deploy.yml`, `codeql.yml` | Install Rust toolchain |
-| `Swatinem/rust-cache` (`v2.9.2`) | `ci.yml` (GitHub-hosted composite path and direct Blacksmith Windows recovery), `platform-tests.yml`, `pub-crates.yml`, `release-stable-manual.yml`, `cross-platform-build-manual.yml`, `cross-platform-clippy.yml`, `docs-deploy.yml` | Cargo build/dependency caching on GitHub-hosted runners and Blacksmith Windows recovery |
-| `useblacksmith/rust-cache` (`v3.0.1`) | `ci.yml` (Blacksmith path of `./.github/actions/rust-cache`) | Cargo build/dependency caching on Blacksmith sticky disk; selected by the `use-blacksmith: 'true'` input each Blacksmith compile job passes to the composite (a checked-in constant) |
+| `Swatinem/rust-cache` (`v2.9.2`) | `ci.yml` (hosted composite and direct Windows recovery), `platform-tests.yml`, `pub-crates.yml`, `release-stable-manual.yml`, `cross-platform-build-manual.yml`, `cross-platform-clippy.yml`, `docs-deploy.yml` | Cargo build/dependency caching on standard GitHub-hosted runners |
 | `docker/setup-buildx-action` (`v3.11.1`, `v4.0.0`) | `release-stable-manual.yml`, `docker-publish.yml` | Docker Buildx setup |
 | `docker/login-action` (`v3.4.0`, `v4.1.0`) | `release-stable-manual.yml`, `docker-publish.yml`, `trivy-scheduled.yml` | GHCR authentication |
 | `docker/build-push-action` (`v6.18.0`, `v7.1.0`) | `release-stable-manual.yml`, `docker-publish.yml` | Multi-platform image build and push |
@@ -456,7 +495,6 @@ Equivalent allowlist patterns (kept narrow on purpose):
 actions/*
 dtolnay/rust-toolchain@*
 Swatinem/rust-cache@*
-useblacksmith/rust-cache@*
 docker/*
 sigstore/cosign-installer@*
 anchore/sbom-action@*
@@ -488,7 +526,7 @@ Any PR that adds or changes a `uses:` action source must include an allowlist im
 - Keep `ci.yml`, `dev/ci.sh`, and `.githooks/pre-push` aligned. Shared gates must live in `scripts/ci/`; each caller invokes the helper instead of copying its commands. For the standalone firmware protocol gate, the documented local entry point is `./dev/ci.sh firmware-protocol`.
 - Keep `scripts/ci/prepare_docker_context.sh`, `docker-image-pr.yml`, and the Docker job in `release-stable-manual.yml` aligned so PR validation exercises the same context shape the release workflow publishes.
 - Run `python3 scripts/ci/release_attestation_contract_test.py` after changing the release attestation, checksum, SBOM, or verification-archive sequence.
-- The `docs-style` gate job runs `bash scripts/ci/docs_quality_gate.sh` (markdown lint + em-dash prose check) and `bash scripts/ci/docs_links_gate.sh` (changed-line link gate). Run both scripts locally before pushing docs changes.
+- The `docs-style` gate job runs `bash scripts/ci/docs_quality_gate.sh` (repository-owned prose check, without third-party formatter execution) and `bash scripts/ci/docs_links_gate.sh` (changed-line link gate). Run both scripts locally before pushing docs changes.
 
 ## Emergency rollback
 
