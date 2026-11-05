@@ -21285,12 +21285,21 @@ mod tests {
             },
         );
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let listener = ::zeroclaw_spawn::spawn!(async move {
-            use zeroclaw_api::channel::Channel;
-            let _ = channel.listen(tx).await;
+            start_rx.await.expect("start listener");
+            channel.listen_with_ready(tx, ready_tx).await
         });
-        // Give the watcher a beat to arm before the event lands.
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let abort_listener = listener.abort_handle();
+        let _listener_cleanup = scopeguard::guard((), move |()| abort_listener.abort());
+        // Delay startup beyond the old sleep without racing the file event.
+        tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+        start_tx.send(()).expect("release delayed listener");
+        tokio::time::timeout(std::time::Duration::from_secs(20), ready_rx)
+            .await
+            .expect("filesystem watcher must start")
+            .expect("filesystem watcher startup must succeed");
         std::fs::write(watch.path().join("event.txt"), "review please").expect("write event");
 
         let run = tokio::time::timeout(std::time::Duration::from_secs(20), async {
@@ -21317,6 +21326,7 @@ mod tests {
             "the driver must register in the supervisor set"
         );
         listener.abort();
+        assert!(listener.await.unwrap_err().is_cancelled());
     }
 
     /// The channel half of the same gap: a channel-triggered auto SOP was
