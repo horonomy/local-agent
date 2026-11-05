@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 class CiResourceContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        match = re.search(r"(?ms)^  test-landlock:\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)", self.workflow)
+        match = re.search(
+            r"(?ms)^  test-landlock:\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)", self.workflow
+        )
         self.assertIsNotNone(match, "Landlock security job must remain present")
         self.landlock = match.group(1)
 
@@ -24,7 +26,9 @@ class CiResourceContractTests(unittest.TestCase):
         self.assertNotIn("--workspace", self.landlock)
         self.assertNotIn("--lib", self.landlock)
 
-    def test_landlock_debug_output_is_bounded_without_incremental_artifacts(self) -> None:
+    def test_landlock_debug_output_is_bounded_without_incremental_artifacts(
+        self,
+    ) -> None:
         self.assertIn('CARGO_PROFILE_TEST_DEBUG: "0"', self.landlock)
         self.assertIn("CARGO_INCREMENTAL: 0", self.workflow)
 
@@ -39,12 +43,16 @@ class CiResourceContractTests(unittest.TestCase):
         manual = (ROOT / ".github/workflows/cross-platform-build-manual.yml").read_text(
             encoding="utf-8"
         )
-        matrix = manual.split("\n  stable-gnu-build:\n", 1)[1].split("\n    steps:", 1)[0]
+        matrix = manual.split("\n  stable-gnu-build:\n", 1)[1].split("\n    steps:", 1)[
+            0
+        ]
         self.assertEqual(matrix.count("            use_cross: false\n"), 4)
         self.assertNotIn("use_cross: true", matrix)
-        caller = manual.split("\n  stable-gnu-build:\n", 1)[1].split(
-            "      - name: Build release\n", 1
-        )[1].split("      - name:", 1)[0]
+        caller = (
+            manual.split("\n  stable-gnu-build:\n", 1)[1]
+            .split("      - name: Build release\n", 1)[1]
+            .split("      - name:", 1)[0]
+        )
         self.assertIn("uses: ./.github/actions/build-release-payloads", caller)
         self.assertIn("use_cross: ${{ matrix.use_cross || 'false' }}", caller)
 
@@ -61,6 +69,32 @@ class CiResourceContractTests(unittest.TestCase):
         self.assertIn("Run plugin component tests", backend)
         self.assertIn("Run channel egress boundary e2e", backend)
         self.assertNotIn("continue-on-error:", backend)
+
+    def test_plugin_cold_build_budgets_are_scoped_to_serial_cranelift_suites(
+        self,
+    ) -> None:
+        backend = self.workflow.split("\n  check-plugin-backends:\n", 1)[1].split(
+            "\n    steps:", 1
+        )[0]
+        self.assertIn("timeout-minutes: ${{ matrix.timeout-minutes || 20 }}", backend)
+        rows = dict(
+            re.findall(
+                r"(?ms)^          - name: (.*?)\n(.*?)(?=^          - name:|\Z)",
+                backend,
+            )
+        )
+        self.assertEqual(len(rows), 5)
+        for name, budget in [
+            ("plugins cranelift backend", 30),
+            ("plugins cranelift runtime", 40),
+        ]:
+            self.assertIn(f"            timeout-minutes: {budget}\n", rows[name])
+        for name in [
+            "plugins pulley backend",
+            "plugins runtime-only backend",
+            "plugin artifact smoke",
+        ]:
+            self.assertNotIn("timeout-minutes:", rows[name])
 
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
