@@ -287,6 +287,9 @@ where
     R: Read + Seek,
 {
     let mut archive = zip::ZipArchive::new(reader)?;
+    archive
+        .validate_header_consistency()
+        .context("plugin archive headers are inconsistent")?;
     std::fs::create_dir_all(dest)?;
     let mut extracted_bytes = 0_u64;
     for i in 0..archive.len() {
@@ -478,6 +481,21 @@ capabilities = ["tool"]
             pulls.get(),
             2,
             "reader should stop as soon as the accumulated body exceeds the cap"
+        );
+    }
+
+    #[test]
+    fn safe_zip_extraction_rejects_inconsistent_headers_before_writing() {
+        let mut bytes = zip_with_entry("safe.txt", b"synthetic");
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        bytes[30..38].copy_from_slice(b"evil.txt");
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("output");
+        let result = extract_zip_safe(Cursor::new(bytes), &destination);
+        assert!(result.is_err(), "header mismatch must be refused");
+        assert!(
+            !destination.exists(),
+            "validation must precede filesystem writes"
         );
     }
 
