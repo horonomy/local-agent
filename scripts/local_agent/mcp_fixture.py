@@ -26,6 +26,11 @@ TOOL = {
         "additionalProperties": False,
     },
 }
+FAIL_TOOL = {
+    "name": "fail",
+    "description": "Return a fixed synthetic tool error for recovery checks.",
+    "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+}
 
 
 def _response(
@@ -74,8 +79,21 @@ def dispatch(request: JSONValue) -> dict[str, JSONValue] | None:
             },
         )
     if method == "tools/list":
-        return _response(request_id, result={"tools": [TOOL]})
+        return _response(request_id, result={"tools": [TOOL, FAIL_TOOL]})
     if method == "tools/call":
+        if params.get("name") == "fail":
+            if params.get("arguments") != {}:
+                return _response(
+                    request_id,
+                    error={"code": -32602, "message": "Invalid fail arguments"},
+                )
+            return _response(
+                request_id,
+                result={
+                    "content": [{"type": "text", "text": "synthetic tool failure"}],
+                    "isError": True,
+                },
+            )
         if params.get("name") != "echo":
             return _response(
                 request_id, error={"code": -32602, "message": "Unknown tool"}
