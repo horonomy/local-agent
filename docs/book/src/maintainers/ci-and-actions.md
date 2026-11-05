@@ -421,7 +421,10 @@ These are finite job deadlines, not test skips or passing evidence. Actual backe
 verification remains required. The CLI-only job separately disables only test
 profile debug information and bounds Cargo to two jobs after hosted disk
 exhaustion. It retains dev-profile symbols for the unchanged artifact ratchet's
-`nm` inspection, all test targets and the existing 45-minute deadline.
+`nm` inspection and all test targets. Its finite 60-minute deadline accommodates
+both cold test compilation and the separate dev artifact build after the former
+45-minute budget expired during compilation. This adds time, not coverage waivers;
+fresh candidate execution must still complete the ratchet successfully.
 
 ## Documentation validation policy
 
