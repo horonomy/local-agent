@@ -10472,13 +10472,19 @@ mod tests {
         assert!(policy.is_resolved_path_readable(&ok_alias));
         assert!(policy.is_resolved_path_allowed(&ok_alias));
 
-        for (name, target) in [
+        for (index, (name, target)) in [
             ("nul", &secret),
             ("NUL", &outside),
             (r"\\.\nul", &secret),
             (r"\\.\NUL", &outside),
-        ] {
-            let alias = workspace.join(name);
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // Separate parents avoid case-folding collisions without changing the spellings.
+            let alias_dir = workspace.join(format!("alias-{index}"));
+            std::fs::create_dir(&alias_dir).unwrap();
+            let alias = alias_dir.join(name);
             symlink(target, &alias).unwrap();
             assert_eq!(
                 policy.resolve_policy_target(&alias),
