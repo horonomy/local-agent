@@ -19,14 +19,42 @@ cross-component contracts. An existing explicit founder decision can supply the
 product authorization; implementation still needs independent technical review
 and the applicable required checks.
 
-Review depth follows the actual consequence: use deeper independent review,
-negative cases and rollback evidence for security, CI, release or governance work.
-Do not infer a roster of available reviewers from inherited names or a bot report.
-Honor current CODEOWNERS, required human/code-owner approval, branch protection and
-unresolved review findings. Absent branch protection is not merge approval. If the
-inherited CODEOWNERS routes to unavailable upstream people, document the mismatch
-for a separately reviewed routing change; do not silently erase owners, fabricate
-an approval or invent a merge exception.
+### Single-maintainer review and integration
+
+Local Agent currently uses a founder-approved single-maintainer model.
+`@Chisanan232` owns the repository and accountable integration decisions.
+`.github/CODEOWNERS` routes consultation to that actual owner; it does not appoint
+ZeroClaw maintainers, require another GitHub account, or create a human approval.
+Upstream Core Team votes, reviewer counts and exception timers do not apply here.
+
+Every substantive change requires independent technical review by a Claude Code
+or Codex reviewer distinct from the implementation session. Record the reviewer,
+exact candidate commit, review scope, findings and their resolution. Security,
+regression and compatibility consequences determine review depth. An AI review is
+not a GitHub human approval; do not submit it as an approval by a separate human,
+impersonate a reviewer or fabricate a review state.
+
+For an owner-authored PR, the owner-review and integration workflow is:
+
+1. Reconcile the approved acceptance criteria, diff, provenance and rollback.
+2. Obtain independent technical review and resolve all substantive findings.
+3. Verify the exact candidate's applicable CI, security, integration and documented
+   validation gates, mergeability, branch currency and unresolved review threads.
+4. Inspect actual branch protection and repository rules before merging. Honor
+   every configured approval requirement. Do not bypass an active requirement:
+   if a rule requires a separate non-author human approval, reconcile that policy
+   through explicitly authorized repository administration before integration;
+   neither ownership nor this document makes it passed.
+5. Record the accountable owner integration decision and the evidence above,
+   merge using a normal merge commit, and verify the resulting commit. Routine
+   integration may be executed under the owner's standing authorization without
+   inventing a separate human review or repeated routine founder decisions.
+
+No active non-author approval requirement was found in the initial inspection of
+`master` or `release/mvp-0.0`; both protection endpoints reported unprotected and
+repository/evaluated branch rules were empty. Recheck live settings at integration;
+this observation is not permanent exemption, approval or passing CI evidence.
+Repository instructions do not change workstation controls or publishing permission.
 
 The existing [architecture map](../book/src/contributing/architecture-map.md) routes
 technical references. Its linked ZeroClaw governance pages remain useful upstream
@@ -73,8 +101,10 @@ Ticket PR titles use `[HORO-XXXX] <gitmoji> <scope>: <summary>`; their base is t
 milestone release branch. The title validator also retains scoped Conventional
 Commits compatibility for existing automation and dependency updates.
 Include purpose, scope, acceptance criteria, actual tests, risks and limitations.
-Independent technical review is not self-review or a substitute for required
-human/code-owner approval. Never bypass mandatory checks or unresolved reviews.
+Independent technical review and accountable owner integration follow the
+single-maintainer contract above. They never substitute for a separate human
+approval actually required by live repository rules. Never bypass mandatory
+checks or unresolved reviews.
 
 After all mandatory acceptance, cumulative Golden Journeys, security, privacy,
 licensing and supported-platform gates pass against an exact release-branch SHA,
@@ -126,7 +156,7 @@ release acceptance:
 | Boundary | Required evidence |
 | --- | --- |
 | Implementation increment | Focused deterministic tests at the changed behavior, relevant formatting and scoped lint/type checks; regression for a bug. |
-| PR integration | Relevant integration/regression and feature-enabled/disabled checks, independent review, and all applicable exact-head CI and human/code-owner gates. |
+| PR integration | Relevant integration/regression and feature-enabled/disabled checks, independent technical review, accountable owner integration, all applicable exact-head CI and actual configured approval rules. |
 | Release checkpoint | Complete required suite, cumulative Golden Journeys, security/license and supported-platform checks, documentation build/parity, and independent QA tied to the candidate SHA. |
 
 Do not compile the whole workspace after each small change or duplicate expensive

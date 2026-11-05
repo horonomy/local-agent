@@ -1,12 +1,13 @@
 # Reviewer Playbook
 
 > **Local Agent review:** use root `AGENTS.md` and
-> `docs/local-agent/engineering-lifecycle.md` for current authority and integration.
-> The upstream Core Team counts, expedited lane, contributor tiers and screenshot
-> upload expectations below are not Local Agent requirements. Preserve independent
-> technical review and actual human/code-owner approvals, required checks and open
-> thread gates. Use permitted text-only evidence where workstation rules prohibit
-> visual transfer; this note grants no review or security exception.
+> `docs/local-agent/engineering-lifecycle.md` for the single-maintainer contract.
+> `@Chisanan232` owns integration with independent Claude Code or Codex technical
+> review. Agent findings are not a GitHub human approval. Preserve actual configured
+> approval requirements, CI, security and unresolved findings/threads.
+> Upstream Core Team counts, expedited lanes, contributor tiers and screenshot
+> upload expectations below are historical context, not Local Agent requirements.
+> Use permitted text-only evidence; this note changes no workstation controls.
 
 The operating model for reviewing PRs and triaging issues. Sized to keep review quality high under heavy volume; routes by risk so high-stakes paths get the attention they need without dragging every small change through the same gate.
 

@@ -3,13 +3,12 @@
 > **Local Agent workflow:** use the root `AGENTS.md` and
 > `docs/local-agent/engineering-lifecycle.md` for
 > ticket/release branches, risk-based testing, Gitmoji commits, merge commits and
-> review authority. The inherited ZeroClaw process below is upstream context where
-> it differs; it does not select an upstream team, squash strategy or public
-> destination for Local Agent. Actual security, code-owner and CI gates still apply.
-> Upstream-only approval counts and exception timers below
-> do not establish Local Agent requirements. Local review follows the lifecycle
-> and the repository's actual required approvals; no new count or exception is
-> implied by this note.
+> review authority under the single-maintainer contract: independent agent
+> technical review and accountable owner integration. This is not a GitHub human
+> approval or permission to bypass configured approval rules, security or CI.
+> The inherited ZeroClaw process below is historical context where it differs;
+> it does not select an upstream team, quorum, timer, squash strategy or public
+> destination for Local Agent.
 
 We accept code, docs, bug reports, and feedback from anyone willing to file them clearly. This page covers the mechanics: how to get a change in, what we look for in review, and what to expect after you open a PR.
 

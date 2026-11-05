@@ -82,9 +82,12 @@ host authorization; do not execute the retired vulnerable Markdown formatter.
   destination is `horonomy/local-agent`; GitHub writes use `Chisanan232`. Push
   reviewed source promptly when applicable checks and host controls permit, and
   verify the remote SHA before reporting backup. Never write to upstream.
-- Perform independent technical review and honor required human/code-owner approvals,
-  checks, branch currency and unresolved review threads. No self-approved merge or
-  invented owner-only exception. Use merge commits, not inherited squash automation.
+- Use the single-maintainer owner-review and integration contract in the engineering
+  lifecycle: `@Chisanan232` is accountable for integration, with independent Claude
+  Code or Codex technical review and findings resolution. AI review is not a GitHub
+  human approval. Honor actual configured approval rules, checks, branch currency
+  and unresolved threads; never fabricate reviews or bypass an active requirement.
+  Use merge commits, not inherited squash automation.
 - A durable design decision is needed for material security, governance, ownership
   or cross-component contract changes. Ordinary approved features and bounded fixes
   do not require ZeroClaw Core Team votes or a separate RFC by default.

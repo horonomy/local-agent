@@ -22,8 +22,9 @@ to load relevant technical references rather than the entire documentation tree.
 5. Make small Gitmoji commits, push reviewed source when authorized controls permit,
    and verify the remote SHA. Ticket PRs target `release/mvp-X.0`; release PRs target
    the verified default branch (currently `master`). Never direct-push to it.
-6. Integrate only after applicable CI, human/code-owner review, conflict, branch
-   currency and review-thread gates pass. Use merge commits, not squash automation.
+6. Integrate through the single-maintainer owner-review workflow only after
+   independent technical review, applicable CI, actual configured approvals,
+   conflict, branch-currency and thread gates pass. Use merge commits, not squash.
 
 Do not follow inherited instructions to delete a branch, force-push, skip a hook,
 write to upstream or deploy through ZeroClaw infrastructure. Such instructions
@@ -74,9 +75,11 @@ No documentation deployment through ZeroClaw's domain, accounts or credentials.
 
 Ordinary approved features and bounded fixes do not require a ZeroClaw Core Team
 vote. Material security, authority or cross-component ownership changes need a
-durable design decision and appropriate review. Actual CODEOWNERS and repository
-protections remain binding; unavailable inherited owners require a reviewed
-routing change, not an invented approval or self-merge exception.
+durable design decision and appropriate review. `@Chisanan232` is the accountable
+owner under the single-maintainer contract in the engineering lifecycle. Use
+independent Claude Code or Codex technical review, not fictional GitHub human
+approval. Actual configured approval rules remain binding and require authorized
+administrative reconciliation if they conflict with this model.
 
 Preserve sandboxing, explicit tool approvals, default-deny provider endpoint/model
 authorization and closed remote surfaces in the minimal profile. A configured key
