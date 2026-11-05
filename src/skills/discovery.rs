@@ -573,6 +573,9 @@ fn extract_tar_gz(bytes: &[u8], destination: &Path) -> Result<()> {
 
 fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("invalid zip archive")?;
+    archive
+        .validate_header_consistency()
+        .context("zip archive headers are inconsistent")?;
     let mut entries = 0usize;
     let mut unpacked = 0usize;
     let mut paths = HashSet::new();
@@ -884,6 +887,30 @@ mod tests {
         )
         .unwrap();
         assert!(published_path.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn zip_discovery_rejects_inconsistent_headers_before_writing() {
+        let mut raw = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut raw);
+            writer
+                .start_file("safe.txt", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"synthetic").unwrap();
+            writer.finish().unwrap();
+        }
+        let mut bytes = raw.into_inner();
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        bytes[30..38].copy_from_slice(b"evil.txt");
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("output");
+        let result = extract_zip(&bytes, &destination);
+        assert!(result.is_err(), "header mismatch must be refused");
+        assert!(
+            !destination.exists(),
+            "validation must precede filesystem writes"
+        );
     }
 
     #[test]

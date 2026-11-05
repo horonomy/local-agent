@@ -772,6 +772,9 @@ fn unpack_zip(archive_bytes: &[u8], staging: &Path) -> Result<()> {
     let cursor = std::io::Cursor::new(archive_bytes);
     let mut archive = zip::ZipArchive::new(cursor).context("failed to open zip archive")?;
     archive
+        .validate_header_consistency()
+        .context("zip archive headers are inconsistent")?;
+    archive
         .extract(staging)
         .context("failed to extract zip archive")?;
     Ok(())
@@ -2367,6 +2370,21 @@ mod tests {
 
     /// Regression: verify the zip unpacker writes the zeroclaw.exe
     /// binary bytes from a minimal Windows ZIP release asset.
+    #[test]
+    fn unpack_zip_rejects_inconsistent_headers_before_writing() {
+        let mut bytes = make_zip(&[("safe.txt", b"synthetic")]);
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        bytes[30..38].copy_from_slice(b"evil.txt");
+        let root = tempfile::tempdir().unwrap();
+        let staging = root.path().join("staging");
+        let result = unpack_zip(&bytes, &staging);
+        assert!(result.is_err(), "header mismatch must be refused");
+        assert!(
+            !staging.exists(),
+            "validation must precede filesystem writes"
+        );
+    }
+
     #[test]
     fn unpack_zip_writes_zeroclaw_exe() {
         let fake_exe = b"fake zeroclaw windows binary content";
