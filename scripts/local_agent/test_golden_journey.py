@@ -214,6 +214,29 @@ class ProcessCleanupUnitTests(unittest.TestCase):
                     self.assertTrue(outcome["children_cleaned"])
                     self.assertTrue(outcome["term_sent"])
 
+    def test_output_written_during_cleanup_cannot_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            child = Path(directory) / "cleanup-output.py"
+            ready = Path(directory) / "ready"
+            child.write_text(
+                f"#!{sys.executable}\n"
+                "import pathlib, signal, sys, time\n"
+                "def stop(*_):\n"
+                f"    sys.stdout.buffer.write(b'x' * {runner.MAX_OUTPUT_BYTES + 1})\n"
+                "    sys.stdout.buffer.flush()\n"
+                "    raise SystemExit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                f"pathlib.Path({str(ready)!r}).touch()\n"
+                "time.sleep(30)\n"
+            )
+            child.chmod(0o700)
+            outcome = runner.run_case("granted", child, child, 3)
+            self.assertTrue(ready.exists())
+            self.assertEqual(outcome["status"], "output_limit")
+            self.assertFalse(outcome["case_pass"])
+            self.assertTrue(outcome["children_cleaned"])
+            self.assertTrue(outcome["term_sent"])
+
     def test_cleanup_after_parent_exits_reaches_term_resistant_child(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ready = Path(directory) / "ready"

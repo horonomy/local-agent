@@ -32,4 +32,4 @@ The timeout and cancellation cases are bounded failure/cleanup probes, not succe
 python3 -m unittest discover -s scripts/local_agent -p 'test_golden_journey.py' -v
 ```
 
-These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, bounded marker reads, stdout/stderr overflow, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Fourteen unit tests passed locally; this does not establish the five integration cases or Windows compatibility.
+These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, bounded marker reads, stdout/stderr overflow including writes during cleanup, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Fifteen unit tests passed locally; this does not establish the five integration cases or Windows compatibility.
