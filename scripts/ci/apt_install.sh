@@ -7,6 +7,17 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 apt_attempt_timeout_seconds=120
+apt_install_timeout_seconds="${ZEROCLAW_CI_APT_INSTALL_TIMEOUT_SECONDS:-120}"
+case "$apt_install_timeout_seconds" in
+    ''|*[!0-9]*|????*)
+        echo "install timeout must be an integer from 1 through 240 seconds" >&2
+        exit 2
+        ;;
+esac
+if ((10#$apt_install_timeout_seconds < 1 || 10#$apt_install_timeout_seconds > 240)); then
+    echo "install timeout must be an integer from 1 through 240 seconds" >&2
+    exit 2
+fi
 apt_max_attempts=2
 apt_retry_delay_seconds=5
 
@@ -15,14 +26,18 @@ run_apt_phase() {
   local attempt
   local outcome
   local status=1
+  local phase_timeout="$apt_attempt_timeout_seconds"
+  if [[ "$phase" == install ]]; then
+    phase_timeout="$apt_install_timeout_seconds"
+  fi
   shift
 
   for ((attempt = 1; attempt <= apt_max_attempts; attempt++)); do
-    echo "apt ${phase}: attempt ${attempt}/${apt_max_attempts} started (deadline: ${apt_attempt_timeout_seconds}s)"
+    echo "apt ${phase}: attempt ${attempt}/${apt_max_attempts} started (deadline: ${phase_timeout}s)"
 
     set +e
     sudo timeout --signal=TERM --kill-after=10s \
-      "${apt_attempt_timeout_seconds}s" apt-get "$@"
+      "${phase_timeout}s" apt-get "$@"
     status=$?
     set -e
 
