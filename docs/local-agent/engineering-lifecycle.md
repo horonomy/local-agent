@@ -112,6 +112,70 @@ Revalidate if that branch moved. Use merge commits through the required reviewed
 process and verify the resulting commit.
 Do not start the next milestone from an unpromoted or broken predecessor.
 
+### Pull-request triage
+
+PR triage is a manual routing aid; it does not change acceptance criteria, risk
+classification, required checks, review depth, or release readiness. Preserve all
+existing category, size, priority, dependency labels and discussion history. Exactly
+one of these mutually exclusive triage labels belongs on each open PR:
+
+| Label | Meaning |
+| --- | --- |
+| `triage:active` | Selected for current implementation, validation, or review; not a claim that checks are green or the PR is merge-ready. |
+| `triage:deferred` | Valid work intentionally waiting for a later review or capacity window. |
+| `triage:blocked` | Delivery is waiting on a named external, CI, authorization, compatibility, security-review, or prerequisite condition. |
+| `triage:needs-assessment` | Scope, fit, or risk needs a bounded assessment before choosing active or parked delivery. |
+
+Deferred and blocked PRs also carry one or more reason labels, and no other triage
+state does. The supported values are `reason:low-priority`, `reason:out-of-scope`,
+`reason:upstream`, `reason:prerequisite`, `reason:ci`, `reason:authorization`,
+`reason:compatibility`, and `reason:security-review`. Reason labels classify the
+current decision; they are not risk acceptance, a waiver, or a replacement for
+canonical security/risk policy. A P2 classification alone is not an indefinite
+blocker. Keep a genuine vulnerability or unsoundness blocked while it remains
+unresolved.
+
+For `triage:deferred` and `triage:blocked`, keep one updatable structured decision
+in a comment authored by `@Chisanan232`, current for the exact head SHA. Add the
+marker and heading below; update this decision in place rather than posting
+competing current decisions. Preserve other comments and history. Use all fields
+shown; comma-separated reasons must exactly match the PR's `reason:*` labels:
+
+```text
+<!-- local-agent-triage -->
+## Triage Decision
+- Status: triage:deferred
+- Reason: reason:low-priority
+- Evidence: Current evidence and why this disposition fits.
+- Resume condition: Concrete event or condition that returns this to delivery.
+- Next review date: 2026-11-20
+- Related Jira / PR dependencies: Jira keys and PR numbers, or None.
+- Next action: The next owner action, or None.
+- Head: <full 40-character head commit SHA>
+```
+
+The status in the comment must match the sole triage status label. Review dates use
+ISO `YYYY-MM-DD`; ordinary deferrals start with a 14-day review window. Set an
+earlier date for a security concern when its facts warrant it, and state that basis
+in the evidence. A missing review date, a changed head, or an elapsed review date
+requires a fresh decision, not silent indefinite parking.
+
+Reassess when CI changes, a prerequisite merges, an upstream fix lands, an advisory
+changes, a risk review expires, milestone scope needs the work, or the scheduled
+review date arrives. Remove stale triage and reason labels and supersede the old
+current decision; return resumed work to `triage:active` and ordinary delivery
+without requiring founder approval. If a blocker still exists, update its evidence,
+resume condition, next action, review date and exact head. Do not use a triage label
+or elapsed time to clear a real security, compatibility, or required-review finding.
+
+`scripts/github/pr_triage.py` is an optional, manual validator for a JSON array of
+PR metadata on stdin. It checks exclusive status, reason labels, the marked owner
+comment, structured fields, head and review date; overdue and changed-head decisions
+are warnings for human reassessment. It neither fetches nor mutates GitHub state.
+It is not a CI, merge, acceptance, or release gate and does not monitor or schedule
+reviews. No recurring monitor is implied; only if requested, a session-bound Cron
+reminder may be used for at most seven days, and it is not persistent enforcement.
+
 ## Persistent problem budgets
 
 Track each underlying problem outside version control with a stable identifier,
