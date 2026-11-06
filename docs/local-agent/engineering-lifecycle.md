@@ -262,7 +262,7 @@ The accountable owner is `@Chisanan232`; listed Jira tasks retain delivery state
 
 | Finding / product exposure | Risk and treatment | Tracking / review or expiry | Release-blocking status |
 | --- | --- | --- | --- |
-| `pin-utils 0.1.0`, RUSTSEC-2026-0441, via `async-imap 0.11.3`; default tools dependency and optional email consumer. | P2 maintenance-only. Select a short scoped exception rather than require a fork solely to remove this warning; preserve the reviewed local backport as an alternative. | HORO-2447. Proposed review 2026-11-20 and exclusive UTC expiry 2026-12-06; not active or enforced. | Current Security gate remains FAIL. Exception implementation is host-blocked; no waiver or merge clearance. |
+| `pin-utils 0.1.0`, RUSTSEC-2026-0441, via `async-imap 0.11.3`; default tools dependency and optional email consumer. | P2 maintenance-only. Use the exact scoped exception in `.cargo/dependency-risk.toml`; preserve the reviewed local backport as an alternative rather than requiring a fork solely to remove this warning. | HORO-2447; owner `@Chisanan232`. Review 2026-11-20 and exclusive UTC expiry 2026-12-06. | Guarded local scanner checks qualify this candidate only; release treatment requires independent review, actual exact-head CI and normal integration. |
 | `lru 0.16.4`, RUSTSEC-2026-0253, optional Nostr cache; default runtime/channels resolve patched `0.18.4`. | P1 pending reachability analysis of panic/unwind prerequisites; this is unsoundness, not maintenance. The inherited ban permits listed Nostr direct wrappers; it is not a blanket rejection of vulnerable use. Preserve its scope checks, but expected parents alone do not prove safe use. | Existing Nostr upstream tracking #9602; reassess before enabling an affected supported profile. No new expiry/exception granted here. | Blocks an affected supported profile until remediated or effectively isolated. Default exclusion is not an all-features pass. |
 | `anymap2 0.13.0`, RUSTSEC-2026-0319, optional Matrix path included by wider distribution features. | P2 unmaintained-only. Prefer upstream migration; reassess inherited exact-ID ignore without adding a fork automatically. | Existing upstream tracking #11429; review before the next distribution candidate. No new or renewed exception here. | Existing ignore is not completion evidence; actual profile/security gates still apply. |
 | `rustls-pemfile 2.2.0`, RUSTSEC-2025-0134; direct TLS/default-runtime consumers as well as transitive/optional/dev edges. | P2 unmaintained-only. Plan migration to `rustls-pki-types`; the inherited rationale saying only transitive is incomplete. | Existing upstream migration tracking; review before the next release candidate. No new or renewed exception here. | Not a demonstrated exploit, but exposure must not be dismissed as optional-only. Existing checks still apply. |
@@ -281,8 +281,10 @@ For HORO-2447, compare alternatives independently of sunk effort:
   shipping it.
 - **C: expiring maintenance exception:** lowest current sustainable cost for this
   maintenance-only finding. It permits neither a new vulnerability ignore nor
-  supported-profile expansion. Implementation remains blocked; retain the failing
-  gate until an exact tested and reviewed exception qualifies. Retire any eventual
+  supported-profile expansion. The checked-in guard validates exact package and
+  parent identities, dates, scanner-ignore parity and the actual maintenance-only
+  RustSec record before both scanners use the same refreshed database snapshot.
+  A missing, changed, expired or review-due exception fails closed. Retire the
   exception when a verified upstream release or approved profile migration removes
   the dependency, or when new security evidence invalidates its justification.
 
