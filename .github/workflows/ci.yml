@@ -1400,7 +1400,11 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Install 32-bit system libraries
+        # This 20.3 MB multilib download exceeded two 120s attempts on the hosted mirror.
+        # Scope the measured install allowance here; refresh and other callers stay 120s.
         run: bash scripts/ci/apt_install.sh gcc-multilib
+        env:
+          ZEROCLAW_CI_APT_INSTALL_TIMEOUT_SECONDS: "240"
       - name: Ensure web/dist placeholder exists
         run: mkdir -p web/dist && touch web/dist/.gitkeep
       - name: Check (32-bit, no default features)
