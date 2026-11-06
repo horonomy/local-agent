@@ -23,6 +23,7 @@ DENIED_FINAL = "STDIO_NOT_GRANTED_FINAL"
 MODES = ("granted", "ungranted", "provider_timeout", "cancellation", "recovery")
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_OUTPUT_BYTES = 1024 * 1024
 
 
 def positive_deadline(value: str) -> float:
@@ -312,6 +313,12 @@ def observed_provider_timeout(
     )
 
 
+def bounded_final_marker(output: Path) -> bool:
+    with output.open("rb") as stream:
+        content = stream.read(MAX_OUTPUT_BYTES + 1)
+    return len(content) <= MAX_OUTPUT_BYTES and GRANTED_FINAL.encode() in content
+
+
 def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[str, Any]:
     if mode not in MODES or not math.isfinite(deadline) or deadline <= 0:
         return {"case": mode, "status": "invalid_input", "case_pass": False}
@@ -326,6 +333,7 @@ def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[st
     exited_at = None
     fixture_observed = False
     cancelled = False
+    output_limited = False
     result = {"case": mode, "status": "runner_error", "case_pass": False}
     with tempfile.TemporaryDirectory(prefix="local-agent-gj-") as directory:
         root = Path(directory)
@@ -454,6 +462,12 @@ def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[st
                 )
                 end = time.monotonic() + deadline
                 while time.monotonic() < end:
+                    if any(
+                        os.fstat(stream.fileno()).st_size > MAX_OUTPUT_BYTES
+                        for stream in (out, err)
+                    ):
+                        output_limited = True
+                        break
                     pid_file = root / "fixture.pid"
                     if pid_file.is_file():
                         try:
@@ -480,9 +494,14 @@ def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[st
                         break
                     time.sleep(0.02)
                 cleanup = terminate_process_group(proc) if not cancelled else cleanup
+                output_limited |= any(
+                    os.fstat(stream.fileno()).st_size > MAX_OUTPUT_BYTES
+                    for stream in (out, err)
+                )
             common = (
                 cleanup.parent_reaped
                 and cleanup.group_clean
+                and not output_limited
                 and not state.auth_seen
                 and not state.bad_request
             )
@@ -493,7 +512,7 @@ def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[st
                     and state.requests == 2
                     and state.advertised
                     and state.returned
-                    and GRANTED_FINAL.encode() in (root / "stdout.log").read_bytes()
+                    and bounded_final_marker(root / "stdout.log")
                 )
             elif mode == "recovery":
                 passed = (
@@ -504,7 +523,7 @@ def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[st
                     and state.fail_advertised
                     and state.recovery_observed
                     and fixture_observed
-                    and GRANTED_FINAL.encode() in (root / "stdout.log").read_bytes()
+                    and bounded_final_marker(root / "stdout.log")
                 )
             elif mode == "ungranted":
                 passed = (
@@ -537,7 +556,9 @@ def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[st
                 )
             result = {
                 "case": mode,
-                "status": "passed" if passed else "failed",
+                "status": "output_limit"
+                if output_limited
+                else ("passed" if passed else "failed"),
                 "case_pass": bool(passed),
                 "cli_exit_code": code,
                 "provider_requests": state.requests,

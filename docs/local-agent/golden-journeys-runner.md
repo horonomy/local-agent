@@ -14,6 +14,8 @@ python3 scripts/local_agent/golden_journey.py \
 
 Each case gets an isolated temporary HOME, workspace, config directory, and stdout/stderr files. The child receives a fixed environment without inherited API keys or proxy variables. Temporary files are deleted after the case; raw CLI output, configuration, and provider payloads are not printed. The sole output is sanitized JSON with case status, booleans, exit codes, and counts. A failing case makes the runner exit nonzero. `--deadline` is a positive finite number of seconds per case.
 
+The runner observes a 1 MiB threshold separately for stdout and stderr in its process-monitor loop and after owned-process cleanup. Either stream exceeding it fails the case with `output_limit` and triggers cleanup. This is a polled file-size limit, not a strict disk-write ceiling: a fast child can overshoot between observations. Final-marker inspection reads at most 1 MiB plus one byte and rejects oversized output. Cleanup failures remain failures even after an output-limit event.
+
 ## Cases
 
 - `granted`: requires two provider requests, advertised `fixture__echo`, the exact echoed marker returned through the real stdio fixture, and the normal final marker.
@@ -30,4 +32,4 @@ The timeout and cancellation cases are bounded failure/cleanup probes, not succe
 python3 -m unittest discover -s scripts/local_agent -p 'test_golden_journey.py' -v
 ```
 
-These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Twelve unit tests passed locally; this does not establish the five integration cases or Windows compatibility.
+These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, bounded marker reads, stdout/stderr overflow, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Fourteen unit tests passed locally; this does not establish the five integration cases or Windows compatibility.
