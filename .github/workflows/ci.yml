@@ -1492,6 +1492,8 @@ jobs:
         run: bash scripts/ci/apt_install.sh mold expect python3
       - name: Install cargo-nextest
         run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin
+      - name: Verify PowerShell runtime health
+        run: bash scripts/ci/powershell_preflight.sh
       - name: Run tests
         run: cargo nextest run --locked --workspace --exclude zeroclaw-desktop
         env:
