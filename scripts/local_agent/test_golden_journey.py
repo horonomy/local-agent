@@ -169,6 +169,16 @@ class RunnerUnitTests(unittest.TestCase):
         self.assertFalse(runner.observed_provider_timeout(1, 10, 20, 1, 20))
         self.assertTrue(runner.observed_provider_timeout(1, 10, 11.1, 1, 20))
 
+    def test_final_marker_rejects_output_over_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "stdout.log"
+            marker = runner.GRANTED_FINAL.encode()
+            output.write_bytes(marker + b"x" * (runner.MAX_OUTPUT_BYTES - len(marker)))
+            self.assertTrue(runner.bounded_final_marker(output))
+            with output.open("ab") as stream:
+                stream.write(b"x")
+            self.assertFalse(runner.bounded_final_marker(output))
+
     def test_invalid_case_or_budget_fails_without_spawning(self) -> None:
         for mode, seconds in (
             ("not-a-case", 1),
@@ -184,6 +194,26 @@ class RunnerUnitTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "posix", "owned process-group checks require POSIX")
 class ProcessCleanupUnitTests(unittest.TestCase):
+    def test_output_overflow_fails_and_cleans_owned_synthetic_process(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for output in ("stdout", "stderr"):
+                with self.subTest(output=output):
+                    child = root / f"{output}.py"
+                    child.write_text(
+                        f"#!{sys.executable}\n"
+                        "import sys, time\n"
+                        f"sys.{output}.buffer.write(b'x' * {runner.MAX_OUTPUT_BYTES + 1})\n"
+                        f"sys.{output}.buffer.flush()\n"
+                        "time.sleep(30)\n"
+                    )
+                    child.chmod(0o700)
+                    outcome = runner.run_case("granted", child, child, 3)
+                    self.assertEqual(outcome["status"], "output_limit")
+                    self.assertFalse(outcome["case_pass"])
+                    self.assertTrue(outcome["children_cleaned"])
+                    self.assertTrue(outcome["term_sent"])
+
     def test_cleanup_after_parent_exits_reaches_term_resistant_child(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ready = Path(directory) / "ready"
