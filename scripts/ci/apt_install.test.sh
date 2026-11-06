@@ -117,7 +117,12 @@ EOF
         "${fixture}/bin/apt-get" "${fixture}/bin/sleep"
 }
 
-run_helper() {
+run_helper() (
+    if [[ ${install_timeout+x} == x ]]; then
+        export ZEROCLAW_CI_APT_INSTALL_TIMEOUT_SECONDS="$install_timeout"
+    else
+        unset ZEROCLAW_CI_APT_INSTALL_TIMEOUT_SECONDS
+    fi
     PATH="${fixture}/bin:${PATH}" \
         ZEROCLAW_CI_APT_SOURCES_DIR="${fixture}/sources" \
         ZEROCLAW_APT_TEST_CALLS="$calls" \
@@ -127,7 +132,7 @@ run_helper() {
         ZEROCLAW_APT_TEST_TIMEOUT_PHASE="${timeout_phase:-}" \
         ZEROCLAW_APT_TEST_TIMEOUT_ATTEMPTS="${timeout_attempts:-0}" \
         bash "$helper" "$@" > "$output" 2>&1
-}
+)
 
 new_fixture success
 run_helper libudev-dev ripgrep
@@ -192,5 +197,27 @@ assert_call_count "$calls" 2 'timeout|--signal=TERM|--kill-after=10s|120s|apt-ge
 assert_call_count "$calls" 0 'apt-get|update|-qq'
 assert_contains "$output" 'apt refresh: failed after 2 attempts (last status: 124)'
 unset timeout_phase timeout_attempts
+
+new_fixture scoped_install_budget
+install_timeout=240
+timeout_phase=install
+timeout_attempts=1
+run_helper gcc-multilib
+assert_call_count "$calls" 1 'timeout|--signal=TERM|--kill-after=10s|120s|apt-get|update|-qq'
+assert_call_count "$calls" 2 'timeout|--signal=TERM|--kill-after=10s|240s|apt-get|install|-y|gcc-multilib'
+assert_contains "$output" 'apt install: attempt 2/2 succeeded'
+unset install_timeout timeout_phase timeout_attempts
+
+for invalid_budget in 0 -1 abc 241 999999999999999999999; do
+    new_fixture "invalid-budget-${invalid_budget}"
+    install_timeout="$invalid_budget"
+    set +e
+    run_helper gcc-multilib
+    status=$?
+    set -e
+    [[ "$status" -eq 2 ]] || fail "invalid install budget should fail with 2"
+    [[ ! -s "$calls" ]] || fail "invalid budget must be rejected before sudo or apt"
+done
+unset install_timeout
 
 echo "apt install timeout/retry tests: pass"
