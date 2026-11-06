@@ -1862,10 +1862,18 @@ jobs:
             | tar zxf - -C ~/.cargo/bin --strip-components=1
       - name: Validate scoped lru advisory exception
         run: python3 scripts/ci/lru_advisory_scope_test.py
-      - name: Check licenses, sources, and advisories
-        run: cargo deny check
+      - name: Validate maintenance exception guard
+        run: python3 -m unittest discover -s scripts/ci -p 'dependency_risk_guard_test.py'
       - name: Lockfile integrity
         run: cargo verify-project && cargo fetch --locked
+      - name: Refresh and validate maintenance advisory scope
+        shell: bash
+        run: |
+          cargo deny fetch db
+          advisory_db=$(python3 scripts/ci/dependency_risk_guard.py --db-root "${CARGO_HOME:-$HOME/.cargo}/advisory-dbs")
+          printf 'LOCAL_AGENT_ADVISORY_DB=%s\n' "$advisory_db" >> "$GITHUB_ENV"
+      - name: Check licenses, sources, and advisories
+        run: cargo deny --offline --locked check
 
       - name: Validate YAML workflow syntax
         run: |
@@ -1891,7 +1899,7 @@ jobs:
           curl -LsSf https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz \
             | tar zxf - -C ~/.cargo/bin --strip-components=1
       - name: Run cargo audit (RustSec advisory database)
-        run: cargo audit
+        run: cargo audit --no-fetch --db "$LOCAL_AGENT_ADVISORY_DB"
 
   # Detect non-Rust job families a PR touches,
   # so unrelated PRs do not pay for them. Cheap and always-on; forces every
