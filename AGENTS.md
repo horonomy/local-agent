@@ -22,6 +22,9 @@ licenses, notices, source attribution and historical decisions.
 - Read the owning module, wiring, adjacent tests and relevant documentation before
   editing. Use the [architecture map](docs/book/src/contributing/architecture-map.md)
   to select references, not as a requirement to read the entire book.
+- For pull-request triage states, reasons, review triggers and the optional
+  report-only JSON validator, follow the [Local Agent engineering lifecycle](docs/local-agent/engineering-lifecycle.md#pull-request-triage).
+  Triage is manual guidance only; it adds no CI, merge, acceptance or release gate.
 
 ## Product and architecture
 
