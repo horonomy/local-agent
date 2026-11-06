@@ -1,0 +1,24 @@
+# Scoped maintenance-risk decision; enforced by scripts/ci/dependency_risk_guard.py.
+# Cargo Deny 0.19.9/0.20.2 ignores have no native expiry or package scope.
+[exception]
+advisory = "RUSTSEC-2026-0441"
+kind = "unmaintained"
+priority = "P2"
+crate = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+parent = "async-imap"
+parent_version = "0.11.3"
+parent_source = "registry+https://github.com/rust-lang/crates.io-index"
+parent_checksum = "9a6728e0f7931b36d725ac234fcb02539e9f7888dbeaaa8a18d9ea5792181570"
+owner = "@Chisanan232"
+approved = 2026-11-06
+review = 2026-11-20
+expiry = 2026-12-06
+tracking = "https://lightning-dust-mite.atlassian.net/browse/HORO-2447"
+upstream = "https://github.com/async-email/async-imap"
+profiles = "Current default tools use async-imap; optional channel-email also consumes it. Minimal Runtime pruning has not yet removed the tools edge."
+justification = "This exact advisory reports unmaintained code, not a confirmed exploit or unsoundness defect. A short exception avoids an unnecessary maintained fork while retaining compatibility and the reviewed backport alternative."
+controls = "Only the exact registry packages, checksums and IMAP parent are accepted. Date and RustSec-kind guards run before both scanners; other advisory IDs, source, license, integrity and actual CI gates remain unchanged. No supported profile expansion is approved."
+retirement = "Remove both ignores and this exception after verified upstream removal or approved profile migration removes pin-utils. New security evidence invalidates this maintenance-only decision; review or expiry reaching its UTC date fails closed."
