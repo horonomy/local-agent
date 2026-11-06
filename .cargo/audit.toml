@@ -3,6 +3,9 @@
 
 [advisories]
 ignore = [
+    # Exact maintenance-only exception; dates/source/parent and actual RustSec kind
+    # are enforced by scripts/ci/dependency_risk_guard.py before both scanners.
+    "RUSTSEC-2026-0441",  # HORO-2447; .cargo/dependency-risk.toml
     # ── Live in both audit.toml and deny.toml ──────────────────────────────
     # Tracking: new ignores need a tracking issue URL reference.
     # Each entry below summarizes the corresponding rationale in deny.toml.

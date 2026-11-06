@@ -8,3 +8,12 @@ Each agent runs under a risk profile and a runtime profile it references; see [A
 - [Autonomy levels](./autonomy.md): the coarse-grained ReadOnly / Supervised / Full knob.
 - [Sandboxing](./sandboxing.md): OS-level isolation backends per platform.
 - [Tool receipts](./tool-receipts.md): HMAC evidence for successful tool results, passed back in-band with the conversation.
+
+## Archive integrity
+
+Plugin, skill-discovery and ZIP updater extraction validate local-file headers
+against the central directory before writing extracted entries. Inconsistent
+filenames, defined header metadata, duplicate names or overlapping entries are
+refused. Existing
+path confinement, archive size and artifact-approval checks still apply; this
+validation does not authorize an archive or claim arbitrary content is safe.
