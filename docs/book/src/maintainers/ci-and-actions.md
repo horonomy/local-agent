@@ -79,7 +79,17 @@ For `scoped`, the Windows job passes explicit `-p` arguments to `cargo nextest`;
 
 ### Scheduled Platform Tests (`platform-tests.yml`)
 
-Runs `cargo nextest run --locked --workspace --exclude zeroclaw-desktop --no-fail-fast` on `macos-15` and `windows-latest` after a cheap Linux formatting check. This nightly full-workspace run is the backstop for label-selected Windows coverage and inventories failures with `--no-fail-fast`. The matrix runs for:
+Runs `cargo nextest run --locked --workspace --exclude zeroclaw-desktop --no-fail-fast` on `macos-15` and `windows-latest` after a cheap Linux formatting check. This nightly full-workspace run is the backstop for label-selected Windows coverage and inventories failures with `--no-fail-fast`.
+
+The macOS job sets `CARGO_PROFILE_TEST_DEBUG=0` to reduce compilation and linking
+work within its unchanged 45-minute budget. Debug assertions, optimization level,
+and the full test selection remain unchanged; backtraces have less source detail.
+Windows retains test debug level 2 and its existing 60-minute budget. The override
+is job-scoped so the pinned Rust cache action hashes the effective Cargo profile;
+only trusted `master` runs may save caches. A cold cache still compiles and runs
+the complete suite, and a timeout is not a pass.
+
+The matrix runs for:
 
 - pull requests that change `platform-tests.yml` itself;
 - manual dispatches; and
