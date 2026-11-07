@@ -115,6 +115,18 @@ Revalidate if that branch moved. Use merge commits through the required reviewed
 process and verify the resulting commit.
 Do not start the next milestone from an unpromoted or broken predecessor.
 
+A replacement merged into a milestone branch is not proof of integration into `master`.
+For the verified Actions supersession, original PR #5 targeted `master`;
+replacement PR #25 merged into `release/mvp-0.0` as
+`e99742c67220373f059b58255a62db7421e7a24b`. Closing the duplicate preserves an
+explicit promotion obligation: retain all nine equivalent Action updates,
+102 full-SHA Action replacements across 17 workflow files, and their architecture
+assertions. During release promotion, compare that reviewed pin set with the
+proposed combined tree and verify the resulting `master` tree before declaring
+promotion complete. A conflict resolution must not silently restore older pins;
+review and validate any deliberate later pin update instead. This does not
+authorize an early default-branch push, tag or public release.
+
 ### Pull-request triage
 
 PR triage is a manual routing aid; it does not change acceptance criteria, risk
