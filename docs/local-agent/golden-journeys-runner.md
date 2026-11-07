@@ -24,7 +24,11 @@ The runner observes a 1 MiB threshold separately for stdout and stderr in its pr
 - `provider_timeout`: grants the fixture, completes a correlated echo call, then holds the second provider request. Requires a naturally observed positive failure exit after the configured provider-timeout interval but before the outer deadline, plus an observed child PID and clean process group. Timing alone does not prove the runtime's diagnostic cause.
 - `cancellation`: grants the fixture and waits for the exact correlated echo result on the second provider request and the fixture's self-recorded PID in the owned process group, then sends TERM with KILL fallback.
 
-The timeout and cancellation cases are bounded failure/cleanup probes, not successful user journeys. Cancellation tests harness process termination, not graceful in-product cancellation. The runner has unit coverage only; updated actual-binary runs remain blocked by tool-scope permission. Earlier execution of a different runner revision is not proof that this version passes.
+The timeout and cancellation cases are bounded failure/cleanup probes, not successful user journeys. Cancellation tests harness process termination, not graceful in-product cancellation.
+
+All five cases passed locally against the pristine pinned upstream baseline binary, with provider request counts of 2 (granted), 1 (ungranted), 2 (timeout), 2 (cancellation), and 3 (recovery). Every owned process group was cleaned; the recovery case observed the exact correlated model-facing MCP error before the corrected echo and final marker. The initial recovery run failed because the harness expected the raw fixture error rather than the runtime's exact `Error: MCP` envelope; that failed result is retained separately from the corrected run.
+
+This is one synthetic-provider, POSIX/macOS baseline observation, not verification of the derivative release candidate, universal MCP compatibility, all supported platforms, or graceful product cancellation. No external model or real credential was used; raw execution files remain local.
 
 ## Unit tests
 
@@ -32,4 +36,4 @@ The timeout and cancellation cases are bounded failure/cleanup probes, not succe
 python3 -m unittest discover -s scripts/local_agent -p 'test_golden_journey.py' -v
 ```
 
-These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, bounded marker reads, stdout/stderr overflow including writes during cleanup, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Fifteen unit tests passed locally; this does not establish the five integration cases or Windows compatibility.
+These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, bounded marker reads, stdout/stderr overflow including writes during cleanup, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Sixteen unit tests passed locally; the synthetic child-process tests are separate from the five actual-baseline observations above and do not establish Windows compatibility.

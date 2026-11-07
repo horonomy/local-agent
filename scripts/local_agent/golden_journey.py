@@ -120,6 +120,11 @@ def is_fixture_failure(tool_call_id: Any, content: Any) -> bool:
     if tool_call_id != "gj_fail":
         return False
     if isinstance(content, str):
+        if (
+            content
+            == "Error: MCP `fail` (server `fixture`) returned isError: synthetic tool failure"
+        ):
+            return True
         try:
             content = json.loads(content)
         except ValueError:
