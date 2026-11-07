@@ -1046,7 +1046,7 @@ capabilities = ["tool"]
         header.extend_from_slice(&0_u32.to_le_bytes()); // CRC-32
         header.extend_from_slice(&0_u32.to_le_bytes()); // compressed size
         header.extend_from_slice(&0_u32.to_le_bytes()); // uncompressed size
-        header.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        header.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
         header.extend_from_slice(&0_u16.to_le_bytes()); // extra length
         header.extend_from_slice(name);
         bytes.splice(
@@ -1054,8 +1054,11 @@ capabilities = ["tool"]
             header.iter().copied(),
         );
         let eocd = eocd + header.len();
-        bytes[eocd + 16..eocd + 20]
-            .copy_from_slice(&((central_directory_offset + header.len()) as u32).to_le_bytes());
+        bytes[eocd + 16..eocd + 20].copy_from_slice(
+            &u32::try_from(central_directory_offset + header.len())
+                .unwrap()
+                .to_le_bytes(),
+        );
         bytes
     }
 
