@@ -8618,22 +8618,26 @@ path = "{trigger_path}"
 
             shutdown_tx.send(true).unwrap();
             let released = tokio::time::timeout(std::time::Duration::from_millis(150), async {
-                loop {
-                    match tokio::net::TcpStream::connect(addr).await {
-                        Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => break,
-                        _ => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
+                let listener = loop {
+                    match tokio::net::TcpListener::bind(addr).await {
+                        Ok(listener) => break listener,
+                        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        }
+                        Err(e) => panic!("{label}: failed to bind the released gateway port: {e}"),
                     }
-                }
+                };
+                assert!(
+                    !server.is_finished(),
+                    "{label}: the drain still holds the event stream"
+                );
+                listener
             })
-            .await;
-            assert!(
-                released.is_ok(),
-                "{label}: the stopped gateway still held its port while it drained"
-            );
-            assert!(
-                !server.is_finished(),
-                "{label}: the drain still holds the event stream"
-            );
+            .await
+            .unwrap_or_else(|_| {
+                panic!("{label}: the stopped gateway still held its port while it drained")
+            });
+            drop(released);
             tokio::time::timeout(std::time::Duration::from_secs(2), server)
                 .await
                 .expect("the gateway returns")
