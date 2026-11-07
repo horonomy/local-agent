@@ -106,6 +106,28 @@ class RunnerUnitTests(unittest.TestCase):
             final["choices"][0]["message"]["content"], runner.GRANTED_FINAL
         )
 
+    def test_recovery_accepts_exact_model_error_but_rejects_changed_identity(
+        self,
+    ) -> None:
+        rendered = "Error: MCP `fail` (server `fixture`) returned isError: synthetic tool failure"
+        failure = {"role": "tool", "tool_call_id": "gj_fail", "content": rendered}
+        corrected = runner.provider_reply({"messages": [failure]}, True, recovery=True)
+        self.assertEqual(
+            corrected["choices"][0]["message"]["tool_calls"][0]["id"], "gj_mcp"
+        )
+        success = {"role": "tool", "tool_call_id": "gj_mcp", "content": runner.MARKER}
+        self.assertTrue(runner.recovery_completed([failure, success]))
+        for content in (
+            rendered + "extra",
+            rendered.replace("`fail`", "`other`"),
+            rendered.replace("`fixture`", "`other`"),
+            rendered.replace("synthetic tool failure", "different failure"),
+        ):
+            with self.subTest(content=content):
+                self.assertFalse(runner.is_fixture_failure("gj_fail", content))
+        self.assertFalse(runner.is_fixture_failure("other", rendered))
+        self.assertFalse(runner.recovery_completed([success, failure]))
+
     def test_recovery_rejects_uncorrelated_failure_or_reversed_results(self) -> None:
         success = {
             "role": "tool",
