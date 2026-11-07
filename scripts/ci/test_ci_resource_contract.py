@@ -200,6 +200,28 @@ class CiResourceContractTests(unittest.TestCase):
             )
             self.assertNotEqual(missing.returncode, 0)
 
+    def test_platform_tests_install_nextest_in_existing_cargo_bin(self) -> None:
+        workflow = (ROOT / ".github/workflows/platform-tests.yml").read_text(
+            encoding="utf-8"
+        )
+        install = workflow.split("      - name: Install cargo-nextest\n", 1)[1].split(
+            "      - name: Run tests\n", 1
+        )[0]
+        self.assertLess(
+            install.index('mkdir -p "$HOME/.cargo/bin"'), install.index("curl -LsSf")
+        )
+        self.assertIn(
+            'curl -LsSf "https://get.nexte.st/latest/${{ matrix.nextest-platform }}" '
+            '| tar zxf - -C "$HOME/.cargo/bin"',
+            install,
+        )
+        self.assertIn(
+            "cargo nextest run --locked --workspace --exclude zeroclaw-desktop --no-fail-fast",
+            workflow,
+        )
+        self.assertIn("          - name: macOS\n", workflow)
+        self.assertIn("          - name: Windows\n", workflow)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
         self.assertNotIn("blacksmith", self.landlock)
