@@ -4,8 +4,11 @@ Open or update a GitHub Pull Request for ZeroClaw. Handles creating new PRs with
 
 ## Local Agent execution scope
 
-For `horonomy/local-agent`, use root `AGENTS.md` and the single-maintainer
-contract in `docs/local-agent/engineering-lifecycle.md`. This section overrides
+For `horonomy/local-agent`, no human PR review is required. Use root `AGENTS.md`
+and the single-maintainer contract in `docs/local-agent/engineering-lifecycle.md`.
+Separate Claude Code or Codex technical review remains required; follow that
+canonical contract to reconcile any active human-approval rule through owner
+administration without bypassing checks. This section overrides
 inherited upstream routing and authorship instructions below: resolve the actual
 milestone base (`release/mvp-X.0` for task PRs), authenticated actor and approved
 destination, preserve required tool-authorship metadata, and never write to

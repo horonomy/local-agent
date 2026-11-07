@@ -21,34 +21,37 @@ and the applicable required checks.
 
 ### Single-maintainer review and integration
 
-Local Agent currently uses a founder-approved single-maintainer model.
-`@Chisanan232` owns the repository and accountable integration decisions.
-`.github/CODEOWNERS` routes consultation to that actual owner; it does not appoint
-ZeroClaw maintainers, require another GitHub account, or create a human approval.
-Upstream Core Team votes, reviewer counts and exception timers do not apply here.
+Local Agent uses the founder-approved single-maintainer model.
+Zero human PR reviews are required by project policy. There is no non-author
+human approval, upstream reviewer quorum or human-review exception timer.
+`@Chisanan232` owns accountable integration; CODEOWNERS identifies ownership,
+not an additional reviewer or approval prerequisite. Do not ask the founder to nominate
+reviewers, recruit collaborators or reconfirm this settled review policy.
 
-Every substantive change requires independent technical review by a Claude Code
-or Codex reviewer distinct from the implementation session. Record the reviewer,
-exact candidate commit, review scope, findings and their resolution. Security,
-regression and compatibility consequences determine review depth. An AI review is
-not a GitHub human approval; do not submit it as an approval by a separate human,
-impersonate a reviewer or fabricate a review state.
+Every approved development PR requires independent technical review by a
+separate Claude Code or Codex review agent, distinct from its implementation
+session. Record the exact candidate, review scope, findings and resolution.
+Security, regression and compatibility consequences determine review depth.
+An AI technical review is not a GitHub human approval: never impersonate a human
+reviewer or fabricate a GitHub approval state.
 
-For an owner-authored PR, the owner-review and integration workflow is:
+The autonomous owner-authorized integration workflow is:
 
-1. Reconcile the approved acceptance criteria, diff, provenance and rollback.
-2. Obtain independent technical review and resolve all substantive findings.
-3. Verify the exact candidate's applicable CI, security, integration and documented
-   validation gates, mergeability, branch currency and unresolved review threads.
-4. Inspect actual branch protection and repository rules before merging. Honor
-   every configured approval requirement. Do not bypass an active requirement:
-   if a rule requires a separate non-author human approval, reconcile that policy
-   through explicitly authorized repository administration before integration;
-   neither ownership nor this document makes it passed.
-5. Record the accountable owner integration decision and the evidence above,
-   merge using a normal merge commit, and verify the resulting commit. Routine
-   integration may be executed under the owner's standing authorization without
-   inventing a separate human review or repeated routine founder decisions.
+1. Reconcile acceptance criteria, source changes, provenance and rollback.
+2. Obtain independent technical review and fix all blocking findings. Repeat
+   focused tests and independent review until the current revision is acceptable.
+3. Verify actual exact-candidate CI, security, product and release checks, branch
+   currency, mergeability and unresolved findings or review threads.
+4. Inspect live branch protection and rulesets. Do not bypass an active requirement.
+   If a rule requires human approval, use the authorized repository-owner
+   administration process to set that requirement to zero human approvals while
+   preserving required status checks and other applicable security controls.
+   Verify the resulting rules before merging; never claim an approval was obtained.
+   If administration is denied, retain the real external blocker without inventing
+   a project human-review requirement or using an administrator bypass.
+5. Record accountable integration evidence, merge normally with a merge commit,
+   verify the resulting commit, and continue the next approved task. Routine
+   integration requires no additional founder or human-review decision.
 
 Inspect live approval rules at integration and keep administrative inspection
 evidence local. A prior inspection is not a permanent exemption, approval or
@@ -100,10 +103,10 @@ Ticket PR titles use `[HORO-XXXX] <gitmoji> <scope>: <summary>`; their base is t
 milestone release branch. The title validator also retains scoped Conventional
 Commits compatibility for existing automation and dependency updates.
 Include purpose, scope, acceptance criteria, actual tests, risks and limitations.
-Independent technical review and accountable owner integration follow the
-single-maintainer contract above. They never substitute for a separate human
-approval actually required by live repository rules. Never bypass mandatory
-checks or unresolved reviews.
+Independent technical review and accountable integration follow the zero-human
+review contract above. Reconcile any active GitHub human-approval rule through
+owner administration as specified there; no approval may be bypassed or fabricated.
+Never bypass mandatory checks or unresolved blocking findings.
 
 After all mandatory acceptance, cumulative Golden Journeys, security, privacy,
 licensing and supported-platform gates pass against an exact release-branch SHA,
@@ -111,6 +114,82 @@ prepare a separate release PR targeting the latest verified default-branch commi
 Revalidate if that branch moved. Use merge commits through the required reviewed
 process and verify the resulting commit.
 Do not start the next milestone from an unpromoted or broken predecessor.
+
+A replacement merged into a milestone branch is not proof of integration into `master`.
+For the verified Actions supersession, original PR #5 targeted `master`;
+replacement PR #25 merged into `release/mvp-0.0` as
+`e99742c67220373f059b58255a62db7421e7a24b`. Closing the duplicate preserves an
+explicit promotion obligation: retain all nine equivalent Action updates,
+102 full-SHA Action replacements across 17 workflow files, and their architecture
+assertions. During release promotion, compare that reviewed pin set with the
+proposed combined tree and verify the resulting `master` tree before declaring
+promotion complete. A conflict resolution must not silently restore older pins;
+review and validate any deliberate later pin update instead. This does not
+authorize an early default-branch push, tag or public release.
+
+### Pull-request triage
+
+PR triage is a manual routing aid; it does not change acceptance criteria, risk
+classification, required checks, review depth, or release readiness. Preserve all
+existing category, size, priority, dependency labels and discussion history. Exactly
+one of these mutually exclusive triage labels belongs on each open PR:
+
+| Label | Meaning |
+| --- | --- |
+| `triage:active` | Selected for current implementation, validation, or review; not a claim that checks are green or the PR is merge-ready. |
+| `triage:deferred` | Valid work intentionally waiting for a later review or capacity window. |
+| `triage:blocked` | Delivery is waiting on a named external, CI, authorization, compatibility, security-review, or prerequisite condition. |
+| `triage:needs-assessment` | Scope, fit, or risk needs a bounded assessment before choosing active or parked delivery. |
+
+Deferred and blocked PRs also carry one or more reason labels, and no other triage
+state does. The supported values are `reason:low-priority`, `reason:out-of-scope`,
+`reason:upstream`, `reason:prerequisite`, `reason:ci`, `reason:authorization`,
+`reason:compatibility`, and `reason:security-review`. Reason labels classify the
+current decision; they are not risk acceptance, a waiver, or a replacement for
+canonical security/risk policy. A P2 classification alone is not an indefinite
+blocker. Keep a genuine vulnerability or unsoundness blocked while it remains
+unresolved.
+
+For `triage:deferred` and `triage:blocked`, keep one updatable structured decision
+in a comment authored by `@Chisanan232`, current for the exact head SHA. Add the
+marker and heading below; update this decision in place rather than posting
+competing current decisions. Preserve other comments and history. Use all fields
+shown; comma-separated reasons must exactly match the PR's `reason:*` labels:
+
+```text
+<!-- local-agent-triage -->
+## Triage Decision
+- Status: triage:deferred
+- Reason: reason:low-priority
+- Evidence: Current evidence and why this disposition fits.
+- Resume condition: Concrete event or condition that returns this to delivery.
+- Next review date: 2026-11-20
+- Related Jira / PR dependencies: Jira keys and PR numbers, or None.
+- Next action: The next owner action, or None.
+- Head: <full 40-character head commit SHA>
+```
+
+The status in the comment must match the sole triage status label. Review dates use
+ISO `YYYY-MM-DD`; ordinary deferrals start with a 14-day review window. Set an
+earlier date for a security concern when its facts warrant it, and state that basis
+in the evidence. A missing review date, a changed head, or an elapsed review date
+requires a fresh decision, not silent indefinite parking.
+
+Reassess when CI changes, a prerequisite merges, an upstream fix lands, an advisory
+changes, a risk review expires, milestone scope needs the work, or the scheduled
+review date arrives. Remove stale triage and reason labels and supersede the old
+current decision; return resumed work to `triage:active` and ordinary delivery
+without requiring founder approval. If a blocker still exists, update its evidence,
+resume condition, next action, review date and exact head. Do not use a triage label
+or elapsed time to clear a real security, compatibility, or required-review finding.
+
+`scripts/github/pr_triage.py` is an optional, manual validator for a JSON array of
+PR metadata on stdin. It checks exclusive status, reason labels, the marked owner
+comment, structured fields, head and review date; overdue and changed-head decisions
+are warnings for human reassessment. It neither fetches nor mutates GitHub state.
+It is not a CI, merge, acceptance, or release gate and does not monitor or schedule
+reviews. No recurring monitor is implied; only if requested, a session-bound Cron
+reminder may be used for at most seven days, and it is not persistent enforcement.
 
 ## Persistent problem budgets
 
@@ -146,6 +225,27 @@ The problem ledger is the accounting source of truth. A helper, reminder or
 scheduler must honor it but is not proof of installed enforcement. Verify
 restart, cross-agent persistence, attempt/time limits, blocked dependencies and
 successful recovery before claiming automated policy enforcement.
+
+The explicit POSIX accounting helper is `scripts/local_agent/problem_ledger.py`.
+Participating sessions and subagents must use the same canonical ledger path outside
+Git. Its `create`, `result`, `probe`, and `check` commands record explicit outcomes
+and active seconds; they do not automatically intercept work or authenticate an owner.
+A missing or invalid problem fails closed rather than inferring a fresh allowance.
+
+After an exhausted problem has verified recovery, dependent work remains blocked
+until an authorized owner supplies an actual decision and verification reference:
+
+```sh
+python3.13 scripts/local_agent/problem_ledger.py resolve <ledger> <problem-id> --owner-decision "<decision>" --verification "<verification>"
+python3.13 scripts/local_agent/problem_ledger.py check <ledger> <problem-id> --dependent
+```
+
+Resolution appends evidence without resetting counters, removing history, clearing
+the historical circuit, or authorizing another remediation attempt. Recovery must
+follow the latest opening; recovery alone never unblocks dependent work. Explicit
+reopening revokes resolution. Exhausted budgets still reject additional failed
+cycles or active remediation seconds. Decision text is an audit attestation, not
+identity proof or permission to bypass an enforced host denial.
 
 ## Validation and reporting
 
@@ -200,6 +300,93 @@ Use PASS, FAIL, BLOCKED, NOT RUN and NOT APPLICABLE accurately. Record concise
 sanitized Jira updates with test counts, source or merge identifiers, limitations
 and acceptance decisions. Close work only when its evidence and required workflow
 support completion. A partial gate is not release readiness.
+
+## Dependency risk governance
+
+The founder-approved dependency strategy (HORO-2447, 2026-11-06) is risk-based,
+not a zero-warning requirement. Keep vulnerability detection, Cargo Deny,
+lockfile integrity, license compliance and dependency-source restrictions. Do not
+silence all advisories, disable scanners, or fork/vendor an upstream library merely
+to remove a maintenance warning.
+
+| Priority | Finding | Required disposition |
+| --- | --- | --- |
+| P0 | Confirmed critical vulnerability, reachable memory unsoundness, serious security exposure or exploitation path. | Remediate or demonstrate effective isolation before releasing the affected profile. |
+| P1 | Confirmed vulnerability with limited exposure or specific exploitation prerequisites. | Assess the actual prerequisites and supported profiles; applicable exploitable or memory-safety defects still block release until remediated or effectively isolated. |
+| P2 | Unmaintained, unsupported or end-of-life dependency without a known exploitable vulnerability. | Prefer sustainable upstream remediation or profile isolation; consider an exact, documented, expiring maintenance-risk exception. |
+| P3 | Routine update or noncritical compatibility/maintenance work. | Validate affected consumers and integrate at normal gates without manufacturing a security emergency. |
+
+`Unmaintained`, `Vulnerable` and `Unsound` are not equivalent. An informational
+unsoundness advisory still requires memory-safety analysis; a low attack likelihood
+is not proof of isolation. Assess source/provenance, the locked dependency path,
+actual feature selection, reachable APIs, attacker influence and ongoing remediation
+cost. Separate Minimal Runtime, supported optional extensions, build/test tools and
+legacy ZeroClaw channels. A package in Cargo.lock need not ship in every profile;
+a disabled channel does not remove an independent tools dependency. Preserve
+practical ZeroClaw Skills, Plugins, Tools and MCP interoperability and keep AASM
+optional. The existing HORO-2371/HORO-2391 compatibility contract remains binding.
+
+### Maintenance exceptions
+
+Every new maintenance exception must identify:
+
+- Exact advisory, crate, version, source and dependency origin.
+- Affected supported profiles, actual exposure, security justification and
+  compensating controls; state what has not been verified.
+- Accountable owner, approval, expiry and review dates.
+- Upstream tracking, replacement/removal conditions and the existing Jira task.
+
+Validate the actual scanner version and configuration schema before editing.
+Release CI currently pins Cargo Deny 0.19.9; local verification used 0.20.2.
+Their tagged advisory configuration supports an ignore ID and reason, not a native
+expiry or package-version scope. Newer online documentation is not evidence that
+those versions accept additional fields. An ID-wide ignore therefore needs a
+separately tested fail-closed date and locked-graph scope check, enforced before
+both Cargo Deny and cargo-audit. An expiry written only in prose is not enforcement.
+Keep the scanners and existing license, source, integrity and vulnerability checks.
+Do not treat an exception as active before its implementation, review, checks and
+normal integration qualify. Policy approval cannot clear a host denial.
+
+Confirmed exploitable vulnerabilities or applicable memory-safety defects require
+remediation or demonstrated effective isolation before release. Significant
+residual security-risk acceptance needs accountable authorization; routine
+maintenance approval does not authorize it. Inherited advisory ignores and wrapper
+exceptions are existing debt to reassess, not evidence of a completed assessment,
+a new approval or automatic renewal.
+
+### Current dependency risk and remediation matrix
+
+This is the treatment decision, not a scanner pass or release receipt. All rows
+remain subject to actual selected-profile evidence and exact-head integration.
+The accountable owner is `@Chisanan232`; listed Jira tasks retain delivery state.
+
+| Finding / product exposure | Risk and treatment | Tracking / review or expiry | Release-blocking status |
+| --- | --- | --- | --- |
+| `pin-utils 0.1.0`, RUSTSEC-2026-0441, via `async-imap 0.11.3`; default tools dependency and optional email consumer. | P2 maintenance-only. Use the exact scoped exception in `.cargo/dependency-risk.toml`; preserve the reviewed local backport as an alternative rather than requiring a fork solely to remove this warning. | HORO-2447; owner `@Chisanan232`. Review 2026-11-20 and exclusive UTC expiry 2026-12-06. | Guarded local scanner checks qualify this candidate only; release treatment requires independent review, actual exact-head CI and normal integration. |
+| `lru 0.16.4`, RUSTSEC-2026-0253, optional Nostr cache; default runtime/channels resolve patched `0.18.4`. | P1 pending reachability analysis of panic/unwind prerequisites; this is unsoundness, not maintenance. The inherited ban permits listed Nostr direct wrappers; it is not a blanket rejection of vulnerable use. Preserve its scope checks, but expected parents alone do not prove safe use. | Existing Nostr upstream tracking #9602; reassess before enabling an affected supported profile. No new expiry/exception granted here. | Blocks an affected supported profile until remediated or effectively isolated. Default exclusion is not an all-features pass. |
+| `anymap2 0.13.0`, RUSTSEC-2026-0319, optional Matrix path included by wider distribution features. | P2 unmaintained-only. Prefer upstream migration; reassess inherited exact-ID ignore without adding a fork automatically. | Existing upstream tracking #11429; review before the next distribution candidate. No new or renewed exception here. | Existing ignore is not completion evidence; actual profile/security gates still apply. |
+| `rustls-pemfile 2.2.0`, RUSTSEC-2025-0134; direct TLS/default-runtime consumers as well as transitive/optional/dev edges. | P2 unmaintained-only. Plan migration to `rustls-pki-types`; the inherited rationale saying only transitive is incomplete. | Existing upstream migration tracking; review before the next release candidate. No new or renewed exception here. | Not a demonstrated exploit, but exposure must not be dismissed as optional-only. Existing checks still apply. |
+| ZIP critical dual-header advisory versus later ZIP 9.2 compatibility work. | P0 fix is already integrated through PR #15: ZIP 9.0.5 plus admission guards. Treat 9.2 as P3 unless new security evidence changes that. Preserve its test draft. | HORO-2437 Done; HORO-2453 owns the later candidate. No exception. | Verify the selected candidate and three extraction boundaries. A pristine-default-branch alert is not the release branch's locked version. |
+| Crypto API migration, notify 8, GitHub Action pins and remaining Dependabot updates. | P3 unless actual advisory/exposure evidence raises priority. Preserve candidates and validate final consumers; baseline tests do not prove an upgrade. | HORO-2449, HORO-2452, HORO-2448 / PR #25, original PRs #1–8. No exception. | Final execution/CI and specific host restrictions remain binding. Close an original PR only after verified integrated supersession. |
+| Web advisory backlog and lockfile-only legacy `glib` unsoundness. | Keep actual vulnerability/unsoundness assessment separate from P2 warnings. Build/test-only does not imply harmless; prove profile exclusion or remediate applicable exposure. | Existing Dependabot/security backlog and inherited GTK tracking #8519; no new waiver. | Confirmed applicable defects block affected release profiles. Do not claim all security findings resolved by the pin-utils decision. |
+
+For HORO-2447, compare alternatives independently of sunk effort:
+
+- **A: isolation/pruning:** appropriate for the approved Minimal Runtime where
+  verified, but removing the email feature alone leaves unconditional IMAP in
+  `zeroclaw-tools`. Do not delete compatible extension interfaces as a shortcut.
+- **B: bounded backport:** existing source, provenance, licenses, pinning review
+  and focused tests remain preserved. It adds a local maintenance obligation and
+  still needs its actual delivery/host gates; prior investment does not require
+  shipping it.
+- **C: expiring maintenance exception:** lowest current sustainable cost for this
+  maintenance-only finding. It permits neither a new vulnerability ignore nor
+  supported-profile expansion. The checked-in guard validates exact package and
+  parent identities, dates, scanner-ignore parity and the actual maintenance-only
+  RustSec record before both scanners use the same refreshed database snapshot.
+  A missing, changed, expired or review-due exception fails closed. Retire the
+  exception when a verified upstream release or approved profile migration removes
+  the dependency, or when new security evidence invalidates its justification.
 
 ## Documentation is a product gate
 
@@ -265,7 +452,12 @@ Use bounded independent readers/reviewers and one writer per worktree. Keep raw
 logs and detailed evidence in the existing approved local evidence area, outside
 commits; return concise findings and exact source/test references. Preserve a
 handoff before context pressure and never recover by repeatedly reading entire
-agent transcripts or restarting an exhausted request.
+agent transcripts or restarting an exhausted request. Consolidate exact Git state,
+PR heads/checks, verified evidence, host restrictions and next actions by roughly
+55–60% context usage. At roughly 65–70%, stop large new assignments and prepare a
+bounded handoff without interrupting active Git operations or discarding work.
+Never rely on compaction near exhaustion or claim automatic fresh-session migration
+unless the host actually provides it.
 
 Before compiling, identify the affected package, feature set, target triple and
 required tests. Never default to a full Rust workspace build for a small change.

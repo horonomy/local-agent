@@ -9920,8 +9920,13 @@ path = "{trigger_path}"
         (address, server)
     }
 
-    async fn wait_for_fixture_requests(fixture: &ChatCompletionFixture, expected: usize) {
-        tokio::time::timeout(Duration::from_secs(3), async {
+    async fn wait_for_fixture_requests(
+        fixture: &ChatCompletionFixture,
+        expected: usize,
+        phase: &str,
+    ) {
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 if fixture.requests.load(Ordering::SeqCst) >= expected {
                     return;
@@ -9929,8 +9934,22 @@ path = "{trigger_path}"
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
-        .await
-        .expect("provider fixture request");
+        .await;
+        assert!(
+            result.is_ok(),
+            "provider fixture request during {phase}: expected {expected}, observed at assertion {}, elapsed {:?}",
+            fixture.requests.load(Ordering::SeqCst),
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[should_panic(
+        expected = "provider fixture request during diagnostic control: expected 1, observed at assertion 0"
+    )]
+    async fn fixture_request_timeout_identifies_phase_and_missing_request() {
+        let fixture = spawn_hanging_chat_completion_fixture().await;
+        wait_for_fixture_requests(&fixture, 1, "diagnostic control").await;
     }
 
     async fn wait_for_fixture_chunks(fixture: &ChatCompletionFixture, expected: usize) {
@@ -10556,7 +10575,7 @@ data: [DONE]\n\n";
 
         let cancel_key = gateway_cancel_key(session_id);
         let token = wait_for_registry_token(&state, &cancel_key).await;
-        wait_for_fixture_requests(&fixture, 1).await;
+        wait_for_fixture_requests(&fixture, 1, "SSE backpressure setup").await;
         wait_for_fixture_chunks(&fixture, 17).await;
 
         token.cancel();
@@ -10773,12 +10792,12 @@ data: [DONE]\n\n";
             .expect("WS chat frame");
 
         let ws_token = wait_for_registry_token(&state, &session_key).await;
-        wait_for_fixture_requests(&fixture, 1).await;
+        wait_for_fixture_requests(&fixture, 1, "initial WebSocket turn").await;
 
         let sse_response = start_test_sse(&state, session_id).await;
         assert_eq!(sse_response.status(), StatusCode::OK);
         let sse_token = wait_for_registry_replacement(&state, &session_key, &ws_token).await;
-        wait_for_fixture_requests(&fixture, 2).await;
+        wait_for_fixture_requests(&fixture, 2, "replacement SSE turn").await;
         tokio::time::timeout(Duration::from_secs(3), ws_token.cancelled())
             .await
             .expect("SSE registration cancels the replaced WS turn");
@@ -10844,7 +10863,7 @@ data: [DONE]\n\n";
         let sse_response = start_test_sse(&state, session_id).await;
         assert_eq!(sse_response.status(), StatusCode::OK);
         let sse_token = wait_for_registry_token(&state, &session_key).await;
-        wait_for_fixture_requests(&fixture, 1).await;
+        wait_for_fixture_requests(&fixture, 1, "initial SSE turn").await;
 
         let (gateway_addr, gateway_server) = spawn_test_ws_gateway(state.clone()).await;
         // This URL connects only to the test's loopback listener. Keep the
@@ -10881,7 +10900,7 @@ data: [DONE]\n\n";
             .expect("WS chat frame");
 
         let ws_token = wait_for_registry_replacement(&state, &session_key, &sse_token).await;
-        wait_for_fixture_requests(&fixture, 2).await;
+        wait_for_fixture_requests(&fixture, 2, "replacement WebSocket turn").await;
         tokio::time::timeout(Duration::from_secs(3), sse_token.cancelled())
             .await
             .expect("WS registration cancels the replaced SSE turn");

@@ -1,5 +1,12 @@
 # Coding Agent Guidelines
 
+> **Local Agent review authority:** no human PR review is required. Use root
+> `AGENTS.md` and `docs/local-agent/engineering-lifecycle.md` for separate-agent
+> technical review, findings resolution and autonomous merge-commit integration.
+> The upstream Core Team counts, non-author approvals and exception timers below
+> are historical ZeroClaw procedures, not Local Agent prerequisites. Retain actual
+> CI, security, product and release checks and the untrusted-input safeguards.
+
 The repository-root `AGENTS.md` is the compact, always-loaded contract for AI coding assistants. This page provides details that are useful for some tasks but should not consume every session's prompt budget.
 
 These rules apply regardless of model size or where the model runs. Compact prompt profiles may change how much context is loaded eagerly; they do not weaken safety, privacy, authorization, or contribution requirements.
