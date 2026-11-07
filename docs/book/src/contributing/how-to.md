@@ -3,9 +3,10 @@
 > **Local Agent workflow:** use the root `AGENTS.md` and
 > `docs/local-agent/engineering-lifecycle.md` for
 > ticket/release branches, risk-based testing, Gitmoji commits, merge commits and
-> review authority under the single-maintainer contract: independent agent
-> technical review and accountable owner integration. This is not a GitHub human
-> approval or permission to bypass configured approval rules, security or CI.
+> review authority under the single-maintainer contract: no human PR review is
+> required, but separate-agent technical review and blocking-finding resolution
+> remain mandatory. This is not a GitHub human approval. Follow the canonical
+> lifecycle for active-rule reconciliation; preserve security, CI and product checks.
 > The inherited ZeroClaw process below is historical context where it differs;
 > it does not select an upstream team, quorum, timer, squash strategy or public
 > destination for Local Agent.
@@ -129,9 +130,19 @@ Add more evidence when the PR depends on a known CI coverage gap: platform-speci
 
 Risk labels describe the actual change and consequence, not its broad path. Follow the [maintainer label guide](../maintainers/labels.md#risk-labels): `risk:low` is documentation, fixtures, or mechanical metadata with no production, compatibility, build, release, or governance effect; `risk:medium` is ordinary behavioral work; and `risk:high` is a concrete trust, credential, compatibility, governance, or release-authority boundary. `domain:security` is independent from `risk:*` and identifies an effective security boundary.
 
+> **Local Agent PR review:** no human PR review is required, including high-risk
+> and security changes. Use a separate Claude Code or Codex technical reviewer,
+> resolve blocking findings, and satisfy the engineering lifecycle's actual gates.
+> The Core Team approval procedure in the following paragraph is upstream history.
+
 A PR carrying either `risk:high` or `domain:security` needs deep review, a rollback plan matched to the change, and two independent Core Team approvals by default. After the required second Core review remains unanswered through the qualifying five-business-date window, a maintainer may evaluate the narrow [expedited second-review lane](../maintainers/pr-workflow.md#expedited-second-review-lane); its canonical page owns every eligibility and accountability condition. Use `risk:manual` when a maintainer needs to freeze future automatic risk replacement; the label does not itself lower the review requirement.
 
 ## After the PR
+
+> **Local Agent integration:** use normal merge commits into the current milestone
+> release branch. Promotion to the verified default branch uses a separate reviewed
+> release PR; tags and public releases require exact-candidate founder approval.
+> The squash and release procedure below describes upstream ZeroClaw only.
 
 **Merge strategy:** squash-merge with the full commit history preserved in the body. See `.claude/skills/squash-merge/SKILL.md` for the exact format: TL;DR: PR title + `(#number)` as the subject, bullet list of original commits as the body.
 

@@ -2,11 +2,12 @@
 
 > **Local Agent authority:** the root `AGENTS.md` and
 > `docs/local-agent/engineering-lifecycle.md` own
-> Local Agent review and integration through the single-maintainer contract.
-> `@Chisanan232` owns integration, with independent Claude Code or Codex technical
-> review and findings resolution. Agent review is not a GitHub human approval.
-> Honor actual configured approval rules, exact-head CI, security, conflicts,
-> branch currency and thread gates; never bypass a genuine requirement.
+> Local Agent review and integration through the single-maintainer contract:
+> no human PR review is required. A separate Claude Code or Codex technical
+> reviewer and resolved blocking findings are required. AI review is
+> not a GitHub human approval. Follow the canonical lifecycle to formally remove any active
+> human-approval rule while retaining actual CI, security, product and thread gates.
+> Never bypass an active requirement. `@Chisanan232` owns accountable integration.
 > The inherited Core Team roster, quorum, timers and squash procedures below are
 > ZeroClaw historical context, not Local Agent appointments or merge permissions.
 
