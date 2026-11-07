@@ -19,8 +19,11 @@ enum Cmd {
         #[arg(long)]
         locale: Option<String>,
     },
-    /// Static build of all locales into docs/book/book/
-    Build,
+    /// Build all locales, or verify English without publication assembly
+    Build {
+        #[arg(long)]
+        locale: Option<String>,
+    },
     /// Regenerate cli.md, config.md, and rustdoc API reference
     Refs,
     /// mdBook preprocessor: expand `{{#peer-group <channel>}}` directives.
@@ -109,7 +112,7 @@ fn main() -> anyhow::Result<()> {
     let tag = tag_owned.as_deref();
     match cli.command {
         Cmd::Serve { locale } => cmd::mdbook::serve::run(locale.as_deref(), tag),
-        Cmd::Build => cmd::mdbook::build::run(tag),
+        Cmd::Build { locale } => cmd::mdbook::build::run(locale.as_deref(), tag),
         Cmd::Refs => cmd::mdbook::refs::run(tag),
         Cmd::Preprocess { arg, .. } => {
             if arg.as_deref() == Some("supports") {
