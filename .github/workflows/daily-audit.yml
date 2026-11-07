@@ -44,6 +44,10 @@ jobs:
           {
             scan_exit_code=0
             printf 'Scoped advisory policy\n'
+            python3 -m unittest discover -s scripts/ci -p 'dependency_risk_guard_test.py' || exit 1
+            cargo fetch --locked || exit 1
+            cargo deny fetch db || exit 1
+            advisory_db=$(python3 scripts/ci/dependency_risk_guard.py --db-root "${CARGO_HOME:-$HOME/.cargo}/advisory-dbs") || exit 1
             python3 - <<'PY' || scan_exit_code=1
           import subprocess
           import sys
@@ -58,9 +62,9 @@ jobs:
               )
           PY
             printf '\ncargo-deny (resolved dependency graph)\n'
-            cargo deny check advisories || scan_exit_code=1
+            cargo deny --offline --locked check advisories || scan_exit_code=1
             printf '\ncargo-audit (full Cargo.lock)\n'
-            cargo audit || scan_exit_code=1
+            cargo audit --no-fetch --db "$advisory_db" || scan_exit_code=1
             exit "$scan_exit_code"
           } 2>&1 | tee /tmp/advisory-output.txt
           exit "${PIPESTATUS[0]}"

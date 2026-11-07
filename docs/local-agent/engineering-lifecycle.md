@@ -201,6 +201,93 @@ sanitized Jira updates with test counts, source or merge identifiers, limitation
 and acceptance decisions. Close work only when its evidence and required workflow
 support completion. A partial gate is not release readiness.
 
+## Dependency risk governance
+
+The founder-approved dependency strategy (HORO-2447, 2026-11-06) is risk-based,
+not a zero-warning requirement. Keep vulnerability detection, Cargo Deny,
+lockfile integrity, license compliance and dependency-source restrictions. Do not
+silence all advisories, disable scanners, or fork/vendor an upstream library merely
+to remove a maintenance warning.
+
+| Priority | Finding | Required disposition |
+| --- | --- | --- |
+| P0 | Confirmed critical vulnerability, reachable memory unsoundness, serious security exposure or exploitation path. | Remediate or demonstrate effective isolation before releasing the affected profile. |
+| P1 | Confirmed vulnerability with limited exposure or specific exploitation prerequisites. | Assess the actual prerequisites and supported profiles; applicable exploitable or memory-safety defects still block release until remediated or effectively isolated. |
+| P2 | Unmaintained, unsupported or end-of-life dependency without a known exploitable vulnerability. | Prefer sustainable upstream remediation or profile isolation; consider an exact, documented, expiring maintenance-risk exception. |
+| P3 | Routine update or noncritical compatibility/maintenance work. | Validate affected consumers and integrate at normal gates without manufacturing a security emergency. |
+
+`Unmaintained`, `Vulnerable` and `Unsound` are not equivalent. An informational
+unsoundness advisory still requires memory-safety analysis; a low attack likelihood
+is not proof of isolation. Assess source/provenance, the locked dependency path,
+actual feature selection, reachable APIs, attacker influence and ongoing remediation
+cost. Separate Minimal Runtime, supported optional extensions, build/test tools and
+legacy ZeroClaw channels. A package in Cargo.lock need not ship in every profile;
+a disabled channel does not remove an independent tools dependency. Preserve
+practical ZeroClaw Skills, Plugins, Tools and MCP interoperability and keep AASM
+optional. The existing HORO-2371/HORO-2391 compatibility contract remains binding.
+
+### Maintenance exceptions
+
+Every new maintenance exception must identify:
+
+- Exact advisory, crate, version, source and dependency origin.
+- Affected supported profiles, actual exposure, security justification and
+  compensating controls; state what has not been verified.
+- Accountable owner, approval, expiry and review dates.
+- Upstream tracking, replacement/removal conditions and the existing Jira task.
+
+Validate the actual scanner version and configuration schema before editing.
+Release CI currently pins Cargo Deny 0.19.9; local verification used 0.20.2.
+Their tagged advisory configuration supports an ignore ID and reason, not a native
+expiry or package-version scope. Newer online documentation is not evidence that
+those versions accept additional fields. An ID-wide ignore therefore needs a
+separately tested fail-closed date and locked-graph scope check, enforced before
+both Cargo Deny and cargo-audit. An expiry written only in prose is not enforcement.
+Keep the scanners and existing license, source, integrity and vulnerability checks.
+Do not treat an exception as active before its implementation, review, checks and
+normal integration qualify. Policy approval cannot clear a host denial.
+
+Confirmed exploitable vulnerabilities or applicable memory-safety defects require
+remediation or demonstrated effective isolation before release. Significant
+residual security-risk acceptance needs accountable authorization; routine
+maintenance approval does not authorize it. Inherited advisory ignores and wrapper
+exceptions are existing debt to reassess, not evidence of a completed assessment,
+a new approval or automatic renewal.
+
+### Current dependency risk and remediation matrix
+
+This is the treatment decision, not a scanner pass or release receipt. All rows
+remain subject to actual selected-profile evidence and exact-head integration.
+The accountable owner is `@Chisanan232`; listed Jira tasks retain delivery state.
+
+| Finding / product exposure | Risk and treatment | Tracking / review or expiry | Release-blocking status |
+| --- | --- | --- | --- |
+| `pin-utils 0.1.0`, RUSTSEC-2026-0441, via `async-imap 0.11.3`; default tools dependency and optional email consumer. | P2 maintenance-only. Use the exact scoped exception in `.cargo/dependency-risk.toml`; preserve the reviewed local backport as an alternative rather than requiring a fork solely to remove this warning. | HORO-2447; owner `@Chisanan232`. Review 2026-11-20 and exclusive UTC expiry 2026-12-06. | Guarded local scanner checks qualify this candidate only; release treatment requires independent review, actual exact-head CI and normal integration. |
+| `lru 0.16.4`, RUSTSEC-2026-0253, optional Nostr cache; default runtime/channels resolve patched `0.18.4`. | P1 pending reachability analysis of panic/unwind prerequisites; this is unsoundness, not maintenance. The inherited ban permits listed Nostr direct wrappers; it is not a blanket rejection of vulnerable use. Preserve its scope checks, but expected parents alone do not prove safe use. | Existing Nostr upstream tracking #9602; reassess before enabling an affected supported profile. No new expiry/exception granted here. | Blocks an affected supported profile until remediated or effectively isolated. Default exclusion is not an all-features pass. |
+| `anymap2 0.13.0`, RUSTSEC-2026-0319, optional Matrix path included by wider distribution features. | P2 unmaintained-only. Prefer upstream migration; reassess inherited exact-ID ignore without adding a fork automatically. | Existing upstream tracking #11429; review before the next distribution candidate. No new or renewed exception here. | Existing ignore is not completion evidence; actual profile/security gates still apply. |
+| `rustls-pemfile 2.2.0`, RUSTSEC-2025-0134; direct TLS/default-runtime consumers as well as transitive/optional/dev edges. | P2 unmaintained-only. Plan migration to `rustls-pki-types`; the inherited rationale saying only transitive is incomplete. | Existing upstream migration tracking; review before the next release candidate. No new or renewed exception here. | Not a demonstrated exploit, but exposure must not be dismissed as optional-only. Existing checks still apply. |
+| ZIP critical dual-header advisory versus later ZIP 9.2 compatibility work. | P0 fix is already integrated through PR #15: ZIP 9.0.5 plus admission guards. Treat 9.2 as P3 unless new security evidence changes that. Preserve its test draft. | HORO-2437 Done; HORO-2453 owns the later candidate. No exception. | Verify the selected candidate and three extraction boundaries. A pristine-default-branch alert is not the release branch's locked version. |
+| Crypto API migration, notify 8, GitHub Action pins and remaining Dependabot updates. | P3 unless actual advisory/exposure evidence raises priority. Preserve candidates and validate final consumers; baseline tests do not prove an upgrade. | HORO-2449, HORO-2452, HORO-2448 / PR #25, original PRs #1–8. No exception. | Final execution/CI and specific host restrictions remain binding. Close an original PR only after verified integrated supersession. |
+| Web advisory backlog and lockfile-only legacy `glib` unsoundness. | Keep actual vulnerability/unsoundness assessment separate from P2 warnings. Build/test-only does not imply harmless; prove profile exclusion or remediate applicable exposure. | Existing Dependabot/security backlog and inherited GTK tracking #8519; no new waiver. | Confirmed applicable defects block affected release profiles. Do not claim all security findings resolved by the pin-utils decision. |
+
+For HORO-2447, compare alternatives independently of sunk effort:
+
+- **A: isolation/pruning:** appropriate for the approved Minimal Runtime where
+  verified, but removing the email feature alone leaves unconditional IMAP in
+  `zeroclaw-tools`. Do not delete compatible extension interfaces as a shortcut.
+- **B: bounded backport:** existing source, provenance, licenses, pinning review
+  and focused tests remain preserved. It adds a local maintenance obligation and
+  still needs its actual delivery/host gates; prior investment does not require
+  shipping it.
+- **C: expiring maintenance exception:** lowest current sustainable cost for this
+  maintenance-only finding. It permits neither a new vulnerability ignore nor
+  supported-profile expansion. The checked-in guard validates exact package and
+  parent identities, dates, scanner-ignore parity and the actual maintenance-only
+  RustSec record before both scanners use the same refreshed database snapshot.
+  A missing, changed, expired or review-due exception fails closed. Retire the
+  exception when a verified upstream release or approved profile migration removes
+  the dependency, or when new security evidence invalidates its justification.
+
 ## Documentation is a product gate
 
 Every behavior-changing ticket must assess documentation impact and update the
@@ -265,7 +352,12 @@ Use bounded independent readers/reviewers and one writer per worktree. Keep raw
 logs and detailed evidence in the existing approved local evidence area, outside
 commits; return concise findings and exact source/test references. Preserve a
 handoff before context pressure and never recover by repeatedly reading entire
-agent transcripts or restarting an exhausted request.
+agent transcripts or restarting an exhausted request. Consolidate exact Git state,
+PR heads/checks, verified evidence, host restrictions and next actions by roughly
+55–60% context usage. At roughly 65–70%, stop large new assignments and prepare a
+bounded handoff without interrupting active Git operations or discarding work.
+Never rely on compaction near exhaustion or claim automatic fresh-session migration
+unless the host actually provides it.
 
 Before compiling, identify the affected package, feature set, target triple and
 required tests. Never default to a full Rust workspace build for a small change.

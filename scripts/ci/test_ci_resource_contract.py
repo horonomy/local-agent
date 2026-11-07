@@ -2,6 +2,8 @@
 
 from pathlib import Path
 import re
+import subprocess
+import tempfile
 import unittest
 
 
@@ -140,6 +142,63 @@ class CiResourceContractTests(unittest.TestCase):
         )
         self.assertIn("config_only_notion_feature_does_not_compile_owner", tools)
         self.assertNotIn("continue-on-error:", tools)
+
+    def test_powershell_preflight_reports_runtime_failure_without_hiding_tests(
+        self,
+    ) -> None:
+        section = self.workflow.split("\n  test:\n", 1)[1].split(
+            "\n  test-channel-features:\n", 1
+        )[0]
+        self.assertIn("bash scripts/ci/powershell_preflight.sh", section)
+        self.assertLess(
+            section.index("bash scripts/ci/powershell_preflight.sh"),
+            section.index(
+                "cargo nextest run --locked --workspace --exclude zeroclaw-desktop"
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            interpreter = Path(directory) / "pwsh"
+            interpreter.write_text(
+                "#!/bin/sh\nprintf 'runtime-unhealthy\\n' >&2\nexit 23\n"
+            )
+            interpreter.chmod(0o700)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "scripts/ci/powershell_preflight.sh"),
+                    str(interpreter),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 23)
+            self.assertIn("runtime-unhealthy", result.stderr)
+            interpreter.write_text(
+                '#!/bin/sh\ncase "$*" in *System.Collections.Specialized.NameValueCollection*) exit 0;; *) exit 9;; esac\n'
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "scripts/ci/powershell_preflight.sh"),
+                    str(interpreter),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            missing = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "scripts/ci/powershell_preflight.sh"),
+                    str(interpreter.with_name("missing")),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            self.assertNotEqual(missing.returncode, 0)
 
     def test_landlock_remains_on_standard_github_linux(self) -> None:
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")

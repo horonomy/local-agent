@@ -34665,7 +34665,7 @@ mod tests {
             let (rehydrated, release_rehydrated) = sessions.set_test_prompt_rehydration_pause();
             let prompt_handle = dispatcher.spawn_handle();
             let prompt_sid = sid.clone();
-            let prompt = zeroclaw_spawn::spawn!(async move {
+            let mut prompt = zeroclaw_spawn::spawn!(async move {
                 prompt_handle
                     .handle_session_prompt(&json!({
                         "session_id": prompt_sid,
@@ -34714,10 +34714,27 @@ mod tests {
                 "generation-scoped {method} must not cancel an unbound rehydration token"
             );
 
+            let publication_waiting = sessions.rehydration_publication_waiting.notified();
+            tokio::pin!(publication_waiting);
+            let mut publication_boundary_observed = false;
             release_registration.notify_one();
-            tokio::time::timeout(std::time::Duration::from_secs(1), rehydrated.notified())
-                .await
-                .expect("prompt must publish the rehydrated incarnation");
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    tokio::select! {
+                        _ = &mut publication_waiting, if !publication_boundary_observed => {
+                            publication_boundary_observed = true;
+                        },
+                        _ = rehydrated.notified() => break,
+                        result = &mut prompt => panic!(
+                            "{method}: prompt completed before publishing the rehydrated incarnation: {result:?}; publication_boundary_observed={publication_boundary_observed}"
+                        ),
+                    }
+                }
+            })
+            .await
+            .unwrap_or_else(|_| {
+                panic!("{method}: prompt remained pending before publishing the rehydrated incarnation; publication_boundary_observed={publication_boundary_observed}")
+            });
             let published_generation = sessions
                 .get_generation(&sid)
                 .await
