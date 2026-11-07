@@ -160,6 +160,17 @@ class GovernanceContractTests(unittest.TestCase):
         self.assertIn("never upload restricted captures", source)
         self.assertNotIn("**Screenshot or exact-output evidence:**", source)
 
+    def test_release_promotion_retains_superseded_action_updates(self) -> None:
+        lifecycle = (ROOT / "docs/local-agent/engineering-lifecycle.md").read_text()
+        for phrase in (
+            "PR #5 targeted `master`",
+            "PR #25 merged into `release/mvp-0.0`",
+            "102 full-SHA Action replacements across 17 workflow files",
+            "verify the resulting `master` tree",
+            "not proof of integration into `master`",
+        ):
+            self.assertIn(phrase, lifecycle)
+
     def test_historical_attribution_is_not_rewritten_as_current_ownership(self) -> None:
         for name in ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE"):
             self.assertTrue((ROOT / name).is_file())
