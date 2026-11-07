@@ -1,11 +1,11 @@
 # Local golden-journey runner
 
-`scripts/local_agent/golden_journey.py` exercises a supplied, already-built ZeroClaw binary against a loopback-only scripted OpenAI-compatible provider and the supplied stdio MCP fixture. It uses Python's standard library only. It never calls an external provider or network service.
+`scripts/local_agent/golden_journey.py` exercises a supplied, already-built ZeroClaw binary against a loopback-only scripted OpenAI-compatible provider and the supplied stdio MCP fixture. It uses Python's standard library only. It never calls an external provider or network service. Use Python 3.10 or newer for both the runner and fixture. The fixture is launched with the same Python interpreter that runs the runner.
 
 This runner is POSIX-only because cleanup is enforced with an owned process group. It does not build Rust or provision the binary/fixture. Paths are supplied at invocation; relative paths resolve from the current directory. If `--fixture` is omitted, the runner looks for `mcp_fixture.py` beside itself.
 
 ```sh
-python3 scripts/local_agent/golden_journey.py \
+python3.13 scripts/local_agent/golden_journey.py \
   --binary /absolute/path/to/zeroclaw \
   --fixture /absolute/path/to/mcp_fixture.py \
   --case all \
@@ -30,10 +30,12 @@ All five cases passed locally against the pristine pinned upstream baseline bina
 
 This is one synthetic-provider, POSIX/macOS baseline observation, not verification of the derivative release candidate, universal MCP compatibility, all supported platforms, or graceful product cancellation. No external model or real credential was used; raw execution files remain local.
 
+A separate run against candidate binary `8bda0584a2033f6ad36be6a7f9883a6057f398aee8469dadb7ccf101b3bf01e1`, built from source commit `a30ee7231636a898c14b10398eb2a51ddaa95328` for `aarch64-apple-darwin` with Rust 1.98, passed all five cases under Python 3.13.1. Provider request counts were 2 (granted), 1 (ungranted), 2 (timeout), 2 (cancellation), and 3 (recovery). Python 3.9 is unsupported: the fixture requires `typing.TypeAlias`, which is unavailable there. This is one candidate-specific observation, not a universal compatibility claim or full release validation; timeout and cancellation remain bounded harness probes, not graceful product behavior.
+
 ## Unit tests
 
 ```sh
-python3 -m unittest discover -s scripts/local_agent -p 'test_golden_journey.py' -v
+python3.13 -m unittest discover -s scripts/local_agent -p 'test_golden_journey.py' -v
 ```
 
 These are synthetic unit checks for config escaping, environment isolation, ordered error/recovery result correlation, timeout verdict boundaries, bounded marker reads, stdout/stderr overflow including writes during cleanup, and owned process-group cleanup after a parent exits. They neither import a sibling fixture nor execute the product binary, and are not actual-binary evidence. Sixteen unit tests passed locally; the synthetic child-process tests are separate from the five actual-baseline observations above and do not establish Windows compatibility.
