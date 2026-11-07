@@ -1364,12 +1364,6 @@ mod tests {
         spawn_stand_in(&format!("printf '%s' '{stderr}' >&2; exit 1"))
     }
 
-    fn exit_with_stderr_after(delay_secs: &str, stderr: &str) -> Child {
-        spawn_stand_in(&format!(
-            "sleep {delay_secs}; printf '%s' '{stderr}' >&2; exit 1"
-        ))
-    }
-
     #[test]
     fn serve_config_conflict_is_recognised() {
         assert!(is_serve_config_conflict(CONFLICT_STDERR));
@@ -1582,28 +1576,110 @@ mod tests {
             .await;
     }
 
+    #[cfg(unix)]
+    fn process_exited_without_reaping(pid: u32) -> std::io::Result<bool> {
+        let expected_pid = libc::pid_t::try_from(pid)
+            .map_err(|_| std::io::Error::other("child pid does not fit pid_t"))?;
+        let id = libc::id_t::try_from(pid)
+            .map_err(|_| std::io::Error::other("child pid does not fit id_t"))?;
+        // SAFETY: `siginfo_t` is a C output struct; zero is its valid initial
+        // value when WNOHANG reports no exited child.
+        let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // SAFETY: `info` is writable and `id` identifies the owned child;
+        // WNOWAIT observes exit without consuming the wait status.
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                id,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `si_pid` is the process-id field populated by waitid, or zero
+        // when WNOHANG found no exited child.
+        Ok(unsafe { info.si_pid() } == expected_pid)
+    }
+
+    #[cfg(windows)]
+    fn process_exited_without_reaping(handle: usize) -> std::io::Result<bool> {
+        use windows::Win32::Foundation::{HANDLE, WAIT_FAILED, WAIT_OBJECT_0};
+        use windows::Win32::System::Threading::WaitForSingleObject;
+
+        // SAFETY: This is the still-owned Child's process handle; timeout zero
+        // observes its signalled state without consuming or closing the handle.
+        let status = unsafe { WaitForSingleObject(HANDLE(handle as *mut _), 0) };
+        if status == WAIT_FAILED {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(status == WAIT_OBJECT_0)
+        }
+    }
+
+    async fn wait_for_unreaped_exit(mut has_exited: impl FnMut() -> std::io::Result<bool>) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if has_exited().expect("observe child exit without reaping") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("child did not exit within 5s");
+    }
+
     #[tokio::test]
     async fn start_forwarder_rechecks_the_process_after_the_probe() {
-        // The process is alive when polled, then exits while the status probe
-        // is in flight. A forward seen by that probe is not proof the process
-        // still holds it.
+        // The child blocks on stdin until the first post-spawn probe closes it.
+        // Observe its exit without reaping, then report the new session.
+        let mut child = Command::new("sh")
+            .args(["-c", "IFS= read -r line; printf 'rejected' >&2; exit 1"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn stdin-barrier forwarder");
+        let pid = child.id().expect("stand-in child pid");
+        #[cfg(unix)]
+        let exit_probe = move || process_exited_without_reaping(pid);
+        #[cfg(windows)]
+        let exit_probe = {
+            use std::os::windows::io::AsRawHandle;
+            let handle = child.as_raw_handle() as usize;
+            move || process_exited_without_reaping(handle)
+        };
+        let stdin = std::sync::Arc::new(std::sync::Mutex::new(child.stdin.take()));
+        let child = std::sync::Mutex::new(Some(child));
         let probes = std::sync::atomic::AtomicUsize::new(0);
         let err = start_forwarder(
             quick_startup(),
-            || Ok(exit_with_stderr_after("0.05", "rejected")),
             || {
-                let first = probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+                Ok(child
+                    .lock()
+                    .expect("child slot")
+                    .take()
+                    .expect("spawn stand-in once"))
+            },
+            || {
+                let probe = probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let stdin = stdin.clone();
                 async move {
-                    if first {
-                        return Some(sessions(&[]));
+                    if probe == 0 {
+                        Some(sessions(&[]))
+                    } else {
+                        drop(stdin.lock().expect("stdin lock").take());
+                        wait_for_unreaped_exit(exit_probe).await;
+                        Some(sessions(&["mine"]))
                     }
-                    tokio::time::sleep(Duration::from_millis(200)).await;
-                    Some(sessions(&["mine"]))
                 }
             },
         )
         .await
-        .expect_err("a process that exited during the probe is not published");
+        .expect_err("an exited forwarder is not published");
         assert!(
             matches!(err, ForwarderStartError::Exited { ref stderr, .. } if stderr.contains("rejected")),
             "{err:?}"
