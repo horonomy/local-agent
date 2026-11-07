@@ -1648,8 +1648,9 @@ mod tests {
         let exit_probe = move || process_exited_without_reaping(pid);
         #[cfg(windows)]
         let exit_probe = {
-            use std::os::windows::io::AsRawHandle;
-            let handle = child.as_raw_handle() as usize;
+            let handle = child
+                .raw_handle()
+                .expect("stdin-barrier child process handle") as usize;
             move || process_exited_without_reaping(handle)
         };
         let stdin = std::sync::Arc::new(std::sync::Mutex::new(child.stdin.take()));
