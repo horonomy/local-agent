@@ -484,6 +484,22 @@ capabilities = ["tool"]
         );
     }
 
+    /// Reject an orphan local file header before extraction creates its destination.
+    #[test]
+    fn safe_zip_extraction_rejects_orphan_local_header_before_writing() {
+        let bytes = with_orphan_local_header(zip_with_entry("safe.txt", b"synthetic"));
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("output");
+
+        let result = extract_zip_safe(Cursor::new(bytes), &destination);
+
+        assert!(result.is_err(), "orphan local header must be refused");
+        assert!(
+            !destination.exists(),
+            "validation must precede filesystem writes"
+        );
+    }
+
     #[test]
     fn safe_zip_extraction_rejects_inconsistent_headers_before_writing() {
         let mut bytes = zip_with_entry("safe.txt", b"synthetic");
@@ -1008,6 +1024,42 @@ capabilities = ["tool"]
                 .downcast_ref::<reqwest::Error>()
                 .is_some_and(reqwest::Error::is_timeout)
         })
+    }
+
+    fn with_orphan_local_header(mut bytes: Vec<u8>) -> Vec<u8> {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes.clone())).unwrap();
+        archive.validate_header_consistency().unwrap();
+        let eocd = bytes
+            .windows(4)
+            .rposition(|window| window == b"PK\x05\x06")
+            .unwrap();
+        let central_directory_offset =
+            u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+        let name = b"orphan.txt";
+        let mut header = Vec::with_capacity(30 + name.len());
+        header.extend_from_slice(b"PK\x03\x04");
+        header.extend_from_slice(&20_u16.to_le_bytes()); // version needed
+        header.extend_from_slice(&0_u16.to_le_bytes()); // flags
+        header.extend_from_slice(&0_u16.to_le_bytes()); // stored
+        header.extend_from_slice(&0_u16.to_le_bytes()); // modified time
+        header.extend_from_slice(&0_u16.to_le_bytes()); // modified date
+        header.extend_from_slice(&0_u32.to_le_bytes()); // CRC-32
+        header.extend_from_slice(&0_u32.to_le_bytes()); // compressed size
+        header.extend_from_slice(&0_u32.to_le_bytes()); // uncompressed size
+        header.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+        header.extend_from_slice(&0_u16.to_le_bytes()); // extra length
+        header.extend_from_slice(name);
+        bytes.splice(
+            central_directory_offset..central_directory_offset,
+            header.iter().copied(),
+        );
+        let eocd = eocd + header.len();
+        bytes[eocd + 16..eocd + 20].copy_from_slice(
+            &u32::try_from(central_directory_offset + header.len())
+                .unwrap()
+                .to_le_bytes(),
+        );
+        bytes
     }
 
     fn zip_with_entry(name: &str, body: &[u8]) -> Vec<u8> {
