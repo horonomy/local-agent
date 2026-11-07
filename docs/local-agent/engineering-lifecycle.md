@@ -21,34 +21,37 @@ and the applicable required checks.
 
 ### Single-maintainer review and integration
 
-Local Agent currently uses a founder-approved single-maintainer model.
-`@Chisanan232` owns the repository and accountable integration decisions.
-`.github/CODEOWNERS` routes consultation to that actual owner; it does not appoint
-ZeroClaw maintainers, require another GitHub account, or create a human approval.
-Upstream Core Team votes, reviewer counts and exception timers do not apply here.
+Local Agent uses the founder-approved single-maintainer model.
+Zero human PR reviews are required by project policy. There is no non-author
+human approval, upstream reviewer quorum or human-review exception timer.
+`@Chisanan232` owns accountable integration; CODEOWNERS identifies ownership,
+not an additional reviewer or approval prerequisite. Do not ask the founder to nominate
+reviewers, recruit collaborators or reconfirm this settled review policy.
 
-Every substantive change requires independent technical review by a Claude Code
-or Codex reviewer distinct from the implementation session. Record the reviewer,
-exact candidate commit, review scope, findings and their resolution. Security,
-regression and compatibility consequences determine review depth. An AI review is
-not a GitHub human approval; do not submit it as an approval by a separate human,
-impersonate a reviewer or fabricate a review state.
+Every approved development PR requires independent technical review by a
+separate Claude Code or Codex review agent, distinct from its implementation
+session. Record the exact candidate, review scope, findings and resolution.
+Security, regression and compatibility consequences determine review depth.
+An AI technical review is not a GitHub human approval: never impersonate a human
+reviewer or fabricate a GitHub approval state.
 
-For an owner-authored PR, the owner-review and integration workflow is:
+The autonomous owner-authorized integration workflow is:
 
-1. Reconcile the approved acceptance criteria, diff, provenance and rollback.
-2. Obtain independent technical review and resolve all substantive findings.
-3. Verify the exact candidate's applicable CI, security, integration and documented
-   validation gates, mergeability, branch currency and unresolved review threads.
-4. Inspect actual branch protection and repository rules before merging. Honor
-   every configured approval requirement. Do not bypass an active requirement:
-   if a rule requires a separate non-author human approval, reconcile that policy
-   through explicitly authorized repository administration before integration;
-   neither ownership nor this document makes it passed.
-5. Record the accountable owner integration decision and the evidence above,
-   merge using a normal merge commit, and verify the resulting commit. Routine
-   integration may be executed under the owner's standing authorization without
-   inventing a separate human review or repeated routine founder decisions.
+1. Reconcile acceptance criteria, source changes, provenance and rollback.
+2. Obtain independent technical review and fix all blocking findings. Repeat
+   focused tests and independent review until the current revision is acceptable.
+3. Verify actual exact-candidate CI, security, product and release checks, branch
+   currency, mergeability and unresolved findings or review threads.
+4. Inspect live branch protection and rulesets. Do not bypass an active requirement.
+   If a rule requires human approval, use the authorized repository-owner
+   administration process to set that requirement to zero human approvals while
+   preserving required status checks and other applicable security controls.
+   Verify the resulting rules before merging; never claim an approval was obtained.
+   If administration is denied, retain the real external blocker without inventing
+   a project human-review requirement or using an administrator bypass.
+5. Record accountable integration evidence, merge normally with a merge commit,
+   verify the resulting commit, and continue the next approved task. Routine
+   integration requires no additional founder or human-review decision.
 
 Inspect live approval rules at integration and keep administrative inspection
 evidence local. A prior inspection is not a permanent exemption, approval or
@@ -100,10 +103,10 @@ Ticket PR titles use `[HORO-XXXX] <gitmoji> <scope>: <summary>`; their base is t
 milestone release branch. The title validator also retains scoped Conventional
 Commits compatibility for existing automation and dependency updates.
 Include purpose, scope, acceptance criteria, actual tests, risks and limitations.
-Independent technical review and accountable owner integration follow the
-single-maintainer contract above. They never substitute for a separate human
-approval actually required by live repository rules. Never bypass mandatory
-checks or unresolved reviews.
+Independent technical review and accountable integration follow the zero-human
+review contract above. Reconcile any active GitHub human-approval rule through
+owner administration as specified there; no approval may be bypassed or fabricated.
+Never bypass mandatory checks or unresolved blocking findings.
 
 After all mandatory acceptance, cumulative Golden Journeys, security, privacy,
 licensing and supported-platform gates pass against an exact release-branch SHA,
@@ -111,6 +114,82 @@ prepare a separate release PR targeting the latest verified default-branch commi
 Revalidate if that branch moved. Use merge commits through the required reviewed
 process and verify the resulting commit.
 Do not start the next milestone from an unpromoted or broken predecessor.
+
+A replacement merged into a milestone branch is not proof of integration into `master`.
+For the verified Actions supersession, original PR #5 targeted `master`;
+replacement PR #25 merged into `release/mvp-0.0` as
+`e99742c67220373f059b58255a62db7421e7a24b`. Closing the duplicate preserves an
+explicit promotion obligation: retain all nine equivalent Action updates,
+102 full-SHA Action replacements across 17 workflow files, and their architecture
+assertions. During release promotion, compare that reviewed pin set with the
+proposed combined tree and verify the resulting `master` tree before declaring
+promotion complete. A conflict resolution must not silently restore older pins;
+review and validate any deliberate later pin update instead. This does not
+authorize an early default-branch push, tag or public release.
+
+### Pull-request triage
+
+PR triage is a manual routing aid; it does not change acceptance criteria, risk
+classification, required checks, review depth, or release readiness. Preserve all
+existing category, size, priority, dependency labels and discussion history. Exactly
+one of these mutually exclusive triage labels belongs on each open PR:
+
+| Label | Meaning |
+| --- | --- |
+| `triage:active` | Selected for current implementation, validation, or review; not a claim that checks are green or the PR is merge-ready. |
+| `triage:deferred` | Valid work intentionally waiting for a later review or capacity window. |
+| `triage:blocked` | Delivery is waiting on a named external, CI, authorization, compatibility, security-review, or prerequisite condition. |
+| `triage:needs-assessment` | Scope, fit, or risk needs a bounded assessment before choosing active or parked delivery. |
+
+Deferred and blocked PRs also carry one or more reason labels, and no other triage
+state does. The supported values are `reason:low-priority`, `reason:out-of-scope`,
+`reason:upstream`, `reason:prerequisite`, `reason:ci`, `reason:authorization`,
+`reason:compatibility`, and `reason:security-review`. Reason labels classify the
+current decision; they are not risk acceptance, a waiver, or a replacement for
+canonical security/risk policy. A P2 classification alone is not an indefinite
+blocker. Keep a genuine vulnerability or unsoundness blocked while it remains
+unresolved.
+
+For `triage:deferred` and `triage:blocked`, keep one updatable structured decision
+in a comment authored by `@Chisanan232`, current for the exact head SHA. Add the
+marker and heading below; update this decision in place rather than posting
+competing current decisions. Preserve other comments and history. Use all fields
+shown; comma-separated reasons must exactly match the PR's `reason:*` labels:
+
+```text
+<!-- local-agent-triage -->
+## Triage Decision
+- Status: triage:deferred
+- Reason: reason:low-priority
+- Evidence: Current evidence and why this disposition fits.
+- Resume condition: Concrete event or condition that returns this to delivery.
+- Next review date: 2026-11-20
+- Related Jira / PR dependencies: Jira keys and PR numbers, or None.
+- Next action: The next owner action, or None.
+- Head: <full 40-character head commit SHA>
+```
+
+The status in the comment must match the sole triage status label. Review dates use
+ISO `YYYY-MM-DD`; ordinary deferrals start with a 14-day review window. Set an
+earlier date for a security concern when its facts warrant it, and state that basis
+in the evidence. A missing review date, a changed head, or an elapsed review date
+requires a fresh decision, not silent indefinite parking.
+
+Reassess when CI changes, a prerequisite merges, an upstream fix lands, an advisory
+changes, a risk review expires, milestone scope needs the work, or the scheduled
+review date arrives. Remove stale triage and reason labels and supersede the old
+current decision; return resumed work to `triage:active` and ordinary delivery
+without requiring founder approval. If a blocker still exists, update its evidence,
+resume condition, next action, review date and exact head. Do not use a triage label
+or elapsed time to clear a real security, compatibility, or required-review finding.
+
+`scripts/github/pr_triage.py` is an optional, manual validator for a JSON array of
+PR metadata on stdin. It checks exclusive status, reason labels, the marked owner
+comment, structured fields, head and review date; overdue and changed-head decisions
+are warnings for human reassessment. It neither fetches nor mutates GitHub state.
+It is not a CI, merge, acceptance, or release gate and does not monitor or schedule
+reviews. No recurring monitor is implied; only if requested, a session-bound Cron
+reminder may be used for at most seven days, and it is not persistent enforcement.
 
 ## Persistent problem budgets
 

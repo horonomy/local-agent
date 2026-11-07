@@ -7,9 +7,10 @@ description: "Human-reviewer co-pilot for ZeroClaw PR reviews. Use this skill wh
 
 ## Local Agent execution scope
 
-For `horonomy/local-agent`, follow the single-maintainer contract in root
-`AGENTS.md` and `docs/local-agent/engineering-lifecycle.md`, not the upstream
-human-reviewer procedure below. Provide independent technical findings tied to
+For `horonomy/local-agent`, no human PR review is required. Follow the
+single-maintainer contract in root `AGENTS.md` and
+`docs/local-agent/engineering-lifecycle.md`, including separate Claude Code or
+Codex technical review, not the upstream human-reviewer procedure below. Provide independent technical findings tied to
 the exact candidate, reviewer identity and scope. Agent review is not a GitHub
 human approval: never post as a separate human, invent first-person human
 judgment, or manufacture an approval state through the authenticated owner.

@@ -13,6 +13,12 @@ Local Agent workflow where inherited ZeroClaw contribution or team procedures
 differ. Use the [architecture map](docs/book/src/contributing/architecture-map.md)
 to load relevant technical references rather than the entire documentation tree.
 
+Local Agent requires no human PR review. Every approved development PR requires
+independent technical review from a separate Claude Code or Codex agent, resolution
+of blocking findings and actual validation gates before autonomous integration.
+The engineering lifecycle is the canonical policy; agent review is not human
+GitHub approval.
+
 1. Reconcile the existing approved ticket and acceptance criteria before coding.
 2. Reuse or create the appropriate isolated ticket worktree from the verified
    milestone branch. Preserve staged changes, other writers and valid worktrees.
