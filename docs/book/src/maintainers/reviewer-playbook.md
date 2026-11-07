@@ -2,9 +2,11 @@
 
 > **Local Agent review:** use root `AGENTS.md` and
 > `docs/local-agent/engineering-lifecycle.md` for the single-maintainer contract.
-> `@Chisanan232` owns integration with independent Claude Code or Codex technical
-> review. Agent findings are not a GitHub human approval. Preserve actual configured
-> approval requirements, CI, security and unresolved findings/threads.
+> Local Agent requires no human PR review. `@Chisanan232` owns integration after
+> separate Claude Code or Codex technical review and blocking-finding resolution.
+> Agent review is not a GitHub human approval. Follow the canonical lifecycle for
+> owner-controlled reconciliation of any active human-approval rule; retain actual
+> CI, security, product verification and unresolved-thread gates, without bypass.
 > Upstream Core Team counts, expedited lanes, contributor tiers and screenshot
 > upload expectations below are historical context, not Local Agent requirements.
 > Use permitted text-only evidence; this note changes no workstation controls.

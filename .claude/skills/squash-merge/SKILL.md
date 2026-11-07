@@ -4,8 +4,9 @@ Squash-merge a PR into `zeroclaw-labs/zeroclaw` `master` with fully preserved co
 
 ## Local Agent execution scope
 
-For `horonomy/local-agent`, do not execute the inherited squash procedure below.
-Use the single-maintainer owner-review contract in root `AGENTS.md` and
+For `horonomy/local-agent`, no human PR review is required. Do not execute the
+inherited squash procedure below. Use the single-maintainer autonomous integration
+contract in root `AGENTS.md` and
 `docs/local-agent/engineering-lifecycle.md`: independent technical review,
 resolved findings, actual checks and configured approval rules, then an accountable
 owner integration decision using a normal merge commit. Verify the candidate,

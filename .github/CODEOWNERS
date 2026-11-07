@@ -1,5 +1,6 @@
 # Local Agent ownership and review routing.
 # Single-maintainer governance is defined in docs/local-agent/engineering-lifecycle.md.
-# CODEOWNERS identifies the accountable owner, not a separate human approval.
+# CODEOWNERS identifies the accountable owner; zero human PR reviews are required.
+# Independent agent technical review and actual CI/security gates remain required.
 # Preserve upstream authorship, license notices and historical ADRs independently.
 * @Chisanan232
