@@ -8599,6 +8599,27 @@ path = "{trigger_path}"
     #[tokio::test]
     async fn a_stopped_gateway_releases_its_port_before_its_drain_ends() {
         let _pricing_binding = crate::PRICING_BINDING_TEST_LOCK.lock().await;
+        let control_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let control_addr = control_listener.local_addr().unwrap();
+        drop(control_listener);
+        let started = Instant::now();
+        let control = tokio::time::timeout(
+            std::time::Duration::from_millis(150),
+            tokio::net::TcpStream::connect(control_addr),
+        )
+        .await;
+        let control_status = match control {
+            Ok(Ok(_)) => format!("connected/{}ms", started.elapsed().as_millis()),
+            Ok(Err(error)) => format!(
+                "{:?}/{:?}/{}ms",
+                error.kind(),
+                error.raw_os_error(),
+                started.elapsed().as_millis()
+            ),
+            Err(_) => format!("pending/{}ms", started.elapsed().as_millis()),
+        };
         let tmp = tempfile::TempDir::new().unwrap();
         let (cert_path, key_path, connector) = drain_test_tls(tmp.path());
         for over_tls in [false, true] {
@@ -8617,18 +8638,43 @@ path = "{trigger_path}"
             assert!(head.starts_with("HTTP/1.1 200"), "{label}: {head}");
 
             shutdown_tx.send(true).unwrap();
+            let started = Instant::now();
+            let mut last_completed = "none".to_string();
+            let mut attempt_pending = false;
             let released = tokio::time::timeout(std::time::Duration::from_millis(150), async {
                 loop {
-                    match tokio::net::TcpStream::connect(addr).await {
-                        Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => break,
-                        _ => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
+                    attempt_pending = true;
+                    let attempt = tokio::net::TcpStream::connect(addr).await;
+                    attempt_pending = false;
+                    match attempt {
+                        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                            last_completed = format!(
+                                "error(kind={:?},raw_os_error={:?})",
+                                error.kind(),
+                                error.raw_os_error()
+                            );
+                            break;
+                        }
+                        Ok(_) => last_completed = "connected".to_string(),
+                        Err(error) => {
+                            last_completed = format!(
+                                "error(kind={:?},raw_os_error={:?})",
+                                error.kind(),
+                                error.raw_os_error()
+                            );
+                        }
                     }
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
             })
             .await;
+            let probe_status = format!(
+                "last_completed={last_completed}; attempt_pending={attempt_pending}; elapsed={}ms",
+                started.elapsed().as_millis()
+            );
             assert!(
                 released.is_ok(),
-                "{label}: the stopped gateway still held its port while it drained"
+                "{label}: the stopped gateway still held its port while it drained; control={control_status}; probe={probe_status}"
             );
             assert!(
                 !server.is_finished(),
