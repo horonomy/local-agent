@@ -226,6 +226,27 @@ scheduler must honor it but is not proof of installed enforcement. Verify
 restart, cross-agent persistence, attempt/time limits, blocked dependencies and
 successful recovery before claiming automated policy enforcement.
 
+The explicit POSIX accounting helper is `scripts/local_agent/problem_ledger.py`.
+Participating sessions and subagents must use the same canonical ledger path outside
+Git. Its `create`, `result`, `probe`, and `check` commands record explicit outcomes
+and active seconds; they do not automatically intercept work or authenticate an owner.
+A missing or invalid problem fails closed rather than inferring a fresh allowance.
+
+After an exhausted problem has verified recovery, dependent work remains blocked
+until an authorized owner supplies an actual decision and verification reference:
+
+```sh
+python3.13 scripts/local_agent/problem_ledger.py resolve <ledger> <problem-id> --owner-decision "<decision>" --verification "<verification>"
+python3.13 scripts/local_agent/problem_ledger.py check <ledger> <problem-id> --dependent
+```
+
+Resolution appends evidence without resetting counters, removing history, clearing
+the historical circuit, or authorizing another remediation attempt. Recovery must
+follow the latest opening; recovery alone never unblocks dependent work. Explicit
+reopening revokes resolution. Exhausted budgets still reject additional failed
+cycles or active remediation seconds. Decision text is an audit attestation, not
+identity proof or permission to bypass an enforced host denial.
+
 ## Validation and reporting
 
 Use this risk-based evidence ladder; do not equate an ordinary source commit with
