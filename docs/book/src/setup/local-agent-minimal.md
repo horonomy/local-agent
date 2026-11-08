@@ -63,8 +63,11 @@ python3.13 scripts/local_agent/listener_probe.py --binary target/debug/zeroclaw
 `minimal_profile_artifact.sh tree` fails if the minimal feature closure contains the
 gateway, `daemon-listeners` or any channel feature, and fails with exit 2 if the default
 graph does not show those markers (so it cannot pass vacuously). `listener_probe.py`
-runs the agent against a stalling local provider and asserts that no process in its tree
-holds a listening TCP or Unix socket, after confirming that `lsof` sees a synthetic
-listener. The cumulative Golden Journey is run with the minimal binary as described in
+runs the agent against a stalling local provider and asserts that no process in its
+`pgrep -P` descendant tree holds a listening TCP or Unix socket, after confirming that
+`lsof` sees a synthetic listener. It covers the idle agent only; the `daemon`, `relay`
+and `gateway` commands are covered by the refusal tests, and a standard build's `agent`
+would pass the probe too, so it is evidence about this artifact's behavior, not by itself
+proof that listener code is absent (the symbol and feature-closure checks are). The cumulative Golden Journey is run with the minimal binary as described in
 `docs/local-agent/golden-journeys-runner.md` in the repository. Use an unstripped (dev)
 binary for the symbol check; release builds strip symbols.
