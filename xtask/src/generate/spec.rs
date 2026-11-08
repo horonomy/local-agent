@@ -1193,13 +1193,19 @@ impl FeatureCtx<'_> {
 
     /// A pure alias: a non-meta feature whose only member is another local
     /// feature (e.g. `channel-feishu = ["channel-lark"]`) - not separately
-    /// selectable in `All`.
+    /// selectable in `All`. A feature that `default` lists directly is a
+    /// user-facing preset (e.g. `agent-runtime = ["agent-core"]`), never an alias.
     fn is_alias(&self, feature: &str) -> bool {
+        let named_by_default = self
+            .graph
+            .get("default")
+            .is_some_and(|members| members.iter().any(|m| m == feature));
         match self.graph.get(feature) {
             Some(members) => {
                 members.len() == 1
                     && members.iter().all(|m| self.all.contains(m))
                     && !feature.starts_with("channel-")
+                    && !named_by_default
             }
             None => false,
         }
@@ -1688,6 +1694,19 @@ mod tests {
             "all is the kitchen sink"
         );
         assert!(dist.cargo_flags.len() < all.cargo_flags.len());
+    }
+
+    #[test]
+    fn all_keeps_the_runtime_preset_that_aliases_agent_core() {
+        // agent-runtime = ["agent-core"] has a single local member, which makes it
+        // look like an alias; `All` must still enable it or the fat container and
+        // :all-features image lose the runtime.
+        let features = resolve_feature_list(&root(), &Selection::All).unwrap();
+        assert!(features.contains(&"agent-runtime".to_string()));
+        assert!(
+            !features.contains(&"agent-core".to_string()),
+            "agent-core is a non-row implementation feature"
+        );
     }
 
     #[test]
