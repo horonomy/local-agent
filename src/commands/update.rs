@@ -5,50 +5,50 @@ use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 use zeroclaw_runtime::i18n::{get_required_cli_string, get_required_cli_string_with_args};
 
 fn update_already_current_message(version: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args("cli-update-already-current", &[("version", version)])
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Already up to date (v{version}).")
     }
 }
 
 fn update_success_message(version: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args("cli-update-success", &[("version", version)])
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Successfully updated to v{version}!")
     }
 }
 
-#[cfg(any(test, not(feature = "agent-runtime")))]
+#[cfg(any(test, not(feature = "agent-core")))]
 const PREBUILT_CHANNEL_NOTE_FALLBACK: &str = "Pre-built updates use the lean standard distribution. Build from source with `./install.sh --source --preset full`, `--features channels-full`, or a specific `channel-*` feature for Slack and other channels outside that distribution.";
 
 fn prebuilt_channel_note_message() -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string("cli-update-prebuilt-channel-note")
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         PREBUILT_CHANNEL_NOTE_FALLBACK.to_string()
     }
 }
 
 fn update_available_message(current: &str, latest: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-available",
@@ -56,14 +56,14 @@ fn update_available_message(current: &str, latest: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Update available: v{current} -> v{latest}")
     }
 }
 
 fn update_forcing_reinstall_message(current: &str, latest: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-forcing-reinstall",
@@ -71,14 +71,14 @@ fn update_forcing_reinstall_message(current: &str, latest: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Forcing reinstall: v{current} -> v{latest}")
     }
 }
 
 fn install_dir_not_writable_message(dir: &str, error: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-not-writable",
@@ -86,7 +86,7 @@ fn install_dir_not_writable_message(dir: &str, error: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!(
             "install directory {dir} is not writable ({error}); re-run `zeroclaw update` with \
@@ -107,7 +107,7 @@ fn cli_only_needs_standard_message() -> String {
     let gateway = zeroclaw_config::schema::GatewayConfig::default();
     let address = format!("{}:{}", gateway.host, gateway.port);
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-cli-only-needs-standard",
@@ -115,7 +115,7 @@ fn cli_only_needs_standard_message() -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!(
             "This is a CLI-only build, and releases publish only the standard build. The \
@@ -128,12 +128,12 @@ fn cli_only_needs_standard_message() -> String {
 }
 
 fn update_switching_to_standard_message() -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string("cli-update-switching-to-standard")
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         "Switching this CLI-only build to the standard build, which adds the dashboard and web \
          gateway."
