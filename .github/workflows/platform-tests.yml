@@ -60,6 +60,10 @@ jobs:
             timeout-minutes: 60
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout-minutes }}
+    env:
+      # Omit macOS test debuginfo to leave time for execution; retain assertions.
+      # Job scope also includes the effective profile in the Rust cache key.
+      CARGO_PROFILE_TEST_DEBUG: ${{ matrix.name == 'macOS' && '0' || '2' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
