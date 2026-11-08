@@ -34,11 +34,10 @@
     clippy::unnecessary_wraps
 )]
 
-// The `local-agent-minimal` profile promises no inbound network surface. This
-// lists the bundles plus every individual channel feature that binds a listener
-// (webhook, ACP, voice-call, LINE, Lark callbacks); other messaging channels are
-// poll/outbound clients. Keep it in step with
-// tests/component/minimal_profile_feature_graph.rs.
+// The `local-agent-minimal` profile promises no inbound network surface and no
+// messaging adapter. This lists the listener features, the channel bundles and
+// every `channel-*` feature; tests/component/minimal_profile_feature_graph.rs
+// fails when the manifest gains a `channel-*` feature that is missing here.
 #[cfg(all(
     feature = "local-agent-minimal",
     any(
@@ -48,12 +47,42 @@
         feature = "embedded-web",
         feature = "default-channels",
         feature = "channels-full",
-        feature = "channel-acp-server",
-        feature = "channel-webhook",
-        feature = "channel-voice-call",
-        feature = "channel-line",
-        feature = "channel-lark",
         feature = "whatsapp-web",
+        feature = "channel-acp-server",
+        feature = "channel-amqp",
+        feature = "channel-bluesky",
+        feature = "channel-clawdtalk",
+        feature = "channel-dingtalk",
+        feature = "channel-discord",
+        feature = "channel-email",
+        feature = "channel-feishu",
+        feature = "channel-filesystem",
+        feature = "channel-git",
+        feature = "channel-imessage",
+        feature = "channel-irc",
+        feature = "channel-lark",
+        feature = "channel-line",
+        feature = "channel-linq",
+        feature = "channel-matrix",
+        feature = "channel-mattermost",
+        feature = "channel-mochat",
+        feature = "channel-mqtt",
+        feature = "channel-nextcloud",
+        feature = "channel-nostr",
+        feature = "channel-notion",
+        feature = "channel-qq",
+        feature = "channel-reddit",
+        feature = "channel-signal",
+        feature = "channel-slack",
+        feature = "channel-telegram",
+        feature = "channel-twitch",
+        feature = "channel-twitter",
+        feature = "channel-voice-call",
+        feature = "channel-webhook",
+        feature = "channel-wechat",
+        feature = "channel-wecom",
+        feature = "channel-wecom-ws",
+        feature = "channel-whatsapp-cloud",
     )
 ))]
 compile_error!(
