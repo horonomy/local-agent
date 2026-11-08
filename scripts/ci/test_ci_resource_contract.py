@@ -222,7 +222,41 @@ class CiResourceContractTests(unittest.TestCase):
         self.assertIn("          - name: macOS\n", workflow)
         self.assertIn("          - name: Windows\n", workflow)
 
+    def test_platform_tests_bound_macos_debug_without_reducing_coverage(self) -> None:
+        workflow = (ROOT / ".github/workflows/platform-tests.yml").read_text(
+            encoding="utf-8"
+        )
+        platform = workflow.split("\n  platform-tests:\n", 1)[1]
+        header, steps = platform.split("\n    steps:\n", 1)
+        self.assertIn(
+            "CARGO_PROFILE_TEST_DEBUG: ${{ matrix.name == 'macOS' && '0' || '2' }}",
+            header,
+        )
+        self.assertIn("            timeout-minutes: 45\n", header)
+        self.assertIn("            timeout-minutes: 60\n", header)
+        self.assertIn("fail-fast: false", header)
+        self.assertEqual(
+            header.count("continue-on-error:"),
+            1,
+        )
+        self.assertIn("continue-on-error: ${{ matrix.name == 'Windows' }}", header)
+        self.assertIn("          shared-key: platform-test\n", steps)
+        self.assertIn("          cache-on-failure: true\n", steps)
+        self.assertIn(
+            "          save-if: ${{ github.ref == 'refs/heads/master' }}", steps
+        )
+        run_tests = steps.split("      - name: Run tests\n", 1)[1]
+        self.assertEqual(
+            run_tests.strip(),
+            "shell: bash\n"
+            "        run: cargo nextest run --locked --workspace "
+            "--exclude zeroclaw-desktop --no-fail-fast",
+        )
+        self.assertNotIn("CARGO_PROFILE_TEST_DEBUG_ASSERTIONS", workflow)
+        self.assertNotIn("CARGO_PROFILE_TEST_OPT_LEVEL", workflow)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
+
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
         self.assertNotIn("blacksmith", self.landlock)
 
