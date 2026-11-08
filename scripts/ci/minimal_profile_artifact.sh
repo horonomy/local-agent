@@ -9,8 +9,9 @@
 #       Symbols of an UNSTRIPPED minimal binary. Positive control: core agent
 #       symbols must be present, and so must client helpers from the relay,
 #       enrollment and local-RPC modules whose listener entry points are asserted
-#       absent. That code is still compiled into the runtime crate; it is
-#       reachable only from the gated daemon, so the linker drops it.
+#       absent. That code is still compiled into the runtime crate; its listener
+#       entry points are called only from the gated daemon, so the linker drops
+#       them, while the client helpers stay because other commands call them.
 set -euo pipefail
 
 MIN=(--no-default-features --features local-agent-minimal)
@@ -33,7 +34,7 @@ check_tree() {
       exit 2
     fi
   done
-  if [ -z "$minimal" ] || ! grep -q '^zeroclaw-runtime' <<<"$minimal"; then
+  if [[ -z "$minimal" ]] || ! grep -q '^zeroclaw-runtime' <<<"$minimal"; then
     echo "FAIL control: minimal graph is empty or lacks zeroclaw-runtime" >&2
     exit 2
   fi
@@ -48,13 +49,13 @@ check_tree() {
 
 check_binary() {
   local bin=$1 syms
-  [ -x "$bin" ] || { echo "FAIL: $bin is not an executable" >&2; exit 2; }
+  [[ -x "$bin" ]] || { echo "FAIL: $bin is not an executable" >&2; exit 2; }
   syms=$(nm -C --defined-only "$bin" 2>/dev/null || true)
   if ! grep -q 'zeroclaw_runtime::agent' <<<"$syms"; then
     echo "FAIL control: no core agent symbols; the binary is stripped or not a zeroclaw build" >&2
     exit 2
   fi
-  if hits=$(grep -E 'zeroclaw_gateway::|zeroclaw_runtime::rpc::wss|zeroclaw_channels::(telegram|discord|webhook|email_channel|acp_channel|filesystem|matrix|slack|line|lark)::|orchestrator::acp_server::' <<<"$syms" | head -5) && [ -n "$hits" ]; then
+  if hits=$(grep -E 'zeroclaw_gateway::|zeroclaw_runtime::rpc::wss|zeroclaw_channels::(telegram|discord|webhook|email_channel|acp_channel|filesystem|matrix|slack|line|lark)::|orchestrator::acp_server::' <<<"$syms" | head -5) && [[ -n "$hits" ]]; then
     echo "FAIL binary: forbidden symbols are linked:" >&2
     echo "$hits" >&2
     fail=1
@@ -77,7 +78,9 @@ check_binary() {
       fail=1
     fi
   done
-  [ "$fail" -eq 0 ] && echo "PASS binary: relay bridge, enrollment server and local RPC listener entry points are not linked"
+  if [[ "$fail" -eq 0 ]]; then
+    echo "PASS binary: relay bridge, enrollment server and local RPC listener entry points are not linked"
+  fi
 }
 
 case "${1:-}" in

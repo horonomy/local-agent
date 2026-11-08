@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from pathlib import Path
 
 STALL_SECONDS = 30
 STARTUP_DEADLINE = 25
+FIRST_LAUNCH_TIMEOUT = 600
 
 
 def lsof_listeners(pid: int) -> list[str]:
@@ -77,7 +79,7 @@ def positive_control() -> bool:
     try:
         port = child.stdout.readline().strip()
         time.sleep(0.3)
-        return any(port in entry for entry in lsof_listeners(child.pid))
+        return bool(port) and any(port in entry for entry in lsof_listeners(child.pid))
     finally:
         child.kill()
         child.wait()
@@ -126,85 +128,143 @@ auto_approve = []
     )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--binary", required=True)
-    parser.add_argument("--hold", type=float, default=4.0)
-    args = parser.parse_args()
+def launch_agent(binary: Path, root: Path) -> subprocess.Popen:
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(root / "home"),
+        "LC_ALL": "C",
+    }
+    (root / "home").mkdir()
+    return subprocess.Popen(
+        [
+            str(binary),
+            "--config-dir",
+            str(root / "config"),
+            "agent",
+            "--agent",
+            "probe",
+            "--message",
+            "hello",
+        ],
+        cwd=root,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
-    if shutil.which("lsof") is None:
-        print(json.dumps({"verdict": "premise-failed", "reason": "lsof missing"}))
-        return 2
-    if not positive_control():
-        print(json.dumps({"verdict": "premise-failed", "reason": "control unseen"}))
-        return 2
 
+def wait_until_idle(proc: subprocess.Popen) -> bool:
+    """True once the agent has connected to the stalling provider and is alive."""
+    deadline = time.monotonic() + STARTUP_DEADLINE
+    while time.monotonic() < deadline and Stall.connections == 0:
+        if proc.poll() is not None:
+            break
+        time.sleep(0.1)
+    return Stall.connections > 0 and proc.poll() is None
+
+
+def inspect_tree(root_pid: int) -> dict[str, list[str]]:
+    found = {}
+    for pid in process_tree(root_pid):
+        entries = lsof_listeners(pid)
+        if entries:
+            found[str(pid)] = entries
+    return found
+
+
+def stop_agent(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(timeout=grace)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def warm_up(binary: Path) -> float:
+    """Run `--version` once and return its wall time in seconds.
+
+    macOS assesses a freshly linked binary on first launch, which can take
+    minutes on a busy machine. Absorbing it here keeps that cost out of the
+    startup deadline; it is reported rather than hidden.
+    """
+    started = time.monotonic()
+    subprocess.run(
+        [str(binary), "--version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=FIRST_LAUNCH_TIMEOUT,
+        check=False,
+    )
+    return time.monotonic() - started
+
+
+def probe(binary: Path, hold: float) -> tuple[dict, int]:
+    """Run one idle agent and return (report, exit code)."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), Stall)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     root = Path(tempfile.mkdtemp(prefix="listener-probe-"))
     proc = None
     try:
+        first_launch = warm_up(binary)
         write_config(root, server.server_address[1])
-        env = {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": str(root / "home"),
-            "LC_ALL": "C",
+        proc = launch_agent(binary, root)
+        if not wait_until_idle(proc):
+            return {"verdict": "premise-failed", "reason": "agent not idle"}, 2
+        time.sleep(hold)
+        found = inspect_tree(proc.pid)
+        report = {
+            "verdict": "listener-found" if found else "no-listener",
+            "control_seen": True,
+            "first_launch_s": round(first_launch, 1),
+            "provider_connections": Stall.connections,
+            "agent_alive": proc.poll() is None,
+            "listeners": found,
         }
-        (root / "home").mkdir()
-        proc = subprocess.Popen(
-            [
-                args.binary,
-                "--config-dir",
-                str(root / "config"),
-                "agent",
-                "--agent",
-                "probe",
-                "--message",
-                "hello",
-            ],
-            cwd=root,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        deadline = time.monotonic() + STARTUP_DEADLINE
-        while time.monotonic() < deadline and Stall.connections == 0:
-            if proc.poll() is not None:
-                break
-            time.sleep(0.1)
-        if Stall.connections == 0 or proc.poll() is not None:
-            print(json.dumps({"verdict": "premise-failed", "reason": "agent not idle"}))
-            return 2
-        time.sleep(args.hold)
-        found = {}
-        for pid in process_tree(proc.pid):
-            entries = lsof_listeners(pid)
-            if entries:
-                found[str(pid)] = entries
-        print(
-            json.dumps(
-                {
-                    "verdict": "listener-found" if found else "no-listener",
-                    "control_seen": True,
-                    "provider_connections": Stall.connections,
-                    "agent_alive": proc.poll() is None,
-                    "listeners": found,
-                },
-                sort_keys=True,
-            )
-        )
-        return 1 if found else 0
+        return report, 1 if found else 0
     finally:
-        if proc is not None and proc.poll() is None:
-            try:
-                os.killpg(proc.pid, 15)
-            except ProcessLookupError:
-                pass
-            proc.wait(timeout=10)
+        if proc is not None:
+            stop_agent(proc)
         server.shutdown()
         shutil.rmtree(root, ignore_errors=True)
+
+
+def validated_binary(path: Path) -> Path | None:
+    binary = path.resolve()
+    if binary.is_file() and os.access(binary, os.X_OK):
+        return binary
+    return None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--binary", required=True, type=Path)
+    parser.add_argument("--hold", type=float, default=4.0)
+    args = parser.parse_args()
+
+    premise = None
+    binary = validated_binary(args.binary)
+    if binary is None:
+        premise = "binary is not an executable file"
+    elif shutil.which("lsof") is None:
+        premise = "lsof missing"
+    elif not positive_control():
+        premise = "control unseen"
+    if premise is not None:
+        print(json.dumps({"verdict": "premise-failed", "reason": premise}))
+        return 2
+
+    report, code = probe(binary, args.hold)
+    print(json.dumps(report, sort_keys=True))
+    return code
 
 
 if __name__ == "__main__":
