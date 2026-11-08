@@ -1617,6 +1617,7 @@ mod tests {
 
     // These pass `true` (`--standard`), with which every build selects the
     // standard archive, so they run in CLI-only builds too.
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_picks_correct_gnu_over_android() {
         let release = make_release(&[
@@ -1639,6 +1640,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_ignores_non_installable_assets() {
         let target = current_target_triple().expect("supported test platform");
@@ -1658,6 +1660,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_skips_matching_asset_with_unusable_url() {
         let target = current_target_triple().expect("supported test platform");
@@ -1682,6 +1685,7 @@ mod tests {
         assert_eq!(url, format!("https://example.com/zeroclaw-{target}.tar.gz"));
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_ignores_non_zeroclaw_assets() {
         let target = current_target_triple().expect("supported test platform");
@@ -1738,6 +1742,7 @@ mod tests {
         (release, format!("https://example.com/{archive}"))
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[cfg(not(feature = "gateway"))]
     #[test]
     fn this_cli_only_build_selects_nothing_without_standard() {
@@ -1756,6 +1761,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[cfg(not(feature = "gateway"))]
     #[test]
     fn this_cli_only_build_selects_the_standard_archive_with_standard() {
@@ -1858,6 +1864,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[cfg(not(feature = "gateway"))]
     #[tokio::test]
     async fn run_in_a_cli_only_build_with_standard_downloads_the_same_version() {

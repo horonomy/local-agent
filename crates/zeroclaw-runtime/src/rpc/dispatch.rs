@@ -3408,6 +3408,7 @@ impl RpcDispatcher {
 
     /// Own a transport until EOF or generation cancellation, then drain all
     /// work accepted by that exact connection before returning.
+    #[cfg(feature = "daemon-listeners")]
     pub(crate) async fn run_connection(&mut self, transport: &mut (dyn RpcTransport + Send)) {
         let connection_cancel = self.connection_cancel.clone();
         tokio::select! {

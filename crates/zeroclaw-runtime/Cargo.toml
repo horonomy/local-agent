@@ -112,6 +112,10 @@ schema-export = ["dep:schemars", "zeroclaw-config/schema-export", "zeroclaw-sop-
 
 
 browser-native = []
+# Compiles the mTLS WebSocket server (`rpc::wss`) and its dispatcher entry point.
+# Off by default; the root crate enables it through `daemon-listeners`. The relay
+# bridge, enrollment server and local RPC listener are not behind it yet.
+daemon-listeners = []
 plugins-wasm = ["dep:zeroclaw-plugins", "zeroclaw-plugins/plugins-wasmtime"]
 # Adds the Cranelift JIT to the plugin host so a `.wasm` component can be
 # compiled on the host instead of requiring a precompiled `.cwasm`. Production

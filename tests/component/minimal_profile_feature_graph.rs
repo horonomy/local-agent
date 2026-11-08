@@ -21,9 +21,14 @@ fn members(features: &toml::Table, name: &str) -> Vec<String> {
 }
 
 #[test]
-fn minimal_profile_is_exactly_agent_runtime_and_never_a_default() {
+fn minimal_profile_is_exactly_agent_core_and_never_a_default() {
     let features = root_features();
-    assert_eq!(members(&features, "local-agent-minimal"), ["agent-runtime"]);
+    assert_eq!(members(&features, "local-agent-minimal"), ["agent-core"]);
+    assert_eq!(
+        members(&features, "agent-runtime"),
+        ["agent-core", "daemon-listeners"],
+        "agent-runtime must stay the core plus the inbound listeners"
+    );
     assert!(
         !members(&features, "default")
             .iter()
@@ -33,7 +38,7 @@ fn minimal_profile_is_exactly_agent_runtime_and_never_a_default() {
 }
 
 #[test]
-fn compile_guard_names_the_known_ingress_features() {
+fn compile_guard_rejects_listeners_bundles_and_every_channel_feature() {
     let lib = include_str!("../../src/lib.rs");
     let start = lib
         .find("feature = \"local-agent-minimal\"")
@@ -44,19 +49,20 @@ fn compile_guard_names_the_known_ingress_features() {
                 .find("compile_error!")
                 .expect("guard ends at compile_error!")];
     let features = root_features();
-    for ingress in [
+    let fixed = [
+        "daemon-listeners",
         "gateway",
         "acp-bridge",
         "embedded-web",
         "default-channels",
         "channels-full",
-        "channel-acp-server",
-        "channel-webhook",
-        "channel-voice-call",
-        "channel-line",
-        "channel-lark",
         "whatsapp-web",
-    ] {
+        "voice-wake",
+    ];
+    // Every messaging adapter feature in the manifest, so a newly added channel
+    // cannot slip into the profile unnoticed.
+    let channels = features.keys().filter(|name| name.starts_with("channel-"));
+    for ingress in fixed.iter().copied().chain(channels.map(String::as_str)) {
         assert!(
             features.contains_key(ingress),
             "`{ingress}` must exist in the manifest"

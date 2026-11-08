@@ -13,16 +13,18 @@ cargo build --release --locked --bin zeroclaw \
 zeroclaw agent -m "hello"
 ```
 
-`local-agent-minimal` is exactly `agent-runtime`. It is a marker feature: building it
-together with an ingress feature fails at compile time, so `--all-features` on the
-root crate intentionally does not build.
+`local-agent-minimal` is exactly `agent-core`: the standard runtime's dependencies
+without `daemon-listeners`, the feature that carries the daemon's inbound servers.
+The standard `agent-runtime` is `agent-core` plus `daemon-listeners`. The profile is a
+marker feature: building it together with a listener, bundle or any `channel-*` feature
+fails at compile time, so `--all-features` on the root crate intentionally does not build.
 
 ## What is excluded
 
 | Surface | Behavior in this profile |
 | --- | --- |
-| `gateway`, `embedded-web`, `acp-bridge`, the webhook, ACP-server, voice-call, LINE and Lark channels (they bind listeners) | Not compiled in. Combining any of them with the profile is a `compile_error!`. |
-| Messaging channel bundles (`default-channels`, `channels-full`) | Not compiled in; combining them with the profile is a `compile_error!`. A config that names a channel the build does not compile is refused (see below). |
+| `daemon-listeners`, `gateway`, `embedded-web`, `acp-bridge` | Not compiled in. Combining any of them with the profile is a `compile_error!`. The mTLS WebSocket server (`rpc::wss`) and the daemon and relay command bodies exist only with `daemon-listeners`. |
+| Every `channel-*` feature and the bundles `default-channels`, `channels-full` | Not compiled in. Adding one by hand is a `compile_error!`; a feature-graph test fails if a new `channel-*` feature is missing from the guard. A config that names a channel the build does not compile is refused (see below). |
 | `daemon`, `relay`, `gateway`, `acp`, `channel start` and the `service` commands that start or install a unit | Refused at startup, before config is loaded or any state is written. `service stop`, `uninstall`, `status` and `logs` stay available to remove a unit installed by a standard build. |
 | `zeroclaw update` | Never replaces this binary with a standard release archive, with or without `--standard`. |
 | `[wss]`, `[relay]`, `[enroll]`, `[a2a.server]`, a tunnel provider | A config that enables one is refused instead of silently ignored. |
@@ -34,14 +36,14 @@ remain available so a non-minimal config can be repaired.
 
 - Provider adapters are still compiled in. A single OpenAI-compatible endpoint is a
   configuration choice protected by the existing default-deny approval, not a feature gate.
-- The runtime crate still contains its WSS, enrollment, relay and local-RPC code. It is
-  unreachable in this profile because the commands and configuration above are refused;
-  it is not removed from the binary. The profile does not claim "no listener code linked".
+- The runtime crate still contains the relay bridge, enrollment server and local RPC
+  listener source, because they share types and helpers with code other commands use.
+  Nothing reachable from this profile calls them, so the linker drops their entry points:
+  `scripts/ci/minimal_profile_artifact.sh binary` asserts they are absent from an unstripped
+  build, with positive controls. Removing that source is separate work (HORO-2383).
 - Provider OAuth sign-in (for example the Gemini and OpenAI flows) uses a short-lived,
-  user-initiated loopback callback listener. It is not gated.
-- An individual messaging `channel-*` feature that only polls or sends (for example
-  `channel-telegram`) can still be added by hand. It is inert here, because
-  `channel start` and the daemon are refused, but it is outside this profile's claim.
+  user-initiated loopback callback listener. It is not gated, and `listener_probe.py`
+  does not exercise it.
 - `zeroclaw` installer `--minimal` and the xtask `Minimal` selection mean the kernel
   build, whose `agent` command is a plain chat loop without tools or memory. That is a
   different profile and must not be reported as this one.
@@ -49,14 +51,23 @@ remain available so a non-minimal config can be repaired.
 ## Verification
 
 ```sh
-cargo test --locked -p zeroclaw --no-default-features --features local-agent-minimal \
-  --test component -- minimal_profile
-cargo test --locked -p zeroclaw --no-default-features --features local-agent-minimal \
-  --test integration -- agent:: memory_loop_continuity:: memory_restart::
-cargo tree --locked -p zeroclaw --no-default-features --features local-agent-minimal \
-  -e features -i zeroclaw-channels
+F="--no-default-features --features local-agent-minimal"
+cargo test --locked -p zeroclaw $F --test component -- minimal_profile
+cargo test --locked -p zeroclaw $F --test integration -- agent:: memory_loop_continuity:: memory_restart::
+scripts/ci/minimal_profile_artifact.sh tree
+cargo build --locked -p zeroclaw --bin zeroclaw $F
+scripts/ci/minimal_profile_artifact.sh binary target/debug/zeroclaw
+python3.13 scripts/local_agent/listener_probe.py --binary target/debug/zeroclaw
 ```
 
-The last command must show no `zeroclaw-channels feature "channel-*"`. The cumulative
-Golden Journey is run with the minimal binary as described in
-`docs/local-agent/golden-journeys-runner.md` in the repository.
+`minimal_profile_artifact.sh tree` fails if the minimal feature closure contains the
+gateway, `daemon-listeners` or any channel feature, and fails with exit 2 if the default
+graph does not show those markers (so it cannot pass vacuously). `listener_probe.py`
+runs the agent against a stalling local provider and asserts that no process in its
+`pgrep -P` descendant tree holds a listening TCP or Unix socket, after confirming that
+`lsof` sees a synthetic listener. It covers the idle agent only; the `daemon`, `relay`
+and `gateway` commands are covered by the refusal tests, and a standard build's `agent`
+would pass the probe too, so it is evidence about this artifact's behavior, not by itself
+proof that listener code is absent (the symbol and feature-closure checks are). The cumulative Golden Journey is run with the minimal binary as described in
+`docs/local-agent/golden-journeys-runner.md` in the repository. Use an unstripped (dev)
+binary for the symbol check; release builds strip symbols.

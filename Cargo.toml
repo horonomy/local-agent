@@ -231,6 +231,7 @@ non_row_features = [
     "embedded-web",
     "local-agent-minimal",
     "agent-core",
+    "daemon-listeners",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
@@ -313,15 +314,22 @@ agent-core = [
 
 # Everything the standard runtime had before HORO-2382 split it: the same
 # dependencies, now named `agent-core` so inbound listener code can be separated.
-agent-runtime = ["agent-core"]
+agent-runtime = ["agent-core", "daemon-listeners"]
+
+# Inbound listener code: the daemon and relay commands and the mTLS WebSocket server.
+# Standard builds get it through `agent-runtime`; `local-agent-minimal` does not. The
+# relay bridge, enrollment server and local RPC listener sources are not gated by it
+# yet (HORO-2383); the minimal binary simply does not link them.
+daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,
-# tools, MCP and CLI chat, with no gateway, ACP bridge or messaging-channel
-# features. It is a non-additive marker: src/lib.rs rejects it combined with an
-# ingress feature, so `--all-features` on this crate intentionally fails to build.
+# tools, MCP and CLI chat, with no gateway, ACP bridge, daemon listener or
+# messaging-channel features. It is a non-additive marker: src/lib.rs rejects it
+# combined with an ingress feature, so `--all-features` on this crate intentionally
+# fails to build.
 # Not the installer's `--minimal` kernel selection, which has no tools or memory.
-local-agent-minimal = ["agent-runtime"]
+local-agent-minimal = ["agent-core"]
 
 # Lean channel bundle included in `default`. These channels cover local/editor
 # ACP, gateway/webhook ingress, and common first-run external chat/email paths.
