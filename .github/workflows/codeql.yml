@@ -14,7 +14,7 @@ name: CodeQL
 # keeps it from rendering as a permanently skipped check on every PR.
 #
 # Triggers:
-#   push to master     — immediate feedback on merged code, for pushes that
+#   push to master/release branches — immediate feedback for analyzed code changes
 #                        change analyzed code (see `paths` below)
 #   schedule           — daily catch for new queries (query packs update
 #                        independently of the codebase)
@@ -23,7 +23,7 @@ name: CodeQL
 
 on:
   push:
-    branches: [master]
+    branches: [master, 'release/**']
     # Only pushes that change code this workflow analyzes. CodeQL's result
     # depends only on these files, so a docs-, skills-, or policy-only push
     # would reproduce the previous analysis exactly, and under the
@@ -74,12 +74,7 @@ jobs:
     name: Analyze (${{ matrix.language }})
     # Results upload to this repo's Security tab; skip on forks.
     if: github.repository == 'zeroclaw-labs/zeroclaw'
-    # Keep the fast interpreted-language scan on GitHub; give only Rust the
-    # Blacksmith label the compile-heavy ci.yml jobs pin directly. The label
-    # is a checked-in constant rather than a repository variable, matching
-    # ci.yml, so moving the Rust scan back to GitHub-hosted is one reviewed
-    # edit here and no workflow depends on an Actions variable for runners.
-    runs-on: ${{ matrix.language == 'rust' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -100,7 +95,7 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y libudev-dev
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
           config-file: .github/codeql/codeql-config.yml
@@ -112,6 +107,6 @@ jobs:
           CARGO_TERM_COLOR: always
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: '/language:${{ matrix.language }}'

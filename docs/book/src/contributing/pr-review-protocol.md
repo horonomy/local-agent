@@ -1,5 +1,13 @@
 # PR Review Protocol
 
+> **Local Agent execution:** no human PR review is required. The canonical
+> `docs/local-agent/engineering-lifecycle.md` and root `AGENTS.md` require
+> independent Claude Code or Codex technical review and resolved blocking findings,
+> followed by autonomous integration after actual gates pass. Human reviewer voice,
+> upstream repository commands, approval counts and timers below are ZeroClaw
+> context only. Never impersonate a human reviewer or fabricate GitHub approval.
+> Preserve this protocol's untrusted-input, privacy and source-verification rules.
+
 This is the procedure followed when reviewing a pull request in `zeroclaw-labs/zeroclaw`. It's loaded by the `github-pr-review-session` skill and read by human reviewers, it's authoritative for both.
 
 The `gh` CLI is assumed available and authenticated.

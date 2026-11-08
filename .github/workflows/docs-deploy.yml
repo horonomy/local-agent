@@ -41,7 +41,7 @@ on:
         default: "master"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: gh-pages
@@ -195,7 +195,7 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Rust build cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: docs-deploy
           cache-all-crates: true
@@ -233,6 +233,9 @@ jobs:
           cargo mdbook build
 
       - name: Update gh-pages branch (merge build output)
+        # Local Agent has no approved docs destination. Preserve builds, but do
+        # not publish inherited domains or credentials without a reviewed setup.
+        if: github.repository == 'zeroclaw-labs/zeroclaw'
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
@@ -437,7 +440,8 @@ jobs:
           popd > /dev/null
 
   promote-stable:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'promote-stable'
+    # Publishing stays disabled until a Local Agent-specific destination is approved.
+    if: github.repository == 'zeroclaw-labs/zeroclaw' && github.event_name == 'workflow_dispatch' && inputs.mode == 'promote-stable'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:

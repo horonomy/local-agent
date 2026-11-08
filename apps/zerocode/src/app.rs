@@ -6021,15 +6021,22 @@ mod tests {
             .expect("poll");
         assert!(woke);
 
-        // Idle: keep slicing until the full timeout, never polling past it.
+        // Idle: wait through the full timeout, allowing the OS to oversleep a slice.
         let polls = std::cell::RefCell::new(Vec::new());
         let started = Instant::now();
         let woke = poll_input_or_transport(
             Duration::from_millis(40),
             Duration::from_millis(10),
             |slice| {
+                let first_poll = polls.borrow().is_empty();
                 polls.borrow_mut().push(slice);
-                std::thread::sleep(slice);
+                // Model one callback oversleeping the deadline; the next poll
+                // still observes a bounded (zero) remaining slice.
+                std::thread::sleep(if first_poll {
+                    Duration::from_millis(40)
+                } else {
+                    slice
+                });
                 Ok(false)
             },
             || false,
@@ -6038,7 +6045,7 @@ mod tests {
         assert!(!woke);
         assert!(started.elapsed() >= Duration::from_millis(40));
         let polls = polls.borrow();
-        assert!(polls.len() >= 4);
+        assert!(!polls.is_empty());
         assert!(
             polls
                 .iter()

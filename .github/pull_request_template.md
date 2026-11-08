@@ -1,6 +1,7 @@
 ## Summary
 
-- **Base branch:** `master` (all contributions)
+- **Base branch:** `release/mvp-X.0` for task PRs; verified default branch for milestone release PRs.
+- **Review and integration:** Local Agent requires no human PR review. Follow `docs/local-agent/engineering-lifecycle.md`: single-maintainer autonomous integration after separate Claude Code or Codex independent technical review, resolved blocking findings and actual CI/security/product checks. AI review is not a GitHub human approval. Formally reconcile any active human-approval rule through authorized owner administration; never bypass it.
 - **What changed and why:** (2 to 5 bullets; the diff shows *what*, you explain *why*)
 - **Scope boundary:** (what this PR explicitly does NOT change)
 - **Blast radius:** (what other subsystems or consumers could be affected)
@@ -33,6 +34,8 @@ Explain how the change was checked. Use the evidence that matches the changed su
 
 Fresh required CI is valid evidence when it covers the changed surface. Add extra validation only for a concrete coverage gap, such as platform-specific tests, cross-platform lint, desktop app coverage, release target builds, or stale/unavailable CI.
 
+For Local Agent, workstation data-handling policy takes precedence over the inherited visual-evidence guidance below. Where external media is prohibited, do not attach, link, encode or send captures to a model. Verify the actual interface locally and provide permitted text-only evidence: reproduction steps, actions and observed state, safe accessibility or structured output, and exact-candidate checks. State any verification limitation; source-only or helper-only checks do not prove the rendered interface.
+
 Visual presentation changes require actual-interface evidence. Include or link privacy-safe screenshots at representative terminal or viewport dimensions with enough surrounding context to judge the result when the result or risk includes layout, spacing, alignment, wrapping, clipping, typography, color, focus, selection, responsive behavior, graphical composition, or another presentation-sensitive state. Record numerical dimensions only when needed to reproduce or assess a concrete presentation concern, such as wrapping, clipping, or responsive layout. A semantic-only rendered-interface change may instead use exact-head automated evidence from the final supported-interface output when it cannot affect layout, styling, clipping, wrapping, focus, selection, or interaction behavior. That evidence must exercise the real interface through its final renderer and observe the output users receive; source inspection, pre-render composition, component-only snapshots, and helper-level assertions do not qualify. A concrete presentation concern restores the screenshot requirement. A noninteractive, unstyled, deterministic plain-text CLI, stdout, stderr, or log change may use exact output from the supported interface when it makes no presentation-sensitive claim and no reviewer has identified a concrete presentation concern. Record relevant output-shaping context such as locale and terminal width. For interaction or transition changes, also record the action and observed result.
 
 ```sh
@@ -42,15 +45,15 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Docs-only changes: replace with markdown lint (`scripts/ci/docs_quality_gate.sh`) and added-link integrity (`scripts/ci/docs_links_gate.sh`). Bootstrap scripts: add `bash -n install.sh`.
+Docs-only changes: use repository-owned prose checks (`scripts/ci/docs_quality_gate.sh`), added-link integrity (`scripts/ci/docs_links_gate.sh`), internal links and the applicable documentation build. The vulnerable third-party Markdown formatter is retired and must not be executed. Bootstrap scripts: add `bash -n install.sh`.
 
 - **CI checks relied on and why they cover this change:** (for example, `Docs Style` covers the changed Markdown lines)
 - **Known CI coverage gap, if any:** (for example, `None after the docs and links gates`)
 - **Commands run and tail output:**
 - **Beyond CI, what did you manually verify?** (functional scenarios, edge cases, and any security-relevant behavior; also what you did NOT verify)
-- **Visual interface evidence:** (`Screenshot` / `Exact final-interface output` / `Exact plain-text output` / `N/A`; use final-interface output only for a semantic-only rendered-interface change that meets the rule above, exact output only for the narrow noninteractive unstyled-text case, and `N/A` only when no user-visible interface state changed)
+- **Visual interface evidence:** (`Policy-compliant text-only evidence` / `Screenshot where permitted` / `Exact final-interface output` / `Exact plain-text output` / `N/A`; use text-only evidence when external media is prohibited, final-interface output for semantic-only rendered changes, and `N/A` only when no user-visible interface state changed)
 - **Tested revision, interface, and evidence path:** (record numerical dimensions only when needed to reproduce or assess a concrete presentation concern; name the final supported-interface output path for semantic-only rendered evidence; record locale or terminal width when it shapes exact output)
-- **Screenshot or exact-output evidence:** (attach or link screenshots, link the exact-head final-interface check and observed output, or include the exact supported-interface output)
+- **Permitted interface evidence:** (include text-only observations and exact-candidate checks when media is prohibited; otherwise use the evidence permitted by the rules above; never upload restricted captures)
 - **Action or changed state and observed result:**
 - **If any command was intentionally skipped, why:**
 
@@ -93,9 +96,8 @@ Medium/high-risk PRs must fill:
 
 **Labels** live in the GitHub label UI, not in the body. The PR path labeler owns path/scope labels from `.github/labeler.yml`, and the PR size labeler owns canonical `size:*` labels. Maintainers and reviewers with label permissions still set `risk:*` and any missing manual labels via the sidebar. Contributors without label permission can note obvious label mismatches in a comment. Canonical colon-scoped labels use no-space spelling; during migration, copy exact live label spelling from the GitHub UI.
 
-**Do not add bot/AI attribution footers** such as `Co-authored-by: Claude ...`
-or `Created with Claude Code` to the PR body or commit-message tail. Human
-co-author trailers are appropriate only for incorporated contributor work under
-the supersede-attribution section and privacy contract.
+**Attribution:** Preserve contributor attribution and the required tool-authorship
+metadata. Do not rewrite upstream history or represent agent findings as a human
+reviewer's GitHub approval.
 
 **Privacy contract** (`docs/book/src/contributing/privacy.md`) is a merge gate. Never commit real identities, secrets, personal emails, or PII in diff, tests, fixtures, or docs.

@@ -1,5 +1,16 @@
 # RFC Process
 
+> **Local Agent decisions:** use the
+> `docs/local-agent/engineering-lifecycle.md` and
+> approved task record to determine whether a durable decision is required. Keep
+> the narrow substantive triggers below, not the upstream Core Team electorate,
+> vote timers or silence-as-approval rules. Existing explicit founder decisions
+> are not reopened for routine implementation, and actual security/review gates
+> remain mandatory. The ratification procedure and FND-003 electorate references
+> below describe ZeroClaw only. For Local Agent, an approved ticket/design note or
+> an ADR for an architectural decision can record the decision; a new GitHub RFC
+> and upstream vote are not automatic prerequisites.
+
 An RFC records a durable project-level decision before implementation. The process exists to surface design trade-offs, give maintainers and contributors a chance to push back early, and leave a searchable record of *why* a decision was made.
 
 Most work does not need one. The RFC trigger is deliberately narrow so that proposals which genuinely need a project-level decision are not queued behind ordinary features.

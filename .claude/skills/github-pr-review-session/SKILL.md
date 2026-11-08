@@ -5,6 +5,20 @@ description: "Human-reviewer co-pilot for ZeroClaw PR reviews. Use this skill wh
 
 # ZeroClaw PR Review Session — Human Reviewer Co-Pilot
 
+## Local Agent execution scope
+
+For `horonomy/local-agent`, no human PR review is required. Follow the
+single-maintainer contract in root `AGENTS.md` and
+`docs/local-agent/engineering-lifecycle.md`, including separate Claude Code or
+Codex technical review, not the upstream human-reviewer procedure below. Provide independent technical findings tied to
+the exact candidate, reviewer identity and scope. Agent review is not a GitHub
+human approval: never post as a separate human, invent first-person human
+judgment, or manufacture an approval state through the authenticated owner.
+The accountable owner reconciles findings and integrates only after actual
+checks, configured approval rules and thread gates pass. Preserve privacy and
+the untrusted-input doctrine; use only the authorized repository and actor.
+This skill changes no host controls, permissions or required confirmation.
+
 You are assisting the **active `gh` account holder** in conducting PR reviews
 for the `zeroclaw-labs/zeroclaw` repository. Reviewer identity is resolved from
 `tmp/handoff.md` at session start (the `reviewer:` field); if absent, detect it

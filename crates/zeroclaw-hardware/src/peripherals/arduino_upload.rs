@@ -61,6 +61,8 @@ pub struct ArduinoUploadTool {
     test_env: Vec<(OsString, OsString)>,
     #[cfg(test)]
     cli_prefix_args: Vec<OsString>,
+    #[cfg(test)]
+    compile_started: Option<std::sync::mpsc::Sender<(u32, PathBuf)>>,
 }
 
 impl ArduinoUploadTool {
@@ -73,6 +75,8 @@ impl ArduinoUploadTool {
             test_env: Vec::new(),
             #[cfg(test)]
             cli_prefix_args: Vec::new(),
+            #[cfg(test)]
+            compile_started: None,
         }
     }
 
@@ -107,6 +111,17 @@ impl ArduinoUploadTool {
         };
 
         let mut child = command.spawn().map_err(ProcessFailure::Spawn)?;
+        #[cfg(test)]
+        if args.first() == Some(&"compile")
+            && let Some(observer) = &self.compile_started
+        {
+            observer
+                .send((
+                    child.id().expect("newly spawned compile child has a PID"),
+                    PathBuf::from(args[3]),
+                ))
+                .expect("compile test observer is waiting");
+        }
         let status = match timeout(deadline, child.wait()).await {
             Ok(Ok(status)) => status,
             Ok(Err(error)) => {
@@ -485,7 +500,7 @@ exit 2
             let script = dir.join("arduino-cli.ps1");
             std::fs::write(
                 &script,
-                r#"param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs)
+                r#"$CliArgs = $args
 Add-Content -LiteralPath $env:ZC_FAKE_LOG -Value ($CliArgs -join ' ')
 $stdinValue = [Console]::In.ReadLine()
 if ($null -eq $stdinValue) {
@@ -568,6 +583,7 @@ exit 2
                 },
                 test_env,
                 cli_prefix_args: self.cli_prefix_args.clone(),
+                compile_started: None,
             }
         }
     }
@@ -616,7 +632,10 @@ exit 2
                 .lines()
                 .any(|line| line.starts_with("compile --fqbn "))
         );
-        assert!(calls.lines().any(|line| line.starts_with("upload -p ")));
+        assert!(
+            calls.lines().any(|line| line.starts_with("upload -p ")),
+            "unexpected fixture calls: {calls}"
+        );
         let sketch_path = std::fs::read_to_string(&fake.sketch_path).unwrap();
         assert!(!std::path::Path::new(&sketch_path).exists());
     }
@@ -652,7 +671,13 @@ exit 2
                 .unwrap()
                 .contains("arduino-cli preflight failed")
         );
-        assert_eq!(std::fs::read_to_string(&fake.log).unwrap(), "version\n");
+        assert_eq!(
+            std::fs::read_to_string(&fake.log)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            ["version"]
+        );
         assert_eq!(
             std::fs::read_to_string(&fake.stdin_state).unwrap().trim(),
             "version:eof"
@@ -682,6 +707,8 @@ exit 2
     async fn compile_timeout_kills_reaps_and_cleans_workspace() {
         let fake = FakeCli::new();
         let mut tool = fake.tool(&[("ZC_COMPILE_SLEEP", "1")]);
+        let (compile_started, observed_compile) = std::sync::mpsc::channel();
+        tool.compile_started = Some(compile_started);
         tool.timeouts.compile = Duration::from_secs(1);
         let result = tool
             .execute(json!({"code": "void setup() {}\nvoid loop() {}"}))
@@ -694,13 +721,14 @@ exit 2
             error.contains("compile timed out"),
             "unexpected timeout error: {error}"
         );
-        let pid = std::fs::read_to_string(&fake.pid).unwrap();
+        let (pid, sketch_path) = observed_compile
+            .try_recv()
+            .expect("compile process and workspace were observed at spawn");
         assert!(
-            !process_is_alive(&pid),
+            !process_is_alive(&pid.to_string()),
             "timed-out child {pid} is still alive"
         );
-        let sketch_path = std::fs::read_to_string(&fake.sketch_path).unwrap();
-        assert!(!std::path::Path::new(&sketch_path).exists());
+        assert!(!sketch_path.exists());
     }
 
     #[tokio::test]

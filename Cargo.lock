@@ -69,6 +69,7 @@ dependencies = [
  "cipher 0.5.2",
  "cpubits",
  "cpufeatures 0.3.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -1070,6 +1071,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -1509,6 +1511,7 @@ dependencies = [
  "cipher 0.5.2",
  "cpufeatures 0.3.0",
  "rand_core 0.10.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -1534,6 +1537,7 @@ dependencies = [
  "chacha20 0.10.2",
  "cipher 0.5.2",
  "poly1305 0.9.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -1618,6 +1622,7 @@ dependencies = [
  "block-buffer 0.12.0",
  "crypto-common 0.2.2",
  "inout 0.2.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -2747,6 +2752,7 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -4364,6 +4370,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
 dependencies = [
  "typenum",
+ "zeroize",
 ]
 
 [[package]]
@@ -7931,9 +7938,9 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.5"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
 dependencies = [
  "bitflags 2.13.2",
  "getopts",
@@ -11154,9 +11161,9 @@ dependencies = [
 
 [[package]]
 name = "typed-path"
-version = "0.12.3"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
+checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
 name = "typeid"
@@ -11521,9 +11528,9 @@ checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vodozemac"
-version = "0.11.0"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba935af014ca0ae5fb468daa51da81a8a0df7daad23c052c878b7c690cdf2574"
+checksum = "cafdb6875115a436251b280d741286a9cec7fc4daab0588ea26481dd8e2bab2f"
 dependencies = [
  "aes 0.9.3",
  "arrayvec",
@@ -14842,16 +14849,18 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.3"
+version = "9.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2d98561b612a84ae525331a7a094429ef8a5772514ed507ff6db5f54badc971"
+checksum = "3f5b58784007ff6e5f280ec82c8596686a3b9b5dd5836c63288d4479f84728b9"
 dependencies = [
  "crc32fast",
  "flate2",
+ "getrandom 0.4.3",
  "indexmap 2.14.2",
  "memchr",
  "nix 0.31.3",
  "typed-path",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

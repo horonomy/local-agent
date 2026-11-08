@@ -3,7 +3,7 @@ run-name: "Windows tests for PR #${{ github.event.pull_request.number }} (${{ gi
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, 'release/**']
     types: [opened, synchronize, reopened, labeled]
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
   windows-test-scope:
     name: Advisory Windows test selection
     if: contains(github.event.pull_request.labels.*.name, 'ci:windows') && (github.event.action != 'labeled' || github.event.label.name == 'ci:windows')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       mode: ${{ steps.select.outputs.mode }}
@@ -100,6 +100,9 @@ jobs:
     continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 90
+    env:
+      # Keep all native phases within budget without test debug artifacts.
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -111,7 +114,7 @@ jobs:
       - name: Install plugin fixture target
         if: needs.windows-test-scope.outputs.needs_plugin_host == 'true'
         run: rustup target add wasm32-wasip2
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: platform-test
           cache-on-failure: true

@@ -52,3 +52,12 @@ ADR-016 remains proposed until the holding-crate contract states the exception r
 ADR-017 remains proposed until canonical identity and grant resolution, native and peer-credential compatibility, RPC/WSS enforcement, OIDC and gateway integration, principal-owned session and private-memory storage, migration/recovery documentation, and internal-origin ownership rules meet the acceptance gates in the record.
 
 ADR-018 remains proposed until the runtime action pipeline, ingress/provenance envelope, internal-principal conversation binding, peer reply provenance, separated outcomes, durable audit path, and implementation ratchets meet the acceptance gates in the record.
+
+## Local Agent derivative decisions
+
+These records describe the independent Local Agent derivative. Their existing
+identifiers are separate from the inherited ZeroClaw ADR sequence above.
+
+| ADR | Status | Decision |
+| --- | --- | --- |
+| [ADR-0001](./ADR-0001-upstream-foundation.md) | proposed | Preserve ZeroClaw ownership and stage a CLI-only derivative without waiving baseline or release gates. |

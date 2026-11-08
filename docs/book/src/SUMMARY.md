@@ -57,6 +57,7 @@
     - [ADR-016: Holding-crate exceptions](./architecture/decisions/ADR-016-holding-crate-exceptions.md)
     - [ADR-017: Inbound authentication and principals](./architecture/decisions/ADR-017-inbound-authentication-and-principals.md)
     - [ADR-018: Runtime security and provenance](./architecture/decisions/ADR-018-runtime-security-and-provenance.md)
+    - [Local Agent ADR-0001: Upstream foundation (proposal)](./architecture/decisions/ADR-0001-upstream-foundation.md)
   - [Logging](./architecture/logging.md)
   - [Runtime state and persistence](./architecture/runtime-state-and-persistence.md)
   - [Memory and payload lifecycle](./architecture/memory-payload-lifecycle.md)

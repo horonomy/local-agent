@@ -1,5 +1,16 @@
 # Reviewer Playbook
 
+> **Local Agent review:** use root `AGENTS.md` and
+> `docs/local-agent/engineering-lifecycle.md` for the single-maintainer contract.
+> Local Agent requires no human PR review. `@Chisanan232` owns integration after
+> separate Claude Code or Codex technical review and blocking-finding resolution.
+> Agent review is not a GitHub human approval. Follow the canonical lifecycle for
+> owner-controlled reconciliation of any active human-approval rule; retain actual
+> CI, security, product verification and unresolved-thread gates, without bypass.
+> Upstream Core Team counts, expedited lanes, contributor tiers and screenshot
+> upload expectations below are historical context, not Local Agent requirements.
+> Use permitted text-only evidence; this note changes no workstation controls.
+
 The operating model for reviewing PRs and triaging issues. Sized to keep review quality high under heavy volume; routes by risk so high-stakes paths get the attention they need without dragging every small change through the same gate.
 
 For the actual fetch sequence and review verdict mechanics, see [PR Review Protocol](../contributing/pr-review-protocol.md). This page is the *operating model*; the protocol is the *procedure*.

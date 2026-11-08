@@ -573,6 +573,9 @@ fn extract_tar_gz(bytes: &[u8], destination: &Path) -> Result<()> {
 
 fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("invalid zip archive")?;
+    archive
+        .validate_header_consistency()
+        .context("zip archive headers are inconsistent")?;
     let mut entries = 0usize;
     let mut unpacked = 0usize;
     let mut paths = HashSet::new();
@@ -693,6 +696,55 @@ mod tests {
 
     fn digest(bytes: &[u8]) -> String {
         format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+    }
+
+    fn with_orphan_local_header(mut bytes: Vec<u8>) -> Vec<u8> {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes.clone())).unwrap();
+        archive.validate_header_consistency().unwrap();
+        let eocd = bytes
+            .windows(4)
+            .rposition(|window| window == b"PK\x05\x06")
+            .unwrap();
+        let central_directory_offset =
+            u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+        let name = b"orphan.txt";
+        let mut header = Vec::with_capacity(30 + name.len());
+        header.extend_from_slice(b"PK\x03\x04");
+        header.extend_from_slice(&20_u16.to_le_bytes()); // version needed
+        header.extend_from_slice(&0_u16.to_le_bytes()); // flags
+        header.extend_from_slice(&0_u16.to_le_bytes()); // stored
+        header.extend_from_slice(&0_u16.to_le_bytes()); // modified time
+        header.extend_from_slice(&0_u16.to_le_bytes()); // modified date
+        header.extend_from_slice(&0_u32.to_le_bytes()); // CRC-32
+        header.extend_from_slice(&0_u32.to_le_bytes()); // compressed size
+        header.extend_from_slice(&0_u32.to_le_bytes()); // uncompressed size
+        header.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+        header.extend_from_slice(&0_u16.to_le_bytes()); // extra length
+        header.extend_from_slice(name);
+        bytes.splice(
+            central_directory_offset..central_directory_offset,
+            header.iter().copied(),
+        );
+        let eocd = eocd + header.len();
+        bytes[eocd + 16..eocd + 20].copy_from_slice(
+            &u32::try_from(central_directory_offset + header.len())
+                .unwrap()
+                .to_le_bytes(),
+        );
+        bytes
+    }
+
+    fn zip_with_entry(name: &str, body: &[u8]) -> Vec<u8> {
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut bytes);
+            writer
+                .start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(body).unwrap();
+            writer.finish().unwrap();
+        }
+        bytes.into_inner()
     }
 
     fn index_json(artifact_url: &str, artifact: &[u8]) -> Vec<u8> {
@@ -884,6 +936,45 @@ mod tests {
         )
         .unwrap();
         assert!(published_path.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn zip_discovery_rejects_orphan_local_header_before_writing() {
+        let bytes = with_orphan_local_header(zip_with_entry("safe.txt", b"synthetic"));
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("output");
+
+        let result = extract_zip(&bytes, &destination);
+
+        assert!(result.is_err(), "orphan local header must be refused");
+        assert!(
+            !destination.exists(),
+            "validation must precede filesystem writes"
+        );
+    }
+
+    #[test]
+    fn zip_discovery_rejects_inconsistent_headers_before_writing() {
+        let mut raw = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut raw);
+            writer
+                .start_file("safe.txt", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"synthetic").unwrap();
+            writer.finish().unwrap();
+        }
+        let mut bytes = raw.into_inner();
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        bytes[30..38].copy_from_slice(b"evil.txt");
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("output");
+        let result = extract_zip(&bytes, &destination);
+        assert!(result.is_err(), "header mismatch must be refused");
+        assert!(
+            !destination.exists(),
+            "validation must precede filesystem writes"
+        );
     }
 
     #[test]
