@@ -945,7 +945,7 @@ mod plugins;
 mod providers;
 #[cfg(all(feature = "agent-core", feature = "plugins-wasm"))]
 mod quickstart_plugins;
-#[cfg(feature = "agent-core")]
+#[cfg(feature = "daemon-listeners")]
 mod relay_cli;
 #[cfg(feature = "agent-core")]
 mod security;
@@ -7558,7 +7558,7 @@ fn ca_key_protection_from_env() -> zeroclaw_tls::CaKeyProtection {
 ///
 /// The WSS plane is always mTLS. `enabled` controls only whether the configured
 /// CA replaces the daemon-generated CA; certificate pins apply in either mode.
-#[cfg(feature = "agent-core")]
+#[cfg(feature = "daemon-listeners")]
 fn resolve_wss_client_auth(
     client_auth: Option<&zeroclaw_config::schema::WssClientAuthConfig>,
 ) -> Result<(Option<String>, Vec<String>)> {
@@ -7587,6 +7587,7 @@ fn resolve_wss_client_auth(
 /// `tailnet_sans` (resolved by `zeroclaw_runtime::tunnel::tailscale_server_sans`).
 /// Empty when there is nothing beyond the defaults, which keeps the
 /// default-SAN leaf reuse path in `ensure_server_materials_protected`.
+#[cfg(feature = "daemon-listeners")]
 fn wss_server_sans(
     wss_cfg: &zeroclaw_config::schema::WssConfig,
     tailnet_sans: &[String],
@@ -7620,12 +7621,13 @@ fn wss_server_sans(
 /// value, so a renamed node or reassigned tailnet IP is picked up then. This
 /// is the materialization the acceptors consume, not a second copy of config:
 /// the inputs are still read from live config and tailscaled at startup.
+#[cfg(feature = "daemon-listeners")]
 #[derive(Clone, Default)]
 struct DaemonServerTls {
     sans: Arc<tokio::sync::OnceCell<Vec<String>>>,
 }
 
-#[cfg(feature = "agent-core")]
+#[cfg(feature = "daemon-listeners")]
 impl DaemonServerTls {
     /// Generate or reuse the server leaf under `tls_dir` with this
     /// generation's SAN set. `discover` runs only for the first listener to
@@ -7657,6 +7659,7 @@ impl DaemonServerTls {
 /// the configured set plus every name already on the leaf. Configured
 /// additions still apply; a configured removal waits for the next start that
 /// can query tailscaled. An empty result keeps the generator's reuse path.
+#[cfg(feature = "daemon-listeners")]
 fn effective_server_sans(
     tls_dir: &Path,
     wss_cfg: &zeroclaw_config::schema::WssConfig,
@@ -9861,6 +9864,8 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
     // process ownership, then load the fresh protected snapshot. The guard
     // transfers continuously across reload generations in the daemon loop.
     #[cfg(feature = "agent-core")]
+    // Only the daemon reload loop (daemon-listeners) takes or replaces the guard.
+    #[cfg_attr(not(feature = "daemon-listeners"), allow(unused_mut))]
     let mut daemon_ownership = if matches!(&cli.command, Commands::Daemon { .. }) {
         let (_, data_dir) = zeroclaw_config::schema::resolve_runtime_dirs().await?;
         Some((
@@ -10571,342 +10576,364 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
             ephemeral,
             allow_degraded_security,
         } => {
-            // Fail closed before any setup work: refuse to serve with a
-            // degraded security posture unless explicitly allowed. This branch
-            // never spawns the nag (the `!allow` path only bails); the nag is
-            // managed per reload-iteration in the loop below.
-            if !config.degraded_security.is_empty() && !allow_degraded_security {
-                gate_security_posture(&config, allow_degraded_security)?;
-            }
-            if let Ok(exe) = std::env::current_exe() {
-                let under_home = directories::UserDirs::new()
-                    .map(|u| u.home_dir().to_path_buf())
-                    .is_some_and(|home| exe.starts_with(&home));
-                if under_home {
-                    let install_hint = if cfg!(windows) {
-                        "Consider installing to a system-wide location (e.g. C:\\Program Files\\ZeroClaw) for service use."
-                    } else if cfg!(target_os = "macos") {
-                        "Consider installing to /usr/local/bin or /opt/homebrew/bin for system-wide service."
-                    } else {
-                        "Consider installing to /usr/local/bin for system-wide service."
-                    };
-                    ::zeroclaw_log::record!(
-                        WARN,
-                        ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
-                            .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
-                        &format!(
-                            "Daemon running from user home directory: {}. {install_hint}",
-                            exe.display()
-                        )
-                    );
-                }
-            }
-            let port = port.unwrap_or(config.gateway.port);
-            let host = host.unwrap_or_else(|| config.gateway.host.clone());
-            if port == 0 {
-                ::zeroclaw_log::record!(
-                    INFO,
-                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
-                        .with_attrs(::serde_json::json!({"host": host})),
-                    "🧠 Starting ZeroClaw Daemon on (random port)"
-                );
-            } else {
-                ::zeroclaw_log::record!(
-                    INFO,
-                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
-                        .with_attrs(::serde_json::json!({"host": host, "port": port})),
-                    "🧠 Starting ZeroClaw Daemon on"
-                );
-            }
-
-            #[cfg(target_os = "linux")]
+            #[cfg(feature = "daemon-listeners")]
             {
-                use zeroclaw_config::schema::SandboxBackend;
-                // Any enabled agent whose risk_profile uses the docker
-                // sandbox triggers the warning — we just need to know
-                // *some* agent is using it.
-                let sandbox_docker = config
-                    .agents
-                    .iter()
-                    .filter(|(_, a)| a.enabled)
-                    .filter_map(|(alias, _)| config.risk_profile_for_agent(alias))
-                    .any(|p| matches!(p.sandbox_config().backend, SandboxBackend::Docker));
-                let runtime_docker_mem = config.runtime.kind
-                    == zeroclaw_config::schema::RuntimeKind::Docker
-                    && config
-                        .runtime
-                        .docker
-                        .memory_limit_mb
-                        .is_some_and(|mb| mb > 0);
-                if (sandbox_docker || runtime_docker_mem)
-                    && !zeroclaw_runtime::security::linux_memcg_available()
-                {
-                    let which = match (sandbox_docker, runtime_docker_mem) {
-                        (true, true) => {
-                            "security.sandbox.backend = \"docker\" and runtime.kind = \"docker\""
-                        }
-                        (true, false) => "security.sandbox.backend = \"docker\"",
-                        _ => "runtime.kind = \"docker\"",
-                    };
-                    ::zeroclaw_log::record!(
-                        WARN,
-                        ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
-                            .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
-                            .with_attrs(::serde_json::json!({"which": which})),
-                        "Docker memory limits are configured but the Linux kernel has no memcg support. Affected config: . Consequence: --memory limits are silently ignored; agents can OOM the host. Fix: add 'cgroup_memory=1 cgroup_enable=memory' to /boot/firmware/cmdline.txt (Raspberry Pi) or enable CONFIG_MEMCG in your kernel, then reboot."
-                    );
+                // Fail closed before any setup work: refuse to serve with a
+                // degraded security posture unless explicitly allowed. This branch
+                // never spawns the nag (the `!allow` path only bails); the nag is
+                // managed per reload-iteration in the loop below.
+                if !config.degraded_security.is_empty() && !allow_degraded_security {
+                    gate_security_posture(&config, allow_degraded_security)?;
                 }
-            }
-
-            // Wire CLI channel for interactive mode
-            #[cfg(feature = "agent-core")]
-            zeroclaw_runtime::agent::loop_::register_cli_channel_fn(Box::new(|| {
-                Box::new(zeroclaw_channels::cli::CliChannel::new("cli"))
-            }));
-
-            // Wire peripheral tools from zeroclaw-hardware
-            #[cfg(feature = "hardware")]
-            zeroclaw_runtime::agent::loop_::register_peripheral_tools_fn(Box::new(|config| {
-                Box::pin(async move {
-                    zeroclaw_hardware::peripherals::create_peripheral_tools(&config).await
-                })
-            }));
-
-            // Cron delivery is registered earlier (before the command match)
-            // so it works for both `daemon` and `gateway start`.
-
-            #[cfg(feature = "agent-core")]
-            zeroclaw_runtime::agent::loop_::register_channel_map_fn(Box::new(
-                |config, agent_alias| {
-                    zeroclaw_channels::orchestrator::live_channel_map_for_agent(config, agent_alias)
-                },
-            ));
-            #[cfg(feature = "agent-core")]
-            zeroclaw_runtime::agent::loop_::register_approval_channel_map_fn(Box::new(|_| {
-                zeroclaw_channels::orchestrator::live_channel_map()
-            }));
-
-            let canvas_store = zeroclaw_runtime::tools::CanvasStore::new();
-            let canvas_store_for_gateway = canvas_store.clone();
-            let canvas_store_for_channels = canvas_store.clone();
-
-            // Capture the launch command now, before any in-app upgrade can
-            // swap the binary on disk (after which `current_exe()` resolves to a
-            // "(deleted)" path on Linux). Used by the post-loop self-respawn.
-            zeroclaw_runtime::restart::record_launch();
-
-            // Reload loop. `daemon::run` returns DaemonExit::Shutdown on
-            // SIGINT/SIGTERM (loop ends) or DaemonExit::Reload after a
-            // `POST /admin/reload` request (loop re-reads config from disk and
-            // re-runs). The PID stays the same across reloads — only the
-            // in-process subsystems tear down + re-instantiate.
-            let mut current_config = config;
-            // Nag task for the degraded-security warning, scoped to the
-            // current config. Re-evaluated each reload iteration so a repaired
-            // config stops the warning and a freshly-degraded one starts it.
-            let mut degraded_nag: Option<tokio::task::JoinHandle<()>> =
-                gate_security_posture(&current_config, allow_degraded_security)?;
-            let startup_feedback_enabled = !cli.verbose;
-            // Cron drivers a generation aborted that had not stopped by the time
-            // its teardown returned. Held across the reload boundary so the next
-            // generation adopts them instead of the process losing track of a
-            // task that is still doing work under superseded config.
-            let mut carried_sop_drivers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
-            // Runs whose aborted driver the previous generation could not settle.
-            // The next engine restores them as active, so it has to own their
-            // terminal write too; see `SopDriverTeardown::unsettled_runs`.
-            let mut carried_unsettled_sop_runs: Vec<String> = Vec::new();
-            let mut carried_sop_settlements = None;
-            loop {
-                if startup_feedback_enabled && daemon::stderr_is_interactive_foreground() {
-                    let mut stderr = std::io::stderr().lock();
-                    let _ = daemon::echo_daemon_starting_to_terminal(&mut stderr);
-                }
-
-                // Per-iteration clones so the subsystem closures (which
-                // `move`-capture) don't consume the outer bindings on the
-                // first iteration; reload would otherwise see a moved value.
-                let canvas_store_for_gateway = canvas_store_for_gateway.clone();
-                let canvas_store_for_channels = canvas_store_for_channels.clone();
-                let mut registry = daemon::DaemonRegistry::new();
-                #[cfg(feature = "agent-core")]
-                registry.register_channel_registry_clearer(std::sync::Arc::new(|| {
-                    zeroclaw_channels::orchestrator::prepare_live_channel_registry(true);
-                }));
-
-                let mut iteration_config = current_config.clone();
-                iteration_config.gateway.host = host.clone();
-                if port != 0 {
-                    iteration_config.gateway.port = port;
-                }
-                // The ownership guard was acquired before the config load (and
-                // is transferred back here on every reload), so this generation
-                // adopts a snapshot that no offline mutation can have raced.
-                let (expected_data_dir, ownership) = daemon_ownership.take().ok_or_else(|| {
-                    ::zeroclaw_log::record!(
-                        ERROR,
-                        ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Fail)
-                            .with_outcome(::zeroclaw_log::EventOutcome::Failure),
-                        "daemon config ownership invariant failed"
-                    );
-                    anyhow::Error::msg("daemon config ownership was not held for this generation")
-                })?;
-                let authority = zeroclaw_runtime::LiveConfigAuthority::new_with_ownership(
-                    iteration_config,
-                    ownership,
-                );
-                #[cfg(feature = "gateway")]
-                let plugin_webhooks = Arc::new(zeroclaw_api::webhook::PluginWebhookRegistry::new());
-                #[cfg(feature = "gateway")]
-                let channel_plugin_webhooks = Some(Arc::clone(&plugin_webhooks));
-                #[cfg(not(feature = "gateway"))]
-                let channel_plugin_webhooks: Option<
-                    Arc<zeroclaw_api::webhook::PluginWebhookRegistry>,
-                > = None;
-
-                // SOP loading is gated on `runtime_enabled()`: `sops_dir` is unset
-                // (or empty) by default, so SOP runtime behavior is off until an
-                // operator opts in by setting a directory.
-                let (sop_engine, sop_audit) = if current_config.sop.runtime_enabled() {
-                    let mem: Arc<dyn zeroclaw_memory::Memory> = Arc::from(
-                        zeroclaw_memory::create_memory_from_config(&current_config, None)?,
-                    );
-                    let sop_adapters = build_sop_adapters(&current_config);
-                    let (engine, audit) = zeroclaw_runtime::sop::build_sop_engine_with_capability(
-                        current_config.sop.clone(),
-                        &current_config.decision_models,
-                        &current_config.data_dir,
-                        &current_config.install_root_dir(),
-                        mem,
-                        sop_adapters,
-                        Some(authority.execution_capability()),
-                    );
-                    let unsettled = std::mem::take(&mut carried_unsettled_sop_runs);
-                    let pending = carried_sop_settlements.take();
-                    if !unsettled.is_empty() || pending.is_some() {
-                        let mut guard = match engine.lock() {
-                            Ok(guard) => guard,
-                            Err(poisoned) => poisoned.into_inner(),
+                if let Ok(exe) = std::env::current_exe() {
+                    let under_home = directories::UserDirs::new()
+                        .map(|u| u.home_dir().to_path_buf())
+                        .is_some_and(|home| exe.starts_with(&home));
+                    if under_home {
+                        let install_hint = if cfg!(windows) {
+                            "Consider installing to a system-wide location (e.g. C:\\Program Files\\ZeroClaw) for service use."
+                        } else if cfg!(target_os = "macos") {
+                            "Consider installing to /usr/local/bin or /opt/homebrew/bin for system-wide service."
+                        } else {
+                            "Consider installing to /usr/local/bin for system-wide service."
                         };
-                        if let Some(queue) = pending {
-                            guard.adopt_orphaned_run_settlement_queue(queue);
-                        }
-                        guard.adopt_orphaned_run_settlements(unsettled.into_iter().map(|run_id| {
-                            (
-                                run_id,
-                                zeroclaw_runtime::sop::OrphanedRunSettlement::DriverAborted,
-                            )
-                        }));
-                    }
-                    (Some(engine), Some(audit))
-                } else {
-                    let unsettled = std::mem::take(&mut carried_unsettled_sop_runs);
-                    if !unsettled.is_empty() {
                         ::zeroclaw_log::record!(
                             WARN,
                             ::zeroclaw_log::Event::new(
                                 module_path!(),
-                                ::zeroclaw_log::Action::Fail
+                                ::zeroclaw_log::Action::Note
                             )
-                            .with_outcome(::zeroclaw_log::EventOutcome::Failure)
-                            .with_attrs(::serde_json::json!({ "run_ids": unsettled })),
-                            "SOP runtime is disabled after reload, so runs whose driver was \
-                             aborted at teardown cannot be settled; they stay Running in the \
-                             store until the SOP runtime is enabled again"
+                            .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
+                            &format!(
+                                "Daemon running from user home directory: {}. {install_hint}",
+                                exe.display()
+                            )
                         );
                     }
-                    (None, None)
-                };
-
-                // EPIC A1 + SOP cron: drive periodic maintenance and cron
-                // triggers against the shared engine for this daemon iteration.
-                // The generation-owned driver supervisor: exists whenever the
-                // SOP engine does, whether or not the maintenance tick runs.
-                let sop_driver_supervisor = if let Some(engine) = sop_engine.as_ref() {
-                    Some(SopDriverSupervisor::new(
-                        std::mem::take(&mut carried_sop_drivers),
-                        engine,
-                    ))
+                }
+                let port = port.unwrap_or(config.gateway.port);
+                let host = host.unwrap_or_else(|| config.gateway.host.clone());
+                if port == 0 {
+                    ::zeroclaw_log::record!(
+                        INFO,
+                        ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
+                            .with_attrs(::serde_json::json!({"host": host})),
+                        "🧠 Starting ZeroClaw Daemon on (random port)"
+                    );
                 } else {
-                    let carried = std::mem::take(&mut carried_sop_drivers);
-                    if !carried.is_empty() {
-                        // No generation to adopt them: re-aborted and reported
-                        // rather than silently dropped. Production drops the
-                        // reaper's handle; the reaper owns the drivers.
-                        drop(reap_orphaned_sop_drivers(carried));
-                    }
-                    None
-                };
-                let sop_maintenance = spawn_sop_maintenance(
-                    &current_config,
-                    sop_engine.as_ref(),
-                    sop_audit.as_ref(),
-                    current_config.sop.maintenance_interval_secs,
-                    sop_driver_supervisor
-                        .as_ref()
-                        .map(|supervisor| supervisor.drivers.clone()),
-                );
-                // Channel-ingress half of the supervisor: the sink registers
-                // every driver it spawns in the generation's supervisor set.
-                let sop_driver_sink = match (sop_driver_supervisor.as_ref(), sop_engine.as_ref()) {
-                    (Some(supervisor), Some(engine)) => {
-                        Some(zeroclaw_runtime::sop::SopDriverSink::new(
-                            current_config.clone(),
-                            std::sync::Arc::clone(engine),
-                            sop_audit.clone(),
-                            supervisor.drivers.clone(),
-                        ))
-                    }
-                    _ => None,
-                };
+                    ::zeroclaw_log::record!(
+                        INFO,
+                        ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
+                            .with_attrs(::serde_json::json!({"host": host, "port": port})),
+                        "🧠 Starting ZeroClaw Daemon on"
+                    );
+                }
 
-                #[cfg(feature = "gateway")]
-                registry.register_gateway(Box::new({
-                    let sop_e = sop_engine.clone();
-                    let sop_a = sop_audit.clone();
-                    let sop_dh = sop_driver_supervisor
-                        .as_ref()
-                        .map(|supervisor| supervisor.drivers.clone());
-                    let plugin_webhooks = Arc::clone(&plugin_webhooks);
-                    move |host,
-                          port,
-                          config,
-                          authority,
-                          tx,
-                          reload_controls,
-                          tui_registry,
-                          daemon_authority,
-                          ready_tx| {
-                        let canvas_store = canvas_store_for_gateway.clone();
-                        let sop_engine = sop_e.clone();
-                        let sop_audit = sop_a.clone();
-                        let sop_driver_handles = sop_dh.clone();
-                        let plugin_webhooks = Arc::clone(&plugin_webhooks);
-                        Box::pin(async move {
-                            Box::pin(zeroclaw_gateway::run_gateway_with_plugin_webhooks(
-                                &host,
-                                port,
-                                config,
-                                tx,
-                                reload_controls,
-                                tui_registry,
-                                Some(canvas_store),
-                                sop_engine,
-                                sop_audit,
-                                daemon_authority,
-                                zeroclaw_gateway::GatewaySupervision::new(
-                                    ready_tx,
-                                    plugin_webhooks,
-                                    authority,
-                                    sop_driver_handles,
-                                ),
-                            ))
-                            .await
-                        })
+                #[cfg(target_os = "linux")]
+                {
+                    use zeroclaw_config::schema::SandboxBackend;
+                    // Any enabled agent whose risk_profile uses the docker
+                    // sandbox triggers the warning — we just need to know
+                    // *some* agent is using it.
+                    let sandbox_docker = config
+                        .agents
+                        .iter()
+                        .filter(|(_, a)| a.enabled)
+                        .filter_map(|(alias, _)| config.risk_profile_for_agent(alias))
+                        .any(|p| matches!(p.sandbox_config().backend, SandboxBackend::Docker));
+                    let runtime_docker_mem = config.runtime.kind
+                        == zeroclaw_config::schema::RuntimeKind::Docker
+                        && config
+                            .runtime
+                            .docker
+                            .memory_limit_mb
+                            .is_some_and(|mb| mb > 0);
+                    if (sandbox_docker || runtime_docker_mem)
+                        && !zeroclaw_runtime::security::linux_memcg_available()
+                    {
+                        let which = match (sandbox_docker, runtime_docker_mem) {
+                            (true, true) => {
+                                "security.sandbox.backend = \"docker\" and runtime.kind = \"docker\""
+                            }
+                            (true, false) => "security.sandbox.backend = \"docker\"",
+                            _ => "runtime.kind = \"docker\"",
+                        };
+                        ::zeroclaw_log::record!(
+                            WARN,
+                            ::zeroclaw_log::Event::new(
+                                module_path!(),
+                                ::zeroclaw_log::Action::Note
+                            )
+                            .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
+                            .with_attrs(::serde_json::json!({"which": which})),
+                            "Docker memory limits are configured but the Linux kernel has no memcg support. Affected config: . Consequence: --memory limits are silently ignored; agents can OOM the host. Fix: add 'cgroup_memory=1 cgroup_enable=memory' to /boot/firmware/cmdline.txt (Raspberry Pi) or enable CONFIG_MEMCG in your kernel, then reboot."
+                        );
                     }
+                }
+
+                // Wire CLI channel for interactive mode
+                #[cfg(feature = "agent-core")]
+                zeroclaw_runtime::agent::loop_::register_cli_channel_fn(Box::new(|| {
+                    Box::new(zeroclaw_channels::cli::CliChannel::new("cli"))
                 }));
 
-                registry.register_channels(Box::new({
+                // Wire peripheral tools from zeroclaw-hardware
+                #[cfg(feature = "hardware")]
+                zeroclaw_runtime::agent::loop_::register_peripheral_tools_fn(Box::new(|config| {
+                    Box::pin(async move {
+                        zeroclaw_hardware::peripherals::create_peripheral_tools(&config).await
+                    })
+                }));
+
+                // Cron delivery is registered earlier (before the command match)
+                // so it works for both `daemon` and `gateway start`.
+
+                #[cfg(feature = "agent-core")]
+                zeroclaw_runtime::agent::loop_::register_channel_map_fn(Box::new(
+                    |config, agent_alias| {
+                        zeroclaw_channels::orchestrator::live_channel_map_for_agent(
+                            config,
+                            agent_alias,
+                        )
+                    },
+                ));
+                #[cfg(feature = "agent-core")]
+                zeroclaw_runtime::agent::loop_::register_approval_channel_map_fn(Box::new(|_| {
+                    zeroclaw_channels::orchestrator::live_channel_map()
+                }));
+
+                let canvas_store = zeroclaw_runtime::tools::CanvasStore::new();
+                let canvas_store_for_gateway = canvas_store.clone();
+                let canvas_store_for_channels = canvas_store.clone();
+
+                // Capture the launch command now, before any in-app upgrade can
+                // swap the binary on disk (after which `current_exe()` resolves to a
+                // "(deleted)" path on Linux). Used by the post-loop self-respawn.
+                zeroclaw_runtime::restart::record_launch();
+
+                // Reload loop. `daemon::run` returns DaemonExit::Shutdown on
+                // SIGINT/SIGTERM (loop ends) or DaemonExit::Reload after a
+                // `POST /admin/reload` request (loop re-reads config from disk and
+                // re-runs). The PID stays the same across reloads — only the
+                // in-process subsystems tear down + re-instantiate.
+                let mut current_config = config;
+                // Nag task for the degraded-security warning, scoped to the
+                // current config. Re-evaluated each reload iteration so a repaired
+                // config stops the warning and a freshly-degraded one starts it.
+                let mut degraded_nag: Option<tokio::task::JoinHandle<()>> =
+                    gate_security_posture(&current_config, allow_degraded_security)?;
+                let startup_feedback_enabled = !cli.verbose;
+                // Cron drivers a generation aborted that had not stopped by the time
+                // its teardown returned. Held across the reload boundary so the next
+                // generation adopts them instead of the process losing track of a
+                // task that is still doing work under superseded config.
+                let mut carried_sop_drivers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+                // Runs whose aborted driver the previous generation could not settle.
+                // The next engine restores them as active, so it has to own their
+                // terminal write too; see `SopDriverTeardown::unsettled_runs`.
+                let mut carried_unsettled_sop_runs: Vec<String> = Vec::new();
+                let mut carried_sop_settlements = None;
+                loop {
+                    if startup_feedback_enabled && daemon::stderr_is_interactive_foreground() {
+                        let mut stderr = std::io::stderr().lock();
+                        let _ = daemon::echo_daemon_starting_to_terminal(&mut stderr);
+                    }
+
+                    // Per-iteration clones so the subsystem closures (which
+                    // `move`-capture) don't consume the outer bindings on the
+                    // first iteration; reload would otherwise see a moved value.
+                    let canvas_store_for_gateway = canvas_store_for_gateway.clone();
+                    let canvas_store_for_channels = canvas_store_for_channels.clone();
+                    let mut registry = daemon::DaemonRegistry::new();
+                    #[cfg(feature = "agent-core")]
+                    registry.register_channel_registry_clearer(std::sync::Arc::new(|| {
+                        zeroclaw_channels::orchestrator::prepare_live_channel_registry(true);
+                    }));
+
+                    let mut iteration_config = current_config.clone();
+                    iteration_config.gateway.host = host.clone();
+                    if port != 0 {
+                        iteration_config.gateway.port = port;
+                    }
+                    // The ownership guard was acquired before the config load (and
+                    // is transferred back here on every reload), so this generation
+                    // adopts a snapshot that no offline mutation can have raced.
+                    let (expected_data_dir, ownership) =
+                        daemon_ownership.take().ok_or_else(|| {
+                            ::zeroclaw_log::record!(
+                                ERROR,
+                                ::zeroclaw_log::Event::new(
+                                    module_path!(),
+                                    ::zeroclaw_log::Action::Fail
+                                )
+                                .with_outcome(::zeroclaw_log::EventOutcome::Failure),
+                                "daemon config ownership invariant failed"
+                            );
+                            anyhow::Error::msg(
+                                "daemon config ownership was not held for this generation",
+                            )
+                        })?;
+                    let authority = zeroclaw_runtime::LiveConfigAuthority::new_with_ownership(
+                        iteration_config,
+                        ownership,
+                    );
+                    #[cfg(feature = "gateway")]
+                    let plugin_webhooks =
+                        Arc::new(zeroclaw_api::webhook::PluginWebhookRegistry::new());
+                    #[cfg(feature = "gateway")]
+                    let channel_plugin_webhooks = Some(Arc::clone(&plugin_webhooks));
+                    #[cfg(not(feature = "gateway"))]
+                    let channel_plugin_webhooks: Option<
+                        Arc<zeroclaw_api::webhook::PluginWebhookRegistry>,
+                    > = None;
+
+                    // SOP loading is gated on `runtime_enabled()`: `sops_dir` is unset
+                    // (or empty) by default, so SOP runtime behavior is off until an
+                    // operator opts in by setting a directory.
+                    let (sop_engine, sop_audit) = if current_config.sop.runtime_enabled() {
+                        let mem: Arc<dyn zeroclaw_memory::Memory> = Arc::from(
+                            zeroclaw_memory::create_memory_from_config(&current_config, None)?,
+                        );
+                        let sop_adapters = build_sop_adapters(&current_config);
+                        let (engine, audit) =
+                            zeroclaw_runtime::sop::build_sop_engine_with_capability(
+                                current_config.sop.clone(),
+                                &current_config.decision_models,
+                                &current_config.data_dir,
+                                &current_config.install_root_dir(),
+                                mem,
+                                sop_adapters,
+                                Some(authority.execution_capability()),
+                            );
+                        let unsettled = std::mem::take(&mut carried_unsettled_sop_runs);
+                        let pending = carried_sop_settlements.take();
+                        if !unsettled.is_empty() || pending.is_some() {
+                            let mut guard = match engine.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if let Some(queue) = pending {
+                                guard.adopt_orphaned_run_settlement_queue(queue);
+                            }
+                            guard.adopt_orphaned_run_settlements(unsettled.into_iter().map(
+                                |run_id| {
+                                    (
+                                        run_id,
+                                        zeroclaw_runtime::sop::OrphanedRunSettlement::DriverAborted,
+                                    )
+                                },
+                            ));
+                        }
+                        (Some(engine), Some(audit))
+                    } else {
+                        let unsettled = std::mem::take(&mut carried_unsettled_sop_runs);
+                        if !unsettled.is_empty() {
+                            ::zeroclaw_log::record!(
+                                WARN,
+                                ::zeroclaw_log::Event::new(
+                                    module_path!(),
+                                    ::zeroclaw_log::Action::Fail
+                                )
+                                .with_outcome(::zeroclaw_log::EventOutcome::Failure)
+                                .with_attrs(::serde_json::json!({ "run_ids": unsettled })),
+                                "SOP runtime is disabled after reload, so runs whose driver was \
+                             aborted at teardown cannot be settled; they stay Running in the \
+                             store until the SOP runtime is enabled again"
+                            );
+                        }
+                        (None, None)
+                    };
+
+                    // EPIC A1 + SOP cron: drive periodic maintenance and cron
+                    // triggers against the shared engine for this daemon iteration.
+                    // The generation-owned driver supervisor: exists whenever the
+                    // SOP engine does, whether or not the maintenance tick runs.
+                    let sop_driver_supervisor = if let Some(engine) = sop_engine.as_ref() {
+                        Some(SopDriverSupervisor::new(
+                            std::mem::take(&mut carried_sop_drivers),
+                            engine,
+                        ))
+                    } else {
+                        let carried = std::mem::take(&mut carried_sop_drivers);
+                        if !carried.is_empty() {
+                            // No generation to adopt them: re-aborted and reported
+                            // rather than silently dropped. Production drops the
+                            // reaper's handle; the reaper owns the drivers.
+                            drop(reap_orphaned_sop_drivers(carried));
+                        }
+                        None
+                    };
+                    let sop_maintenance = spawn_sop_maintenance(
+                        &current_config,
+                        sop_engine.as_ref(),
+                        sop_audit.as_ref(),
+                        current_config.sop.maintenance_interval_secs,
+                        sop_driver_supervisor
+                            .as_ref()
+                            .map(|supervisor| supervisor.drivers.clone()),
+                    );
+                    // Channel-ingress half of the supervisor: the sink registers
+                    // every driver it spawns in the generation's supervisor set.
+                    let sop_driver_sink =
+                        match (sop_driver_supervisor.as_ref(), sop_engine.as_ref()) {
+                            (Some(supervisor), Some(engine)) => {
+                                Some(zeroclaw_runtime::sop::SopDriverSink::new(
+                                    current_config.clone(),
+                                    std::sync::Arc::clone(engine),
+                                    sop_audit.clone(),
+                                    supervisor.drivers.clone(),
+                                ))
+                            }
+                            _ => None,
+                        };
+
+                    #[cfg(feature = "gateway")]
+                    registry.register_gateway(Box::new({
+                        let sop_e = sop_engine.clone();
+                        let sop_a = sop_audit.clone();
+                        let sop_dh = sop_driver_supervisor
+                            .as_ref()
+                            .map(|supervisor| supervisor.drivers.clone());
+                        let plugin_webhooks = Arc::clone(&plugin_webhooks);
+                        move |host,
+                              port,
+                              config,
+                              authority,
+                              tx,
+                              reload_controls,
+                              tui_registry,
+                              daemon_authority,
+                              ready_tx| {
+                            let canvas_store = canvas_store_for_gateway.clone();
+                            let sop_engine = sop_e.clone();
+                            let sop_audit = sop_a.clone();
+                            let sop_driver_handles = sop_dh.clone();
+                            let plugin_webhooks = Arc::clone(&plugin_webhooks);
+                            Box::pin(async move {
+                                Box::pin(zeroclaw_gateway::run_gateway_with_plugin_webhooks(
+                                    &host,
+                                    port,
+                                    config,
+                                    tx,
+                                    reload_controls,
+                                    tui_registry,
+                                    Some(canvas_store),
+                                    sop_engine,
+                                    sop_audit,
+                                    daemon_authority,
+                                    zeroclaw_gateway::GatewaySupervision::new(
+                                        ready_tx,
+                                        plugin_webhooks,
+                                        authority,
+                                        sop_driver_handles,
+                                    ),
+                                ))
+                                .await
+                            })
+                        }
+                    }));
+
+                    registry.register_channels(Box::new({
                     let sop_e = sop_engine.clone();
                     let sop_a = sop_audit.clone();
                     let sop_ds = sop_driver_sink.clone();
@@ -10934,70 +10961,72 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                     }
                 }));
 
-                #[cfg(feature = "channel-mqtt")]
-                registry.register_mqtt(Box::new({
-                    let engine = sop_engine.clone();
-                    let audit = sop_audit.clone();
-                    let driver_sink = sop_driver_sink.clone();
-                    move |mqtt_config| {
-                        let engine = engine.clone();
-                        let audit = audit.clone();
-                        let driver_sink = driver_sink.clone();
-                        Box::pin(async move {
-                            if let (Some(engine), Some(audit)) = (engine, audit) {
-                                zeroclaw_channels::orchestrator::mqtt::run_mqtt_sop_listener(
-                                    &mqtt_config,
-                                    engine,
-                                    audit,
-                                    driver_sink,
-                                )
-                                .await
-                            } else {
-                                // No SOPs directory configured — this is a valid
-                                // user state, not a misconfiguration. Skip the
-                                // listener gracefully.
-                                ::zeroclaw_log::record!(
-                                    INFO,
-                                    ::zeroclaw_log::Event::new(
-                                        module_path!(),
-                                        ::zeroclaw_log::Action::Skip
-                                    ),
-                                    "MQTT SOP listener skipped — no SOPs directory configured"
-                                );
-                                Ok(())
-                            }
-                        })
-                    }
-                }));
+                    #[cfg(feature = "channel-mqtt")]
+                    registry.register_mqtt(Box::new({
+                        let engine = sop_engine.clone();
+                        let audit = sop_audit.clone();
+                        let driver_sink = sop_driver_sink.clone();
+                        move |mqtt_config| {
+                            let engine = engine.clone();
+                            let audit = audit.clone();
+                            let driver_sink = driver_sink.clone();
+                            Box::pin(async move {
+                                if let (Some(engine), Some(audit)) = (engine, audit) {
+                                    zeroclaw_channels::orchestrator::mqtt::run_mqtt_sop_listener(
+                                        &mqtt_config,
+                                        engine,
+                                        audit,
+                                        driver_sink,
+                                    )
+                                    .await
+                                } else {
+                                    // No SOPs directory configured — this is a valid
+                                    // user state, not a misconfiguration. Skip the
+                                    // listener gracefully.
+                                    ::zeroclaw_log::record!(
+                                        INFO,
+                                        ::zeroclaw_log::Event::new(
+                                            module_path!(),
+                                            ::zeroclaw_log::Action::Skip
+                                        ),
+                                        "MQTT SOP listener skipped — no SOPs directory configured"
+                                    );
+                                    Ok(())
+                                }
+                            })
+                        }
+                    }));
 
-                let local_session_channel_factory: zeroclaw_runtime::rpc::dispatch::LocalRpcSessionChannelFactory =
+                    let local_session_channel_factory: zeroclaw_runtime::rpc::dispatch::LocalRpcSessionChannelFactory =
                     std::sync::Arc::new(|config, agent_alias| {
                         zeroclaw_channels::orchestrator::build_local_rpc_session_channels(
                             config,
                             agent_alias,
                         )
                     });
-                registry.register_socket(Box::new(move |ctx, cancel, client_count, ready_tx| {
-                    let local_session_channel_factory =
-                        std::sync::Arc::clone(&local_session_channel_factory);
-                    Box::pin(async move {
-                        zeroclaw_runtime::rpc::local::run_local_listener_with_factory(
-                            ctx,
-                            cancel,
-                            client_count,
-                            ready_tx,
-                            Some(local_session_channel_factory),
-                        )
-                        .await
-                    })
-                }));
+                    registry.register_socket(Box::new(
+                        move |ctx, cancel, client_count, ready_tx| {
+                            let local_session_channel_factory =
+                                std::sync::Arc::clone(&local_session_channel_factory);
+                            Box::pin(async move {
+                                zeroclaw_runtime::rpc::local::run_local_listener_with_factory(
+                                    ctx,
+                                    cancel,
+                                    client_count,
+                                    ready_tx,
+                                    Some(local_session_channel_factory),
+                                )
+                                .await
+                            })
+                        },
+                    ));
 
-                // One server-certificate SAN resolution per generation, shared
-                // by the WSS listener and the enrollment endpoint.
-                let daemon_server_tls = DaemonServerTls::default();
-                let daemon_server_tls_for_wss = daemon_server_tls.clone();
-                let daemon_server_tls_for_enroll = daemon_server_tls;
-                registry.register_wss(Box::new(move |ctx, cancel, client_count| {
+                    // One server-certificate SAN resolution per generation, shared
+                    // by the WSS listener and the enrollment endpoint.
+                    let daemon_server_tls = DaemonServerTls::default();
+                    let daemon_server_tls_for_wss = daemon_server_tls.clone();
+                    let daemon_server_tls_for_enroll = daemon_server_tls;
+                    registry.register_wss(Box::new(move |ctx, cancel, client_count| {
                     let daemon_server_tls = daemon_server_tls_for_wss.clone();
                     Box::pin(async move {
                         let (wss_cfg, enroll_cfg, tunnel_cfg, data_dir) = {
@@ -11138,21 +11167,23 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                     })
                 }));
 
-                // Shared between the relay bridge and the enrollment endpoint:
-                // the bridge registers its enroll-dial source ports here so the
-                // endpoint can classify those loopback connections as
-                // relay-routed rather than direct (finding: relay enrollment
-                // collapsed every client to the bridge's loopback identity, so
-                // one hostile client's failures locked out all relay enrollees).
-                let enroll_bridge_ports: zeroclaw_runtime::enroll::BridgePortSet =
-                    std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
-                let enroll_bridge_ports_for_bridge = enroll_bridge_ports.clone();
-                let enroll_bridge_ports_for_endpoint = enroll_bridge_ports.clone();
-                // Relay bridge: keep an outbound connection to a nominated relay
-                // so clients behind NAT can reach this daemon through it. The
-                // relay forwards to the local WSS listener (loopback), where the
-                // inner mTLS terminates; it never decrypts anything.
-                registry.register_relay(Box::new(move |ctx, cancel, _client_count| {
+                    // Shared between the relay bridge and the enrollment endpoint:
+                    // the bridge registers its enroll-dial source ports here so the
+                    // endpoint can classify those loopback connections as
+                    // relay-routed rather than direct (finding: relay enrollment
+                    // collapsed every client to the bridge's loopback identity, so
+                    // one hostile client's failures locked out all relay enrollees).
+                    let enroll_bridge_ports: zeroclaw_runtime::enroll::BridgePortSet =
+                        std::sync::Arc::new(
+                            std::sync::Mutex::new(std::collections::HashSet::new()),
+                        );
+                    let enroll_bridge_ports_for_bridge = enroll_bridge_ports.clone();
+                    let enroll_bridge_ports_for_endpoint = enroll_bridge_ports.clone();
+                    // Relay bridge: keep an outbound connection to a nominated relay
+                    // so clients behind NAT can reach this daemon through it. The
+                    // relay forwards to the local WSS listener (loopback), where the
+                    // inner mTLS terminates; it never decrypts anything.
+                    registry.register_relay(Box::new(move |ctx, cancel, _client_count| {
                     let enroll_bridge_ports_for_bridge = enroll_bridge_ports_for_bridge.clone();
                     Box::pin(async move {
                         let (relay_cfg, wss_cfg, enroll_cfg, data_dir) = {
@@ -11248,11 +11279,11 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                     })
                 }));
 
-                // Certificate enrollment endpoint: the bootstrap surface a
-                // certless client reaches for its FIRST cert (server-auth TLS +
-                // one-time pairing code, CSR-only). The daemon owns the CA, so
-                // this works with no gateway. It is NOT the mTLS RPC plane.
-                registry.register_enroll(Box::new(move |ctx, cancel, _client_count| {
+                    // Certificate enrollment endpoint: the bootstrap surface a
+                    // certless client reaches for its FIRST cert (server-auth TLS +
+                    // one-time pairing code, CSR-only). The daemon owns the CA, so
+                    // this works with no gateway. It is NOT the mTLS RPC plane.
+                    registry.register_enroll(Box::new(move |ctx, cancel, _client_count| {
                     let enroll_bridge_ports = enroll_bridge_ports_for_endpoint.clone();
                     let daemon_server_tls = daemon_server_tls_for_enroll.clone();
                     Box::pin(async move {
@@ -11479,105 +11510,113 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                     })
                 }));
 
-                // Pass the shared SOP engine through the registry so
-                // RpcContext (RPC/TUI agent sessions) can share it.
-                registry.set_sop_engine(
-                    sop_engine,
-                    sop_audit,
-                    sop_driver_supervisor
-                        .as_ref()
-                        .map(|supervisor| supervisor.drivers.clone()),
-                );
+                    // Pass the shared SOP engine through the registry so
+                    // RpcContext (RPC/TUI agent sessions) can share it.
+                    registry.set_sop_engine(
+                        sop_engine,
+                        sop_audit,
+                        sop_driver_supervisor
+                            .as_ref()
+                            .map(|supervisor| supervisor.drivers.clone()),
+                    );
 
-                let exit = Box::pin(daemon::run_with_authority(
-                    authority,
-                    host.clone(),
-                    port,
-                    registry,
-                    ephemeral,
-                    startup_feedback_enabled,
-                ))
-                .await;
-                // Before the loop re-reads config and builds a fresh SOP
-                // engine: in-flight cron drivers hold this generation's config
-                // and engine, so they must not straddle the rebuild.
-                if let Some(maintenance) = sop_maintenance {
-                    // Producer first: no new driver can register while the
-                    // supervisor's drain runs.
-                    maintenance.stop().await;
-                }
-                if let Some(supervisor) = sop_driver_supervisor {
-                    // Anything still running is carried into the next
-                    // generation rather than detached, so a driver that has not
-                    // yet reached an await point stays owned and observable.
-                    let teardown = supervisor.shutdown().await;
-                    carried_sop_drivers = teardown.still_running;
-                    carried_unsettled_sop_runs = teardown.unsettled_runs;
-                    carried_sop_settlements = teardown.pending_settlements;
-                }
-                let (exit, transferred_ownership) = exit?;
-                match exit {
-                    daemon::DaemonExit::Shutdown => break,
-                    daemon::DaemonExit::Reload => {
-                        ::zeroclaw_log::record!(
-                            INFO,
-                            ::zeroclaw_log::Event::new(
-                                module_path!(),
-                                ::zeroclaw_log::Action::Note
-                            ),
-                            "🔄 Daemon reload — re-reading config from disk"
-                        );
-                        // Continuous ownership: the previous generation drained
-                        // with the guard retained and returned it; the fresh
-                        // snapshot below is loaded while this process still owns
-                        // the config lifecycle.
-                        daemon_ownership = Some((
-                            expected_data_dir,
-                            transferred_ownership.ok_or_else(|| {
-                                ::zeroclaw_log::record!(
-                                    ERROR,
-                                    ::zeroclaw_log::Event::new(
-                                        module_path!(),
-                                        ::zeroclaw_log::Action::Fail
+                    let exit = Box::pin(daemon::run_with_authority(
+                        authority,
+                        host.clone(),
+                        port,
+                        registry,
+                        ephemeral,
+                        startup_feedback_enabled,
+                    ))
+                    .await;
+                    // Before the loop re-reads config and builds a fresh SOP
+                    // engine: in-flight cron drivers hold this generation's config
+                    // and engine, so they must not straddle the rebuild.
+                    if let Some(maintenance) = sop_maintenance {
+                        // Producer first: no new driver can register while the
+                        // supervisor's drain runs.
+                        maintenance.stop().await;
+                    }
+                    if let Some(supervisor) = sop_driver_supervisor {
+                        // Anything still running is carried into the next
+                        // generation rather than detached, so a driver that has not
+                        // yet reached an await point stays owned and observable.
+                        let teardown = supervisor.shutdown().await;
+                        carried_sop_drivers = teardown.still_running;
+                        carried_unsettled_sop_runs = teardown.unsettled_runs;
+                        carried_sop_settlements = teardown.pending_settlements;
+                    }
+                    let (exit, transferred_ownership) = exit?;
+                    match exit {
+                        daemon::DaemonExit::Shutdown => break,
+                        daemon::DaemonExit::Reload => {
+                            ::zeroclaw_log::record!(
+                                INFO,
+                                ::zeroclaw_log::Event::new(
+                                    module_path!(),
+                                    ::zeroclaw_log::Action::Note
+                                ),
+                                "🔄 Daemon reload — re-reading config from disk"
+                            );
+                            // Continuous ownership: the previous generation drained
+                            // with the guard retained and returned it; the fresh
+                            // snapshot below is loaded while this process still owns
+                            // the config lifecycle.
+                            daemon_ownership = Some((
+                                expected_data_dir,
+                                transferred_ownership.ok_or_else(|| {
+                                    ::zeroclaw_log::record!(
+                                        ERROR,
+                                        ::zeroclaw_log::Event::new(
+                                            module_path!(),
+                                            ::zeroclaw_log::Action::Fail
+                                        )
+                                        .with_outcome(::zeroclaw_log::EventOutcome::Failure),
+                                        "daemon reload ownership transfer invariant failed"
+                                    );
+                                    anyhow::Error::msg(
+                                        "daemon reload did not retain config ownership",
                                     )
-                                    .with_outcome(::zeroclaw_log::EventOutcome::Failure),
-                                    "daemon reload ownership transfer invariant failed"
-                                );
-                                anyhow::Error::msg("daemon reload did not retain config ownership")
-                            })?,
-                        ));
-                        current_config = Box::pin(Config::load_or_init()).await?;
-                        #[cfg(feature = "agent-core")]
-                        observability::runtime_trace::init_from_config(
-                            &current_config.observability,
-                            &current_config.data_dir,
-                        );
-                        // A reload applies config the process has not seen, so an
-                        // operator who just enabled the section learns why the tool
-                        // is still absent without having to restart.
-                        #[cfg(feature = "agent-core")]
-                        warn_verifiable_intent_withheld(&current_config);
-                        if let Some(handle) = degraded_nag.take() {
-                            handle.abort();
+                                })?,
+                            ));
+                            current_config = Box::pin(Config::load_or_init()).await?;
+                            #[cfg(feature = "agent-core")]
+                            observability::runtime_trace::init_from_config(
+                                &current_config.observability,
+                                &current_config.data_dir,
+                            );
+                            // A reload applies config the process has not seen, so an
+                            // operator who just enabled the section learns why the tool
+                            // is still absent without having to restart.
+                            #[cfg(feature = "agent-core")]
+                            warn_verifiable_intent_withheld(&current_config);
+                            if let Some(handle) = degraded_nag.take() {
+                                handle.abort();
+                            }
+                            degraded_nag =
+                                gate_security_posture(&current_config, allow_degraded_security)?;
+                            // Continue loop: fresh subsystems with the new config.
                         }
-                        degraded_nag =
-                            gate_security_posture(&current_config, allow_degraded_security)?;
-                        // Continue loop: fresh subsystems with the new config.
                     }
                 }
+                if let Some(handle) = degraded_nag.take() {
+                    handle.abort();
+                }
+                if zeroclaw_runtime::restart::desktop_restart_requested() {
+                    std::process::exit(zeroclaw_runtime::restart::DESKTOP_RESTART_EXIT_CODE);
+                }
+                // Bare-process auto-restart: the daemon has now torn down (the
+                // gateway listener is released), so launch the upgraded binary as a
+                // detached child before we exit. No-op unless an in-app upgrade
+                // requested a self-respawn.
+                zeroclaw_runtime::restart::respawn_if_requested();
+                Ok(())
             }
-            if let Some(handle) = degraded_nag.take() {
-                handle.abort();
+            #[cfg(not(feature = "daemon-listeners"))]
+            {
+                let _ = (port, host, ephemeral, allow_degraded_security);
+                anyhow::bail!("the daemon requires the `daemon-listeners` feature")
             }
-            if zeroclaw_runtime::restart::desktop_restart_requested() {
-                std::process::exit(zeroclaw_runtime::restart::DESKTOP_RESTART_EXIT_CODE);
-            }
-            // Bare-process auto-restart: the daemon has now torn down (the
-            // gateway listener is released), so launch the upgraded binary as a
-            // detached child before we exit. No-op unless an in-app upgrade
-            // requested a self-respawn.
-            zeroclaw_runtime::restart::respawn_if_requested();
-            Ok(())
         }
 
         Commands::Status { format } => {
@@ -12184,12 +12223,21 @@ Add pricing to the active provider profile or supply a catalog entry."
             }
         },
 
-        #[cfg(feature = "agent-core")]
-        Commands::Relay { relay_command } => match relay_command {
-            RelayCommands::Claim { token, control } => {
-                Box::pin(relay_cli::handle_claim(&mut config, &token, &control)).await
+        Commands::Relay { relay_command } => {
+            #[cfg(feature = "daemon-listeners")]
+            {
+                match relay_command {
+                    RelayCommands::Claim { token, control } => {
+                        Box::pin(relay_cli::handle_claim(&mut config, &token, &control)).await
+                    }
+                }
             }
-        },
+            #[cfg(not(feature = "daemon-listeners"))]
+            {
+                let _ = relay_command;
+                anyhow::bail!("relay requires the `daemon-listeners` feature")
+            }
+        }
 
         Commands::Estop {
             estop_command,
@@ -16084,7 +16132,7 @@ fn build_sop_adapters(config: &Config) -> zeroclaw_runtime::sop::SopEngineAdapte
 ///
 /// Returns the reaper's handle (`None` when nothing was still running) so a test
 /// can observe that ownership was retained rather than merely claimed.
-#[cfg(feature = "agent-core")]
+#[cfg(feature = "daemon-listeners")]
 fn reap_orphaned_sop_drivers(
     carried: Vec<tokio::task::JoinHandle<()>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
@@ -16219,6 +16267,9 @@ struct SopMaintenance {
 }
 
 /// What one generation's driver teardown hands to the next generation.
+// Only the daemon's reload loop (daemon-listeners) reads these fields; the SOP
+// supervisor that builds the value is shared with builds that never run it.
+#[cfg_attr(not(feature = "daemon-listeners"), allow(dead_code))]
 #[cfg(feature = "agent-core")]
 struct SopDriverTeardown {
     /// Drivers aborted but not yet stopped; the next generation adopts them
