@@ -9,5 +9,7 @@ mod memory_loop_continuity;
 mod memory_restart;
 #[cfg(feature = "tool-project-intel")]
 mod report_template_tool_test;
+#[cfg(feature = "channel-telegram")]
 mod telegram_attachment_fallback;
+#[cfg(feature = "channel-telegram")]
 mod telegram_finalize_draft;

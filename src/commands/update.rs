@@ -98,6 +98,12 @@ fn install_dir_not_writable_message(dir: &str, error: &str) -> String {
 /// Why a CLI-only build updates only with `--standard`: what the standard
 /// build adds, with the gateway's default address, and how to choose.
 fn cli_only_needs_standard_message() -> String {
+    if cfg!(feature = "local-agent-minimal") {
+        // i18n-exempt: profile guidance must not depend on the runtime catalogue.
+        return "this local-agent-minimal build does not self-update to the standard release, \
+                which carries gateway and daemon surfaces; rebuild the profile from source"
+            .to_string();
+    }
     let gateway = zeroclaw_config::schema::GatewayConfig::default();
     let address = format!("{}:{}", gateway.host, gateway.port);
 
@@ -467,7 +473,9 @@ fn is_installable_release_asset(name: &str, target: &str, standard: bool) -> boo
 /// build installs nothing unless `--standard` asks to switch to it. A standard
 /// build ignores the flag.
 fn stays_cli_only(standard: bool) -> bool {
-    !cfg!(feature = "gateway") && !standard
+    // The minimal profile must never replace itself with a release archive that
+    // carries gateway and daemon surfaces, even when `--standard` is passed.
+    cfg!(feature = "local-agent-minimal") || (!cfg!(feature = "gateway") && !standard)
 }
 
 /// Whether `name` is the standard archive for `target`. With `stay_cli_only`
@@ -1506,6 +1514,16 @@ async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "local-agent-minimal")]
+    #[test]
+    fn minimal_profile_never_switches_to_the_standard_archive() {
+        assert!(
+            stays_cli_only(true),
+            "--standard must not escape the profile"
+        );
+        assert!(stays_cli_only(false));
+    }
 
     #[test]
     fn should_install_requires_newer_force_or_a_same_version_switch() {

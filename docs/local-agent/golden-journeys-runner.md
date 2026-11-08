@@ -32,6 +32,8 @@ This is one synthetic-provider, POSIX/macOS baseline observation, not verificati
 
 A separate run against candidate binary `8bda0584a2033f6ad36be6a7f9883a6057f398aee8469dadb7ccf101b3bf01e1`, built from source commit `a30ee7231636a898c14b10398eb2a51ddaa95328` for `aarch64-apple-darwin` with Rust 1.98, passed all five cases under Python 3.13.1. Provider request counts were 2 (granted), 1 (ungranted), 2 (timeout), 2 (cancellation), and 3 (recovery). Python 3.9 is unsupported: the fixture requires `typing.TypeAlias`, which is unavailable there. This is one candidate-specific observation, not a universal compatibility claim or full release validation; timeout and cancellation remain bounded harness probes, not graceful product behavior.
 
+A further run against a debug build of the `local-agent-minimal` profile (`--no-default-features --features local-agent-minimal`, source commit `d2ea0f612`, `aarch64-apple-darwin`, Rust 1.99.1) passed all five cases under Python 3.13.5 with provider request counts of 2 (granted), 1 (ungranted), 2 (timeout), 2 (cancellation) and 3 (recovery). The granted case echoed the exact tool result, so the exit code alone was not the evidence. This is one synthetic-provider, POSIX/macOS observation of the minimal profile, not release validation.
+
 ## Unit tests
 
 ```sh

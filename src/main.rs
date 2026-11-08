@@ -8994,6 +8994,78 @@ fn install_daemon_sigbus_reset() -> Result<()> {
     Ok(())
 }
 
+/// Commands that stay usable with a non-minimal config so it can be repaired.
+#[cfg(feature = "local-agent-minimal")]
+fn minimal_profile_repair_command(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Config { .. }
+            | Commands::Doctor { .. }
+            | Commands::Status { .. }
+            | Commands::SelfTest { .. }
+            | Commands::Auth { .. }
+            | Commands::Memory { .. }
+            | Commands::Skills { .. }
+            | Commands::Security { .. }
+    )
+}
+
+/// Config sections that would enable an inbound or remote surface the minimal
+/// profile cannot serve. Refusing is deliberate: silently ignoring them would
+/// leave the operator believing a surface is active.
+#[cfg(feature = "local-agent-minimal")]
+fn minimal_profile_config_violations(config: &Config) -> Vec<String> {
+    let mut violations = Vec::new();
+    if config.wss.enabled {
+        violations.push("[wss] enabled".to_string());
+    }
+    if config.relay.enabled {
+        violations.push("[relay] enabled".to_string());
+    }
+    if config.enroll.enabled {
+        violations.push("[enroll] enabled".to_string());
+    }
+    if config.a2a.server.enabled {
+        violations.push("[a2a.server] enabled".to_string());
+    }
+    if config.tunnel.tunnel_provider != "none" {
+        violations.push(format!(
+            "[tunnel] provider {}",
+            config.tunnel.tunnel_provider
+        ));
+    }
+    for channel in zeroclaw_channels::listing::configured_uncompiled_channels(&config.channels) {
+        violations.push(format!("[channels.{}] configured", channel.config_key));
+    }
+    violations
+}
+
+/// Commands that start a listener, background service or channel receive loop.
+#[cfg(feature = "local-agent-minimal")]
+fn minimal_profile_refused_surface(command: &Commands) -> Option<&'static str> {
+    match command {
+        Commands::Daemon { .. } => Some("daemon"),
+        // Teardown and inspection stay available so a unit installed by a standard
+        // build can be stopped and removed with this binary.
+        Commands::Service {
+            service_command:
+                zeroclaw::ServiceCommands::Stop
+                | zeroclaw::ServiceCommands::Uninstall
+                | zeroclaw::ServiceCommands::Status
+                | zeroclaw::ServiceCommands::Logs { .. },
+            ..
+        } => None,
+        Commands::Service { .. } => Some("service"),
+        Commands::Relay { .. } => Some("relay"),
+        Commands::Gateway { .. } => Some("gateway"),
+        Commands::Acp { .. } => Some("acp"),
+        Commands::Channel {
+            channel_command: zeroclaw::ChannelCommands::Start,
+        } => Some("channel start"),
+        _ => None,
+    }
+}
+
 fn main() -> Result<()> {
     let command = Cli::command();
 
@@ -9550,6 +9622,18 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         bail!("--config-dir cannot be empty");
     }
 
+    // Refuse before any config load or runtime setup so the minimal profile can
+    // never open an inbound surface, even for a config that enables one.
+    #[cfg(feature = "local-agent-minimal")]
+    if let Some(surface) = minimal_profile_refused_surface(&cli.command) {
+        // i18n-exempt: profile refusal must not depend on the runtime catalogue.
+        bail!(
+            "`zeroclaw {surface}` is not available in the local-agent-minimal profile, which \
+             has no daemon, gateway, relay, service or channel-listener surface. Build the \
+             standard profile (`cargo build --release`) to use it."
+        );
+    }
+
     #[cfg(target_os = "macos")]
     if matches!(&cli.command, Commands::Daemon { .. }) {
         install_daemon_sigbus_reset()?;
@@ -9819,6 +9903,19 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
 
     // All other commands need config loaded first
     let mut config = Box::pin(Config::load_or_init()).await?;
+    #[cfg(feature = "local-agent-minimal")]
+    if !minimal_profile_repair_command(&cli.command) {
+        let violations = minimal_profile_config_violations(&config);
+        if !violations.is_empty() {
+            // i18n-exempt: profile refusal must not depend on the runtime catalogue.
+            bail!(
+                "this config enables surfaces the local-agent-minimal profile does not provide \
+                 ({}). Disable them (`zeroclaw config set <key> false`) or use the standard \
+                 build; refusing to run with them silently ignored.",
+                violations.join(", ")
+            );
+        }
+    }
     #[cfg(feature = "agent-runtime")]
     if let Some((expected_data_dir, _)) = daemon_ownership.as_ref() {
         anyhow::ensure!(
