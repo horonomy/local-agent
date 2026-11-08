@@ -34,6 +34,29 @@
     clippy::unnecessary_wraps
 )]
 
+// The `local-agent-minimal` profile promises no inbound surface. Keep this list in
+// step with tests/component/minimal_profile_feature_graph.rs.
+#[cfg(all(
+    feature = "local-agent-minimal",
+    any(
+        feature = "gateway",
+        feature = "acp-bridge",
+        feature = "embedded-web",
+        feature = "default-channels",
+        feature = "channels-full",
+        feature = "channel-acp-server",
+        feature = "channel-webhook",
+        feature = "whatsapp-web",
+        feature = "voice-wake",
+        feature = "tool-claude-code-runner",
+    )
+))]
+compile_error!(
+    "feature `local-agent-minimal` cannot be combined with gateway, ACP, web, \
+     webhook or messaging-channel features; build with \
+     `--no-default-features --features local-agent-minimal`"
+);
+
 use clap::{Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 

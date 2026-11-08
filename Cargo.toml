@@ -229,6 +229,7 @@ non_row_features = [
     "landlock",
     "metrics",
     "embedded-web",
+    "local-agent-minimal",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
@@ -308,6 +309,14 @@ agent-runtime = [
     "dep:base64",
     "dep:ring",
 ]
+
+# Local Agent minimal runtime profile (HORO-2381). Build with
+# `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,
+# tools, MCP and CLI chat, with no gateway, ACP bridge or messaging-channel
+# features. It is a non-additive marker: src/lib.rs rejects it combined with an
+# ingress feature, so `--all-features` on this crate intentionally fails to build.
+# Not the installer's `--minimal` kernel selection, which has no tools or memory.
+local-agent-minimal = ["agent-runtime"]
 
 # Lean channel bundle included in `default`. These channels cover local/editor
 # ACP, gateway/webhook ingress, and common first-run external chat/email paths.
