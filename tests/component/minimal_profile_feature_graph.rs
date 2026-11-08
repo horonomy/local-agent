@@ -57,6 +57,7 @@ fn compile_guard_rejects_listeners_bundles_and_every_channel_feature() {
         "default-channels",
         "channels-full",
         "whatsapp-web",
+        "voice-wake",
     ];
     // Every messaging adapter feature in the manifest, so a newly added channel
     // cannot slip into the profile unnoticed.

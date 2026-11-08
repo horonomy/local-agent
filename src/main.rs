@@ -7688,7 +7688,7 @@ fn effective_server_sans(
     }
 }
 
-#[cfg(all(test, feature = "agent-core"))]
+#[cfg(all(test, feature = "daemon-listeners"))]
 mod wss_client_auth_tests {
     use super::*;
 
@@ -12223,6 +12223,7 @@ Add pricing to the active provider profile or supply a catalog entry."
             }
         },
 
+        #[cfg(feature = "agent-core")]
         Commands::Relay { relay_command } => {
             #[cfg(feature = "daemon-listeners")]
             {
@@ -21359,7 +21360,7 @@ mod tests {
     /// the SOP's own agent. Guards the conditional sink construction and the
     /// adapter wiring, which a dispatch-helper regression cannot see.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-core")]
+    #[cfg(all(feature = "agent-core", feature = "channel-filesystem"))]
     async fn filesystem_adapter_drives_a_run_with_maintenance_disabled() {
         use zeroclaw_runtime::sop::{
             Sop, SopExecutionMode, SopPriority, SopStep, SopStepKind, SopTrigger,
@@ -21767,7 +21768,7 @@ mod tests {
     /// handles were dropped, which detaches the tasks — it would still be false
     /// when the reaper finished.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-core")]
+    #[cfg(feature = "daemon-listeners")]
     async fn orphaned_sop_drivers_are_reaped_rather_than_detached() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -21809,7 +21810,7 @@ mod tests {
     /// Nothing to own: every carried driver already stopped, so there is no
     /// reaper to spawn.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-core")]
+    #[cfg(feature = "daemon-listeners")]
     async fn finished_drivers_need_no_reaper() {
         let driver = ::zeroclaw_spawn::spawn!(async {});
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {

@@ -316,8 +316,10 @@ agent-core = [
 # dependencies, now named `agent-core` so inbound listener code can be separated.
 agent-runtime = ["agent-core", "daemon-listeners"]
 
-# Inbound listener code: the daemon's WSS, relay, enrollment and local-RPC servers.
-# Standard builds get it through `agent-runtime`; `local-agent-minimal` does not.
+# Inbound listener code: the daemon and relay commands and the mTLS WebSocket server.
+# Standard builds get it through `agent-runtime`; `local-agent-minimal` does not. The
+# relay bridge, enrollment server and local RPC listener sources are not gated by it
+# yet (HORO-2383); the minimal binary simply does not link them.
 daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with

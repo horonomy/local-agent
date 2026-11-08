@@ -48,6 +48,7 @@
         feature = "default-channels",
         feature = "channels-full",
         feature = "whatsapp-web",
+        feature = "voice-wake",
         feature = "channel-acp-server",
         feature = "channel-amqp",
         feature = "channel-bluesky",
