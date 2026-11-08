@@ -123,7 +123,7 @@ level = "autonomous"
     );
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 #[test]
 fn degraded_config_guidance_keeps_executable_path_without_runtime_i18n() {
     let config_dir = tempfile::tempdir().expect("temp config dir");

@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 use std::io::{BufRead, ErrorKind, Read, Write};
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -49,11 +49,11 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-#[cfg(any(not(feature = "agent-runtime"), windows))]
+#[cfg(any(not(feature = "agent-core"), windows))]
 const STDIN_LINE_CAP: usize = 1024 * 1024;
 
 /// Result of [`read_capped_line`].
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 #[derive(Debug)]
 enum CappedLine {
     /// A full line under the cap, with the trailing `\n` stripped.
@@ -65,7 +65,7 @@ enum CappedLine {
     Eof,
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 fn read_capped_line<R: std::io::BufRead>(reader: R, cap: usize) -> std::io::Result<CappedLine> {
     let mut raw = Vec::new();
     let mut limited = reader.take((cap + 1) as u64);
@@ -100,7 +100,7 @@ fn cap_line_utf8_safe(line: &mut String, cap: usize) {
 /// that `read_until(..., &mut Vec::new())` would incur on an oversized
 /// physical line, and it stops exactly at the newline so the next line
 /// is not consumed.
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 fn discard_until_newline<R: std::io::BufRead>(reader: &mut R) -> std::io::Result<()> {
     loop {
         let buf = reader.fill_buf()?;
@@ -118,7 +118,7 @@ fn discard_until_newline<R: std::io::BufRead>(reader: &mut R) -> std::io::Result
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 use zeroclaw_config::api_error::{ConfigApiCode, ConfigApiError};
 
 /// Resolve a `cli-*` Fluent key for CLI output. Routes through the runtime
@@ -126,11 +126,11 @@ use zeroclaw_config::api_error::{ConfigApiCode, ConfigApiError};
 /// feature the runtime crate is absent, so the English `fallback` is used.
 #[allow(unused_variables)]
 fn t(key: &str, fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::i18n::get_required_cli_string(key)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }
@@ -139,11 +139,11 @@ fn t(key: &str, fallback: &str) -> String {
 /// `t` with `{$name}` arguments.
 #[allow(unused_variables)]
 fn ta(key: &str, args: &[(&str, &str)], fallback: impl Into<String>) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::i18n::get_required_cli_string_with_args(key, args)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         // i18n-exempt: English fallback when Fluent (agent-runtime) is
         // disabled. The fallback still carries `{$name}` placeholders, so
@@ -162,7 +162,7 @@ fn ta(key: &str, args: &[(&str, &str)], fallback: impl Into<String>) -> String {
 ///
 /// The value stays hidden, but the prompt shows a bounded mask once the input
 /// buffer becomes non-empty.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn secret_prompt(prompt_text: &str, allow_empty: bool) -> Result<String> {
     use std::io::IsTerminal;
 
@@ -184,26 +184,26 @@ fn secret_prompt(prompt_text: &str, allow_empty: bool) -> Result<String> {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn qta(key: &str, args: &[(&str, &str)]) -> String {
     zeroclaw_runtime::i18n::get_required_cli_string_with_args(key, args)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_row(key: &str, glyph: &str, summary: &str) -> String {
     qta(key, &[("glyph", glyph), ("summary", summary)])
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const QUICKSTART_SELECTOR_MIN_WIDTH: usize = 20;
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const QUICKSTART_SELECTOR_ROW_OVERHEAD: usize = 3;
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const QUICKSTART_SELECTOR_VERTICAL_OVERHEAD: usize = 2;
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_row_budget(terminal_width: usize) -> Option<usize> {
     if terminal_width < QUICKSTART_SELECTOR_MIN_WIDTH {
         return None;
@@ -217,7 +217,7 @@ fn quickstart_selector_row_budget(terminal_width: usize) -> Option<usize> {
 /// a guessed geometry — that would reintroduce the exact overflow class this
 /// change exists to prevent. Unknown dimensions therefore take the same
 /// fail-closed path as a too-narrow terminal.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_terminal_size<T: QuickstartSelectorTerminal>(
     term: &mut T,
 ) -> Option<(u16, u16)> {
@@ -225,22 +225,22 @@ fn quickstart_selector_terminal_size<T: QuickstartSelectorTerminal>(
 }
 
 /// Whether a sampled terminal size is usable for fitting the checklist.
-#[cfg(all(feature = "agent-runtime", test))]
+#[cfg(all(feature = "agent-core", test))]
 fn quickstart_selector_size_is_usable(size: Option<(u16, u16)>) -> bool {
     size.is_some()
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_min_height(item_count: usize) -> usize {
     item_count.saturating_add(QUICKSTART_SELECTOR_VERTICAL_OVERHEAD)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_fits_height(terminal_height: usize, item_count: usize) -> bool {
     terminal_height >= quickstart_selector_min_height(item_count)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn fit_quickstart_selector_row(row: &str, budget: usize) -> String {
     let normalized: String = row
         .chars()
@@ -268,7 +268,7 @@ fn fit_quickstart_selector_row(row: &str, budget: usize) -> String {
     fitted
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_resize_error(
     initial_size: (u16, u16),
     current_size: (u16, u16),
@@ -293,7 +293,7 @@ fn quickstart_selector_resize_error(
 /// matches, and `Term::size()`'s fabricated `(24, 80)` fallback could even
 /// compare *equal* to the initial sample on an 80x24 terminal that has since
 /// lost its size query. Unknown therefore fails closed, like a resize.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_recheck_size(
     initial_size: (u16, u16),
     current_size: Option<(u16, u16)>,
@@ -308,7 +308,7 @@ fn quickstart_selector_recheck_size(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_selector_frame_lines(
     labels: &[String],
     prompt: &str,
@@ -322,7 +322,7 @@ fn quickstart_selector_frame_lines(
         .collect()
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn render_quickstart_selector<T: QuickstartSelectorTerminal>(
     term: &mut T,
     lines: &[String],
@@ -333,7 +333,7 @@ fn render_quickstart_selector<T: QuickstartSelectorTerminal>(
     term.flush()
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QuickstartSelectorKey {
     Down,
@@ -344,7 +344,7 @@ enum QuickstartSelectorKey {
     Other,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 trait QuickstartSelectorTerminal {
     /// Geometry of the terminal that receives `write_line` output, as
     /// `(rows, columns)`, or `None` when it cannot be determined.
@@ -363,17 +363,17 @@ trait QuickstartSelectorTerminal {
 /// The input half of the Crossterm selector: raw-mode ownership plus key
 /// decoding. It is separate from the output half so a regression can drive the
 /// production output adapter with injected keys.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 trait QuickstartSelectorInput {
     fn read_key(&mut self) -> std::io::Result<QuickstartSelectorKey>;
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 struct CrosstermQuickstartInput {
     restore_cooked_mode: bool,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl CrosstermQuickstartInput {
     fn new() -> std::io::Result<Self> {
         let raw_mode_was_enabled = terminal::is_raw_mode_enabled()?;
@@ -386,7 +386,7 @@ impl CrosstermQuickstartInput {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl Drop for CrosstermQuickstartInput {
     fn drop(&mut self) {
         if self.restore_cooked_mode {
@@ -395,7 +395,7 @@ impl Drop for CrosstermQuickstartInput {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl QuickstartSelectorInput for CrosstermQuickstartInput {
     fn read_key(&mut self) -> std::io::Result<QuickstartSelectorKey> {
         loop {
@@ -434,16 +434,16 @@ impl QuickstartSelectorInput for CrosstermQuickstartInput {
 /// Quickstart requires stdin and stderr to be terminals, not the same
 /// terminal. The frame is therefore fitted to the descriptor it is written to
 /// rather than to whichever terminal a process-global query describes.
-#[cfg(all(feature = "agent-runtime", unix))]
+#[cfg(all(feature = "agent-core", unix))]
 trait QuickstartSelectorOutput: Write + std::os::fd::AsFd {}
 
-#[cfg(all(feature = "agent-runtime", unix))]
+#[cfg(all(feature = "agent-core", unix))]
 impl<W: Write + std::os::fd::AsFd> QuickstartSelectorOutput for W {}
 
-#[cfg(all(feature = "agent-runtime", not(unix)))]
+#[cfg(all(feature = "agent-core", not(unix)))]
 trait QuickstartSelectorOutput: Write {}
 
-#[cfg(all(feature = "agent-runtime", not(unix)))]
+#[cfg(all(feature = "agent-core", not(unix)))]
 impl<W: Write> QuickstartSelectorOutput for W {}
 
 /// Measure the terminal behind `output` as `(rows, columns)`.
@@ -451,7 +451,7 @@ impl<W: Write> QuickstartSelectorOutput for W {}
 /// A zero dimension means the driver holds no geometry for that terminal. It
 /// is reported as unknown so the caller fails closed instead of fitting rows
 /// to a zero-width frame.
-#[cfg(all(feature = "agent-runtime", unix))]
+#[cfg(all(feature = "agent-core", unix))]
 fn quickstart_output_terminal_size<W: QuickstartSelectorOutput>(output: &W) -> Option<(u16, u16)> {
     use std::os::fd::AsRawFd;
 
@@ -479,20 +479,20 @@ fn quickstart_output_terminal_size<W: QuickstartSelectorOutput>(output: &W) -> O
 /// shares one screen buffer between stdout and stderr, so the measured
 /// surface is the one that receives the frame. Native-console rendering is
 /// not exercised by hosted checks and remains a documented verification gap.
-#[cfg(all(feature = "agent-runtime", not(unix)))]
+#[cfg(all(feature = "agent-core", not(unix)))]
 fn quickstart_output_terminal_size<W: QuickstartSelectorOutput>(_output: &W) -> Option<(u16, u16)> {
     terminal::size().ok().map(|(columns, rows)| (rows, columns))
 }
 
 /// Crossterm-backed selector terminal: frames go to `output`, keys come from
 /// `input`, and geometry is always read from `output`.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 struct CrosstermQuickstartTerminal<W: QuickstartSelectorOutput, K: QuickstartSelectorInput> {
     output: W,
     input: K,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl CrosstermQuickstartTerminal<std::io::Stderr, CrosstermQuickstartInput> {
     fn stderr() -> std::io::Result<Self> {
         Ok(Self {
@@ -502,7 +502,7 @@ impl CrosstermQuickstartTerminal<std::io::Stderr, CrosstermQuickstartInput> {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl<W: QuickstartSelectorOutput, K: QuickstartSelectorInput> QuickstartSelectorTerminal
     for CrosstermQuickstartTerminal<W, K>
 {
@@ -556,13 +556,13 @@ impl<W: QuickstartSelectorOutput, K: QuickstartSelectorInput> QuickstartSelector
 /// Claiming ownership before `enter_alternate_screen` means a partial write or
 /// flush failure still triggers a best-effort restore. Cleanup attempts are
 /// independent: a cursor error must never strand the alternate screen.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 struct QuickstartSelectorScreen<'a, T: QuickstartSelectorTerminal> {
     term: &'a mut T,
     restore_needed: bool,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl<'a, T: QuickstartSelectorTerminal> QuickstartSelectorScreen<'a, T> {
     fn enter(term: &'a mut T) -> std::io::Result<Self> {
         let screen = Self {
@@ -597,14 +597,14 @@ impl<'a, T: QuickstartSelectorTerminal> QuickstartSelectorScreen<'a, T> {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl<T: QuickstartSelectorTerminal> Drop for QuickstartSelectorScreen<'_, T> {
     fn drop(&mut self) {
         let _ = self.restore();
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QuickstartSelectorOutcome {
     Pick(Option<usize>),
@@ -621,7 +621,7 @@ enum QuickstartSelectorOutcome {
 /// resize of the output terminal alone raises no input event, so it is caught
 /// at the next key. Leaving the alternate screen atomically restores
 /// unrelated output.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn interact_quickstart_selector<T: QuickstartSelectorTerminal>(
     term: &mut T,
     labels: &[String],
@@ -682,7 +682,7 @@ fn interact_quickstart_selector<T: QuickstartSelectorTerminal>(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QuickstartChecklistAction {
     Provider,
@@ -697,7 +697,7 @@ enum QuickstartChecklistAction {
     Quit,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_action_for_pick(
     choices: &[(QuickstartChecklistAction, String)],
     pick: Option<usize>,
@@ -706,7 +706,7 @@ fn quickstart_action_for_pick(
         .unwrap_or(QuickstartChecklistAction::Quit)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_step_label(step: zeroclaw_runtime::quickstart::QuickstartStep) -> String {
     t(step.label_key(), step.label())
 }
@@ -715,7 +715,7 @@ fn quickstart_step_label(step: zeroclaw_runtime::quickstart::QuickstartStep) -> 
 /// line, preserving any non-comment whitespace. Mirrors the gateway's
 /// `apply_comments`. Best-effort — silently bails on parse errors so a
 /// successful set isn't downgraded to a failure for a metadata problem.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn apply_comment_inline(
     config_path: &std::path::Path,
     path: &str,
@@ -729,7 +729,7 @@ async fn apply_comment_inline(
     .context("failed to write comment annotation")
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn config_patch_prop_kind(config: &Config, path: &str) -> Option<crate::config::PropKind> {
     config
         .prop_fields()
@@ -738,7 +738,7 @@ fn config_patch_prop_kind(config: &Config, path: &str) -> Option<crate::config::
         .map(|f| f.kind)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn json_value_to_setprop_string(
     value: &serde_json::Value,
     config: &Config,
@@ -764,7 +764,7 @@ fn json_value_to_setprop_string(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn config_patch_map_prop_error(err: anyhow::Error, path: &str, op_index: usize) -> ConfigApiError {
     let msg = err.to_string();
     if msg.starts_with("Unknown property") {
@@ -776,13 +776,13 @@ fn config_patch_map_prop_error(err: anyhow::Error, path: &str, op_index: usize) 
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn config_patch_json_error(err: &ConfigApiError) -> Result<()> {
     eprintln!("{}", serde_json::to_string_pretty(err)?);
     std::process::exit(1);
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn config_patch_json_value_type_error(
     message: impl Into<String>,
     path: Option<String>,
@@ -798,7 +798,7 @@ fn config_patch_json_value_type_error(
     err
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn config_patch_fail_json_or_human<T>(
     json: bool,
     err: ConfigApiError,
@@ -821,7 +821,7 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
 }
 
 fn print_no_command_help(cmd: clap::Command) -> Result<()> {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         println!(
             "{}",
@@ -836,7 +836,7 @@ fn print_no_command_help(cmd: clap::Command) -> Result<()> {
                 .unwrap_or("Try `zeroclaw quickstart` to create your first agent.")
         );
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         println!("{}", t("cli-no-command", "No command provided."));
         println!(
@@ -880,61 +880,61 @@ fn pause_after_no_command_help() {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod agent;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod alias_cli;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod approval;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod auth;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod channels;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod cli_input;
 mod commands;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod rag {
     pub use zeroclaw::rag::*;
 }
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod browse;
 mod config;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod cost;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod cron;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod daemon;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod doctor;
 #[cfg(feature = "gateway")]
 mod gateway;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod hardware;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod health;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod heartbeat;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod hooks;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod i18n;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod identity;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod integrations;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod memory;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod migration;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod multimodal;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod observability;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod peripherals;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod platform;
 #[cfg(feature = "plugins-wasm")]
 mod plugin_catalog;
@@ -943,29 +943,29 @@ mod plugin_registry;
 #[cfg(feature = "plugins-wasm")]
 mod plugins;
 mod providers;
-#[cfg(all(feature = "agent-runtime", feature = "plugins-wasm"))]
+#[cfg(all(feature = "agent-core", feature = "plugins-wasm"))]
 mod quickstart_plugins;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod relay_cli;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod security;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod security_status;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod service;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod skills;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod sop;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod tools;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod trust;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod tunnel;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod util;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 mod verifiable_intent;
 
 use config::Config;
@@ -1061,7 +1061,7 @@ impl LogLevel {
 }
 
 /// Subcommands for `zeroclaw eval`.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Subcommand, Debug)]
 enum EvalCommands {
     /// Run a suite of evaluation cases.
@@ -1314,14 +1314,14 @@ Examples:
     },
 
     /// Inspect the active security posture derived from local config and host detection
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     Security {
         #[command(subcommand)]
         security_command: SecurityCommands,
     },
 
     /// Bind this daemon to a ZeroRelay account (self-serve enrollment)
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     Relay {
         #[command(subcommand)]
         relay_command: RelayCommands,
@@ -1467,7 +1467,7 @@ Examples:
     },
 
     /// Enroll with an inbound OIDC identity provider to obtain an RPC auth token
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     Oidc {
         #[command(subcommand)]
         oidc_command: OidcCommands,
@@ -1620,7 +1620,7 @@ Examples:
         quick: bool,
     },
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     /// Run the agent evaluation harness
     // i18n-exempt: clap derive help — framework requires a compile-time literal
     #[command(long_about = "\
@@ -1745,7 +1745,7 @@ enum DeprecatedPropsCommands {
     Any(Vec<String>),
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_runtime_profile_for_provider(
     provider_type: &str,
     providers: &[zeroclaw_runtime::quickstart::QuickstartTypeOption],
@@ -1782,7 +1782,7 @@ fn quickstart_runtime_profile_for_provider(
 /// `--agent`) silently seed the relevant selector's value and mark it
 /// `[✓]` if the seed is enough to satisfy the selector; the user can
 /// still open that selector and overwrite it.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn run_quickstart_cli(
     model_provider: Option<String>,
     model: Option<String>,
@@ -3098,7 +3098,7 @@ async fn run_quickstart_cli(
 /// disk was changed. `headline` replaces them for a run whose plugin step
 /// already installed, configured or activated plugins, where they would be
 /// false.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn report_agent_not_created(
     errs: &[zeroclaw_runtime::quickstart::QuickstartError],
     headline: Option<Vec<String>>,
@@ -3138,7 +3138,7 @@ fn report_agent_not_created(
     ))
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn model_path_provider_type(path: &str) -> Option<&'static str> {
     let parts: Vec<&str> = path.split('.').collect();
     if parts.len() != 5 || parts[0] != "providers" || parts[1] != "models" || parts[4] != "model" {
@@ -3151,7 +3151,7 @@ fn model_path_provider_type(path: &str) -> Option<&'static str> {
         .map(|p| p.name)
 }
 
-#[cfg(any(feature = "agent-runtime", test))]
+#[cfg(any(feature = "agent-core", test))]
 fn map_key_for_prop_path<'a>(section_path: &str, prop_path: &'a str) -> Option<&'a str> {
     let tail = prop_path.strip_prefix(section_path)?.strip_prefix('.')?;
     let mut parts = tail.split('.');
@@ -3162,7 +3162,7 @@ fn map_key_for_prop_path<'a>(section_path: &str, prop_path: &'a str) -> Option<&
 
 /// Split `section_arg` into the map key under `section_path` with NOTHING after
 /// it, the `config init <section>.<alias>` shape.
-#[cfg(any(feature = "agent-runtime", test))]
+#[cfg(any(feature = "agent-core", test))]
 fn map_key_for_section_arg<'a>(section_path: &str, section_arg: &'a str) -> Option<&'a str> {
     let tail = section_arg.strip_prefix(section_path)?.strip_prefix('.')?;
     (!tail.is_empty() && !tail.contains('.')).then_some(tail)
@@ -3172,7 +3172,7 @@ fn map_key_for_section_arg<'a>(section_path: &str, section_arg: &'a str) -> Opti
 /// alias `split` extracts. `#[resource_key]` sections are excluded: their keys
 /// are values from another domain (model id, voice, tool name) and may
 /// themselves contain dots, so a dot split would yield a bogus alias.
-#[cfg(any(feature = "agent-runtime", test))]
+#[cfg(any(feature = "agent-core", test))]
 fn alias_target_for_path<'a>(
     path: &'a str,
     split: impl Fn(&str, &'a str) -> Option<&'a str>,
@@ -3191,7 +3191,7 @@ fn alias_target_for_path<'a>(
 /// exists, the section is resource-keyed or a natural-key list, or the argument
 /// is a plain nested prefix that `init_defaults` already handles). A reserved
 /// alias is an error, not a silent no-op.
-#[cfg(any(feature = "agent-runtime", test))]
+#[cfg(any(feature = "agent-core", test))]
 fn init_map_alias(config: &mut Config, section_arg: &str) -> Result<Option<String>> {
     let Some((section_path, alias)) = alias_target_for_path(section_arg, map_key_for_section_arg)
     else {
@@ -3206,7 +3206,7 @@ fn init_map_alias(config: &mut Config, section_arg: &str) -> Result<Option<Strin
 
 /// Dirty every generated leaf under a newly created map alias so required
 /// default-valued fields survive the incremental writer's empty-leaf pruning.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn mark_new_map_alias_dirty(config: &mut Config, alias_path: &str) {
     let prefix = format!("{alias_path}.");
     let leaf_paths: Vec<String> = config
@@ -3224,7 +3224,7 @@ fn mark_new_map_alias_dirty(config: &mut Config, alias_path: &str) {
     }
 }
 
-#[cfg(any(feature = "agent-runtime", test))]
+#[cfg(any(feature = "agent-core", test))]
 fn ensure_map_key_for_prop_path(config: &mut Config, prop_path: &str) -> Result<bool> {
     let Some((section_path, key)) = alias_target_for_path(prop_path, map_key_for_prop_path) else {
         return Ok(false);
@@ -3279,7 +3279,7 @@ fn ensure_map_key_for_prop_path(config: &mut Config, prop_path: &str) -> Result<
     Ok(created)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn trimmed_agent_name_for_templates(prior_name: Option<&str>) -> String {
     prior_name
         .map(|s| s.trim().to_string())
@@ -3289,7 +3289,7 @@ fn trimmed_agent_name_for_templates(prior_name: Option<&str>) -> String {
         })
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn prompt_for_field(
     desc: &zeroclaw_runtime::quickstart::FieldDescriptor,
     seed: Option<&str>,
@@ -3362,7 +3362,7 @@ fn prompt_for_field(
 /// Model picker over a live catalog. The last entry lets the operator type a
 /// model ID instead, since a catalog can be incomplete or come from another
 /// server than the one meant.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn prompt_for_catalog_model(
     desc: &zeroclaw_runtime::quickstart::FieldDescriptor,
     models: &[String],
@@ -3392,7 +3392,7 @@ fn prompt_for_catalog_model(
     prompt_for_field(&typed, None)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn pick_preset(
     prompt: &str,
     presets: Vec<(&'static str, &'static str, &'static str)>,
@@ -3452,7 +3452,7 @@ fn pick_preset(
     Ok(Some(Ok(presets[i].0)))
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn which_zerocode_on_path() -> bool {
     std::env::var_os("PATH")
         .map(|paths| std::env::split_paths(&paths).any(|p| p.join("zerocode").is_file()))
@@ -7427,7 +7427,7 @@ enum ConfigCommands {
     },
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Subcommand, Debug)]
 enum SecurityCommands {
     /// Show security posture for the default or selected agent risk profile
@@ -7510,7 +7510,7 @@ enum SecurityCommands {
     RelayRotateNodeId,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Subcommand, Debug)]
 enum RelayCommands {
     /// Claim this daemon into your ZeroRelay account with a one-time token.
@@ -7549,7 +7549,7 @@ Examples:
 /// zero-config and headless bring-up are unaffected. The daemon sources it
 /// identically at CA generation (the WSS path) and at every CA read (enrollment
 /// + this CLI), so the on-disk form always matches.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn ca_key_protection_from_env() -> zeroclaw_tls::CaKeyProtection {
     zeroclaw_tls::CaKeyProtection::from_env()
 }
@@ -7558,7 +7558,7 @@ fn ca_key_protection_from_env() -> zeroclaw_tls::CaKeyProtection {
 ///
 /// The WSS plane is always mTLS. `enabled` controls only whether the configured
 /// CA replaces the daemon-generated CA; certificate pins apply in either mode.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn resolve_wss_client_auth(
     client_auth: Option<&zeroclaw_config::schema::WssClientAuthConfig>,
 ) -> Result<(Option<String>, Vec<String>)> {
@@ -7581,7 +7581,7 @@ fn resolve_wss_client_auth(
     Ok((byo_ca, pinned))
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 /// Server-certificate SANs shared by the WSS listener and the enrollment
 /// endpoint: `localhost`/`127.0.0.1`, the operator's `[wss].sans`, then
 /// `tailnet_sans` (resolved by `zeroclaw_runtime::tunnel::tailscale_server_sans`).
@@ -7607,7 +7607,7 @@ fn wss_server_sans(
     sans
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 /// The server-certificate SAN set for one daemon generation (one pass of the
 /// config-reload loop), shared by the WSS listener and the enrollment endpoint.
 ///
@@ -7625,7 +7625,7 @@ struct DaemonServerTls {
     sans: Arc<tokio::sync::OnceCell<Vec<String>>>,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl DaemonServerTls {
     /// Generate or reuse the server leaf under `tls_dir` with this
     /// generation's SAN set. `discover` runs only for the first listener to
@@ -7649,7 +7649,7 @@ impl DaemonServerTls {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 /// The SAN set to request for the server leaf given the tailnet outcome.
 ///
 /// When tailscaled cannot be queried the tailnet names are unknown, not
@@ -7685,7 +7685,7 @@ fn effective_server_sans(
     }
 }
 
-#[cfg(all(test, feature = "agent-runtime"))]
+#[cfg(all(test, feature = "agent-core"))]
 mod wss_client_auth_tests {
     use super::*;
 
@@ -8111,7 +8111,7 @@ mod wss_client_auth_tests {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn issue_wss_client_cert(
     config: &Config,
     name: &str,
@@ -8398,7 +8398,7 @@ fn issue_wss_client_cert(
 /// the daemon ledger, which materializes `<data_dir>/tls/revoked` so the WSS
 /// verifier refuses it at the next handshake (threat A5). The operator-driven
 /// counterpart to `issue-client-cert`.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn revoke_wss_client_cert(
     config: &Config,
     fingerprint: Option<String>,
@@ -8470,7 +8470,7 @@ fn revoke_wss_client_cert(
 /// `[wss.client_auth].crl_path` when set, else the ledger default. Operator
 /// commands must materialize to this path or a revocation is reported but never
 /// enforced.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn effective_crl_path(config: &Config) -> std::path::PathBuf {
     zeroclaw_runtime::security::cert_ledger::effective_revoked_list_path(
         &config.data_dir,
@@ -8481,7 +8481,7 @@ fn effective_crl_path(config: &Config) -> std::path::PathBuf {
 /// List the still-active client certificates this daemon's CA has issued, read
 /// from the issued-cert ledger. Read-only operator visibility into who holds a
 /// live certificate.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn list_wss_client_certs(config: &Config, json: bool) -> Result<()> {
     use zeroclaw_runtime::security::cert_ledger::CertLedger;
     let ledger = CertLedger::open_at(&config.data_dir, None, effective_crl_path(config))?;
@@ -8643,7 +8643,7 @@ enum AuthCommands {
     },
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Subcommand, Debug)]
 enum OidcCommands {
     /// Sign in interactively: shows a verification code (device grant) or
@@ -8800,15 +8800,15 @@ fn probe_config_dir(
 }
 
 fn apply_i18n_to_command(cmd: clap::Command) -> clap::Command {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         apply_cmd_translations(cmd, "cli")
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     cmd
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn apply_cmd_translations(cmd: clap::Command, prefix: &str) -> clap::Command {
     let sub_names: Vec<String> = cmd
         .get_subcommands()
@@ -8835,7 +8835,7 @@ fn apply_cmd_translations(cmd: clap::Command, prefix: &str) -> clap::Command {
     cmd
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn validated_locale(locale: &str) -> Result<String> {
     let ok_shape = !locale.is_empty()
         && locale.len() <= 16
@@ -8856,7 +8856,7 @@ fn validated_locale(locale: &str) -> Result<String> {
     Ok(locale.to_string())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn fetch_locales(locale: &str, catalog: Option<&str>) -> Result<()> {
     let locale = validated_locale(locale)?;
 
@@ -9102,7 +9102,7 @@ fn async_main(command: clap::Command) -> Result<()> {
 /// Companion"), case-insensitively. Matching the visible application name — not
 /// any field that merely contains the substring "zeroclaw" — is what stops an
 /// unrelated entry (or a lookalike like `not-zeroclaw-helper`) from qualifying.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn is_zeroclaw_name(name: &str) -> bool {
     let lower = name.trim().to_ascii_lowercase();
     match lower.strip_prefix("zeroclaw") {
@@ -9116,7 +9116,7 @@ fn is_zeroclaw_name(name: &str) -> bool {
 /// double-quoted in an `Exec` value. Encountering one outside quotes means the
 /// value is malformed, so parsing fails closed rather than launching a partially
 /// interpreted path.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 const EXEC_RESERVED_CHARS: &[char] = &[
     '"', '`', '$', '\\', '>', '<', '~', '|', '&', ';', '*', '?', '#', '(', ')', '\'',
 ];
@@ -9127,7 +9127,7 @@ const EXEC_RESERVED_CHARS: &[char] = &[
 /// written `\\$`: the general layer turns `\\` into `\`, leaving `\$` for the
 /// quoting layer. Any other escape, or a dangling backslash, is malformed and
 /// fails closed (`None`).
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn unescape_desktop_value(raw: &str) -> Option<String> {
     let mut out = String::new();
     // An escape consumes the following char too; the `while let` body advances
@@ -9152,7 +9152,7 @@ fn unescape_desktop_value(raw: &str) -> Option<String> {
 
 /// A `%X` token is a known desktop-entry field code (or `%%`, a literal percent).
 /// An unknown field code invalidates the whole `Exec` command line per the spec.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn is_known_field_code(token: &str) -> bool {
     token == "%%"
         || matches!(
@@ -9182,7 +9182,7 @@ fn is_known_field_code(token: &str) -> bool {
 /// inside quotes), or text directly adjacent to a closing quote (e.g. `"…"junk`).
 /// Validating the whole line — not just the first token — is what keeps a
 /// malformed entry from launching its first argument.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn tokenize_exec_line(line: &str) -> Option<Vec<(String, bool)>> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
@@ -9238,7 +9238,7 @@ fn tokenize_exec_line(line: &str) -> Option<Vec<(String, bool)>> {
 /// exception is that an *argument* (never the program) that was *not* quoted may
 /// be exactly one known standalone field code such as `%U`. A field code inside a
 /// quoted argument is always rejected.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn exec_token_field_codes_ok(token: &str, quoted: bool, is_program: bool) -> bool {
     // A lone, unquoted, standalone known field code is a valid argument — but the
     // program (executable) can never be a field code, so it has no exception.
@@ -9264,7 +9264,7 @@ fn exec_token_field_codes_ok(token: &str, quoted: bool, is_program: bool) -> boo
 /// to a closing quote, an unknown field code (e.g. `%Z`), an `=` in the program
 /// token, or a program token that is empty or itself a field code — rather than
 /// launching a partially interpreted path.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn parse_exec_program(exec: &str) -> Option<String> {
     let unescaped = unescape_desktop_value(exec)?;
     let mut tokens = tokenize_exec_line(&unescaped)?.into_iter();
@@ -9294,7 +9294,7 @@ fn parse_exec_program(exec: &str) -> Option<String> {
 /// the v0.8.3 Debian package). This is the single source of truth for the
 /// supported non-AppImage executable, so discovery cannot select a lookalike
 /// such as `zeroclaw-helper` or `zeroclaw-evil`.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 const ZEROCLAW_DESKTOP_BIN: &str = "zeroclaw-desktop";
 
 /// True when a desktop entry's resolved `Exec` program is a supported ZeroClaw
@@ -9303,7 +9303,7 @@ const ZEROCLAW_DESKTOP_BIN: &str = "zeroclaw-desktop";
 /// those forms — not to any `zeroclaw*` basename — so a deliberate ZeroClaw
 /// `Name` cannot be paired with a lookalike (`zeroclaw-helper`, `zeroclaw-evil`)
 /// to preempt the real app.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn is_zeroclaw_program(program: &str) -> bool {
     let Some(name) = Path::new(program).file_name().and_then(|n| n.to_str()) else {
         return false;
@@ -9317,7 +9317,7 @@ fn is_zeroclaw_program(program: &str) -> bool {
 /// required) and ends with ".appimage", case-insensitively. Requiring the
 /// separator rejects lookalikes with no boundary such as `ZeroClawevil.AppImage`
 /// as well as `not-zeroclaw-helper.AppImage`.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn is_zeroclaw_appimage_name(file_name: &str) -> bool {
     let lower = file_name.to_ascii_lowercase();
     lower.starts_with("zeroclaw-") && lower.ends_with(".appimage")
@@ -9334,7 +9334,7 @@ fn is_zeroclaw_appimage_name(file_name: &str) -> bool {
 ///
 /// Gated with the `desktop` command's `which` dependency (`agent-runtime`) on
 /// Linux, matching its sole caller and the desktop-entry tests.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn zeroclaw_desktop_exec(contents: &str) -> Option<String> {
     let mut in_entry = false;
     let mut name: Option<String> = None;
@@ -9385,7 +9385,7 @@ fn zeroclaw_desktop_exec(contents: &str) -> Option<String> {
 }
 
 /// True when `path` is a regular file with an execute bit set.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
@@ -9396,7 +9396,7 @@ fn is_executable(path: &Path) -> bool {
 /// Resolve a desktop-entry command to an executable file: an absolute path is
 /// taken as-is (and must be executable), a bare command name is resolved through
 /// `PATH`. Non-executable candidates are rejected so a broken entry is skipped.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn resolve_executable(command: &str) -> Option<PathBuf> {
     let candidate = Path::new(command);
     if candidate.is_absolute() {
@@ -9416,13 +9416,13 @@ fn resolve_executable(command: &str) -> Option<PathBuf> {
 /// Maximum accepted size of one XDG desktop entry. Desktop files are small
 /// metadata documents; bounding ambient entries prevents one unrelated file
 /// from consuming unbounded memory before a valid ZeroClaw entry is reached.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 const DESKTOP_ENTRY_MAX_BYTES: u64 = 256 * 1024;
 
 /// Open and read a desktop entry without following its final symlink, blocking
 /// on a FIFO, or trusting pathname metadata that can change before the open.
 /// Classification and the byte limit are both applied to the opened handle.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn read_desktop_entry(path: &Path) -> Option<String> {
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -9452,7 +9452,7 @@ fn read_desktop_entry(path: &Path) -> Option<String> {
 /// `kde-foo.desktop`. Deriving IDs recursively (rather than from top-level
 /// basenames only) is what lets a nested higher-precedence entry correctly
 /// mask the same ID in a lower-precedence directory.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn collect_desktop_entries(
     root: &Path,
     dir: &Path,
@@ -9492,7 +9492,7 @@ fn collect_desktop_entries(
 /// precedence order) for a ZeroClaw desktop entry and return its executable
 /// `Exec` target. The first occurrence of a desktop-file ID wins and shadows the
 /// same ID in later (lower-precedence) directories, matching XDG masking.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn discover_desktop_app(data_dirs: &[PathBuf]) -> Option<PathBuf> {
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     for base in data_dirs {
@@ -9523,7 +9523,7 @@ fn discover_desktop_app(data_dirs: &[PathBuf]) -> Option<PathBuf> {
 /// a ZeroClaw XDG desktop entry (honouring `$XDG_DATA_HOME`/`$XDG_DATA_DIRS`
 /// precedence), then falls back to scanning common AppImage install locations.
 /// Returns the launchable binary/AppImage path.
-#[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+#[cfg(all(feature = "agent-core", target_os = "linux"))]
 fn find_linux_desktop_app() -> Option<PathBuf> {
     let home = directories::UserDirs::new().map(|u| u.home_dir().to_path_buf());
 
@@ -9596,7 +9596,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
     // Install default crypto model_provider for Rustls TLS.
     // This prevents the error: "could not automatically determine the process-level CryptoProvider"
     // when both aws-lc-rs and ring features are available (or neither is explicitly selected).
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Err(e) = rustls::crypto::ring::default_provider().install_default() {
         eprintln!(
             "{}",
@@ -9639,7 +9639,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         install_daemon_sigbus_reset()?;
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     crate::i18n::init(&crate::i18n::detect_locale());
 
     // Completions must remain stdout-only and should not load config or initialize logging.
@@ -9698,7 +9698,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         cli.verbose,
     );
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Commands::Onboard {
         section,
         quick,
@@ -9749,7 +9749,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         return Ok(());
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Commands::Service {
         service_command: ServiceCommands::RunLaunchdDaemon,
         ..
@@ -9763,7 +9763,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         return service::run_launchd_daemon(config_dir).await;
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Commands::Service {
         service_command: ServiceCommands::RunWindowsDaemon,
         ..
@@ -9777,7 +9777,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         return service::run_windows_daemon(config_dir).await;
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Commands::Service {
         service_command: ServiceCommands::RunDesktopDaemon { port },
         ..
@@ -9786,7 +9786,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         return service::run_desktop_daemon(*port).await;
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Commands::Service {
         service_command: ServiceCommands::RunOpenrcLogWriter { stream },
         ..
@@ -9799,21 +9799,21 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
     // data directory before loading the executable config. This avoids both a
     // stale pre-lock snapshot and refusing an independent ZEROCLAW_DATA_DIR
     // merely because the default instance is running.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     let standalone_command = match &cli.command {
         Commands::Agent { .. } => Some("agent"),
         #[cfg(feature = "channel-acp-server")]
         Commands::Acp { .. } => Some("acp"),
         _ => None,
     };
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     let standalone_ownership_path = if standalone_command.is_some() {
         let (_, data_dir) = zeroclaw_config::schema::resolve_runtime_dirs().await?;
         Some(data_dir)
     } else {
         None
     };
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     let standalone_ownership = if let (Some(command), Some(data_dir)) =
         (standalone_command, standalone_ownership_path.as_ref())
     {
@@ -9860,7 +9860,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
     // the stale startup snapshot. Resolve the runtime identity first, acquire
     // process ownership, then load the fresh protected snapshot. The guard
     // transfers continuously across reload generations in the daemon loop.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     let mut daemon_ownership = if matches!(&cli.command, Commands::Daemon { .. }) {
         let (_, data_dir) = zeroclaw_config::schema::resolve_runtime_dirs().await?;
         Some((
@@ -9916,7 +9916,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
             );
         }
     }
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Some((expected_data_dir, _)) = daemon_ownership.as_ref() {
         anyhow::ensure!(
             config.data_dir == *expected_data_dir,
@@ -9981,22 +9981,22 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
             )
         );
     }
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     observability::runtime_trace::init_from_config(&config.observability, &config.data_dir);
     // Must follow the trace sink init above, or the record has no destination.
     // The daemon reload arm calls the same helper against its reloaded config.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     warn_verifiable_intent_withheld(&config);
     // This process has just become the data directory's only owner and has
     // admitted nothing yet: any session turn still marked running belongs to
     // a process that is gone. It happens once per process, so a reload does
     // not repeat it. It follows the trace sink init above so that what it
     // settles, or fails to, is on record.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if let Some((_, ownership)) = daemon_ownership.as_ref() {
         ownership.recover_abandoned_turns_or_log();
     }
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     let standalone_authority = if let Some(expected_data_dir) = standalone_ownership_path.as_ref() {
         anyhow::ensure!(
             config.data_dir == *expected_data_dir,
@@ -10029,14 +10029,14 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
     // startup prelude that may print: the OTP prelude below discloses a
     // freshly minted seed's enrollment URI on stdout, which must never be
     // captured alongside an access token by a command substitution.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if matches!(cli.command, Commands::Oidc { .. }) {
         let Commands::Oidc { oidc_command } = cli.command else {
             unreachable!("matched the Oidc variant above")
         };
         return handle_oidc_command(oidc_command, &config).await;
     }
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     if config.security.otp.enabled {
         let config_dir = config
             .config_path
@@ -10060,7 +10060,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         }
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         // Kernel-only mode: minimal CLI agent without channels/tools/gateway
         match cli.command {
@@ -10190,7 +10190,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         }
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::cron::scheduler::register_delivery_fn(Box::new(
             |config, channel, target, thread_id, output| {
@@ -10204,7 +10204,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         ));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     match cli.command {
         Commands::Onboard { .. }
         | Commands::Completions { .. }
@@ -10659,7 +10659,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
             }
 
             // Wire CLI channel for interactive mode
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             zeroclaw_runtime::agent::loop_::register_cli_channel_fn(Box::new(|| {
                 Box::new(zeroclaw_channels::cli::CliChannel::new("cli"))
             }));
@@ -10675,13 +10675,13 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
             // Cron delivery is registered earlier (before the command match)
             // so it works for both `daemon` and `gateway start`.
 
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             zeroclaw_runtime::agent::loop_::register_channel_map_fn(Box::new(
                 |config, agent_alias| {
                     zeroclaw_channels::orchestrator::live_channel_map_for_agent(config, agent_alias)
                 },
             ));
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             zeroclaw_runtime::agent::loop_::register_approval_channel_map_fn(Box::new(|_| {
                 zeroclaw_channels::orchestrator::live_channel_map()
             }));
@@ -10729,7 +10729,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                 let canvas_store_for_gateway = canvas_store_for_gateway.clone();
                 let canvas_store_for_channels = canvas_store_for_channels.clone();
                 let mut registry = daemon::DaemonRegistry::new();
-                #[cfg(feature = "agent-runtime")]
+                #[cfg(feature = "agent-core")]
                 registry.register_channel_registry_clearer(std::sync::Arc::new(|| {
                     zeroclaw_channels::orchestrator::prepare_live_channel_registry(true);
                 }));
@@ -11547,7 +11547,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                             })?,
                         ));
                         current_config = Box::pin(Config::load_or_init()).await?;
-                        #[cfg(feature = "agent-runtime")]
+                        #[cfg(feature = "agent-core")]
                         observability::runtime_trace::init_from_config(
                             &current_config.observability,
                             &current_config.data_dir,
@@ -11555,7 +11555,7 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
                         // A reload applies config the process has not seen, so an
                         // operator who just enabled the section learns why the tool
                         // is still absent without having to restart.
-                        #[cfg(feature = "agent-runtime")]
+                        #[cfg(feature = "agent-core")]
                         warn_verifiable_intent_withheld(&current_config);
                         if let Some(handle) = degraded_nag.take() {
                             handle.abort();
@@ -12119,7 +12119,7 @@ Add pricing to the active provider profile or supply a catalog entry."
             Ok(())
         }
 
-        #[cfg(feature = "agent-runtime")]
+        #[cfg(feature = "agent-core")]
         Commands::Security { security_command } => match security_command {
             SecurityCommands::Status { agent, json } => {
                 let report = security_status::build_report(&config, &agent)?;
@@ -12184,7 +12184,7 @@ Add pricing to the active provider profile or supply a catalog entry."
             }
         },
 
-        #[cfg(feature = "agent-runtime")]
+        #[cfg(feature = "agent-core")]
         Commands::Relay { relay_command } => match relay_command {
             RelayCommands::Claim { token, control } => {
                 Box::pin(relay_cli::handle_claim(&mut config, &token, &control)).await
@@ -12201,11 +12201,11 @@ Add pricing to the active provider profile or supply a catalog entry."
         Commands::Cron { cron_command } => cron::handle_command(cron_command, &config),
 
         Commands::Models { model_command } => {
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             {
                 dispatch_models_command(model_command, &mut config).await
             }
-            #[cfg(not(feature = "agent-runtime"))]
+            #[cfg(not(feature = "agent-core"))]
             {
                 match model_command {
                     ModelCommands::List {
@@ -12437,7 +12437,7 @@ Add pricing to the active provider profile or supply a catalog entry."
 
         Commands::Auth { auth_command } => handle_auth_command(auth_command, &config).await,
 
-        #[cfg(feature = "agent-runtime")]
+        #[cfg(feature = "agent-core")]
         Commands::Oidc { oidc_command } => handle_oidc_command(oidc_command, &config).await,
 
         Commands::Hardware { hardware_command } => {
@@ -12588,7 +12588,7 @@ Add pricing to the active provider profile or supply a catalog entry."
                 // 5. Linux: an AppImage registered in the application menu is
                 //    not on PATH and has no fixed binary name, so discover it
                 //    from its desktop entry or common AppImage locations.
-                #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+                #[cfg(all(feature = "agent-core", target_os = "linux"))]
                 if found.is_none() {
                     found = find_linux_desktop_app();
                 }
@@ -13050,7 +13050,7 @@ Add pricing to the active provider profile or supply a catalog entry."
                     }
                 };
 
-                #[cfg(feature = "agent-runtime")]
+                #[cfg(feature = "agent-core")]
                 let _offline_ownership =
                     if zeroclaw_config::alias_refs::agent_alias_for_prop_path(&path).is_some() {
                         match crate::alias_cli::route_agent_mutation(
@@ -13118,7 +13118,7 @@ Add pricing to the active provider profile or supply a catalog entry."
                 Ok(())
             }
             ConfigCommands::Init { section, json } => {
-                #[cfg(feature = "agent-runtime")]
+                #[cfg(feature = "agent-core")]
                 let _offline_ownership = if let Some(("agents", alias)) = section
                     .as_deref()
                     .and_then(|arg| alias_target_for_path(arg, map_key_for_section_arg))
@@ -13363,10 +13363,10 @@ Add pricing to the active provider profile or supply a catalog entry."
                 // is a new application of that setting, so the state before the
                 // ops run is captured here to tell that transition apart from a
                 // patch that leaves an already-enabled section alone.
-                #[cfg(feature = "agent-runtime")]
+                #[cfg(feature = "agent-core")]
                 let verifiable_intent_was_enabled = config.verifiable_intent.enabled;
 
-                #[cfg(feature = "agent-runtime")]
+                #[cfg(feature = "agent-core")]
                 let _offline_ownership = if ops.iter().any(|op| {
                     let op_name = op.get("op").and_then(|value| value.as_str());
                     let path = op.get("path").and_then(|value| value.as_str()).map(|path| {
@@ -13667,7 +13667,7 @@ Add pricing to the active provider profile or supply a catalog entry."
                 // an enabled section. Drain this post-save notice before the
                 // short-lived CLI exits, while preserving the committed config
                 // if the persistence writer reports a failure.
-                #[cfg(feature = "agent-runtime")]
+                #[cfg(feature = "agent-core")]
                 if !verifiable_intent_was_enabled && config.verifiable_intent.enabled {
                     warn_verifiable_intent_withheld(&config);
                     zeroclaw_log::flush().context(t(
@@ -14153,7 +14153,7 @@ Add pricing to the active provider profile or supply a catalog entry."
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn handle_estop_command(
     config: &Config,
     estop_command: Option<EstopSubcommands>,
@@ -14234,7 +14234,7 @@ fn handle_estop_command(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn build_engage_level(
     level: Option<EstopLevelArg>,
     domains: Vec<String>,
@@ -14275,7 +14275,7 @@ fn build_engage_level(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn build_resume_selector(
     network: bool,
     domains: Vec<String>,
@@ -14298,7 +14298,7 @@ fn build_resume_selector(
     Ok(security::ResumeSelector::KillAll)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn print_estop_status(state: &security::EstopState) {
     println!("{}", t("cli-estop-status", "Estop status:"));
     println!(
@@ -14430,7 +14430,7 @@ fi"#
 // ─── Gateway helper functions ───────────────────────────────────────────────
 
 /// Resolve gateway host and port from CLI args or config.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn resolve_gateway_addr(config: &Config, port: Option<u16>, host: Option<String>) -> (u16, String) {
     let port = port.unwrap_or(config.gateway.port);
     let host = host.unwrap_or_else(|| config.gateway.host.clone());
@@ -14438,7 +14438,7 @@ fn resolve_gateway_addr(config: &Config, port: Option<u16>, host: Option<String>
 }
 
 /// Log gateway startup message.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn log_gateway_start(host: &str, port: u16) {
     if port == 0 {
         ::zeroclaw_log::record!(
@@ -14458,7 +14458,7 @@ fn log_gateway_start(host: &str, port: u16) {
 }
 
 /// Gracefully shutdown a running gateway via the admin endpoint.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn shutdown_gateway(host: &str, port: u16, path_prefix: Option<&str>) -> Result<()> {
     let url = gateway_admin_url(host, port, path_prefix, "/admin/shutdown");
     let client = reqwest::Client::new();
@@ -14501,7 +14501,7 @@ async fn shutdown_gateway(host: &str, port: u16, path_prefix: Option<&str>) -> R
 /// Dispatch the gateway-backed SOP verbs. Requires the `agent-runtime` build (the
 /// gateway HTTP client + `gateway_admin_url` live behind it, like `shutdown_gateway`);
 /// without it these verbs cannot reach the daemon, so they error clearly.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn sop_admin_dispatch(cmd: SopCommands, config: &crate::config::Config) -> Result<()> {
     sop_admin_request(cmd, config).await
 }
@@ -14509,7 +14509,7 @@ async fn sop_admin_dispatch(cmd: SopCommands, config: &crate::config::Config) ->
 /// CLI -> daemon dispatch for the out-of-band SOP approval verbs (EPIC C, C8).
 /// Posts to `/admin/sop/*` on the running gateway (mirrors `shutdown_gateway`);
 /// never builds a throwaway local engine, which cannot see the daemon's runs.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn sop_admin_request(cmd: SopCommands, config: &crate::config::Config) -> Result<()> {
     let host = config.gateway.host.clone();
     let port = config.gateway.port;
@@ -14710,7 +14710,7 @@ async fn sop_admin_request(cmd: SopCommands, config: &crate::config::Config) -> 
 }
 
 /// POST a JSON body to a gateway SOP admin endpoint and report the outcome.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn sop_admin_post(
     client: &reqwest::Client,
     url: &str,
@@ -14744,7 +14744,7 @@ async fn sop_admin_post(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 enum PaircodeAction {
     /// GET the current code; do not mint or revoke anything.
     Show,
@@ -14756,7 +14756,7 @@ enum PaircodeAction {
     RotateDevice(String),
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl PaircodeAction {
     /// True when the action mints a new code (POST), false for `Show` (GET).
     fn mints_code(&self) -> bool {
@@ -14782,7 +14782,7 @@ impl PaircodeAction {
 }
 
 /// Outcome of a `get-paircode` request.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 enum PaircodeResult {
     /// A code was returned (with an optional human-readable message).
     Code {
@@ -14794,7 +14794,7 @@ enum PaircodeResult {
     NoCode { message: Option<String> },
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn fetch_paircode(
     host: &str,
     port: u16,
@@ -14900,13 +14900,13 @@ async fn fetch_paircode(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn gateway_admin_url(host: &str, port: u16, path_prefix: Option<&str>, admin_path: &str) -> String {
     let prefix = path_prefix.unwrap_or("");
     format!("http://{host}:{port}{prefix}{admin_path}")
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn paircode_no_code_message(
     host: &str,
     port: u16,
@@ -15017,7 +15017,7 @@ fn paircode_no_code_message(
     indent_paircode_lines(lines)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn paircode_command(
     host: &str,
     port: u16,
@@ -15039,7 +15039,7 @@ fn paircode_command(
     command
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn indent_paircode_lines(lines: Vec<String>) -> String {
     lines
         .into_iter()
@@ -15059,7 +15059,7 @@ fn indent_paircode_lines(lines: Vec<String>) -> String {
 // to the binary; auth/mod.rs in zeroclaw-providers shouldn't pull it in,
 // so reads live here and trait flows accept the resulting string.
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn read_auth_input(prompt: &str) -> Result<String> {
     let input = secret_prompt(prompt, false)?;
     if !input.is_empty() {
@@ -15068,7 +15068,7 @@ fn read_auth_input(prompt: &str) -> Result<String> {
     Ok(input.trim().to_string())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn read_plain_input(prompt: &str) -> Result<String> {
     let input: String = cli_input::Input::new()
         .with_prompt(prompt)
@@ -15076,7 +15076,7 @@ fn read_plain_input(prompt: &str) -> Result<String> {
     Ok(input.trim().to_string())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn format_expiry(profile: &auth::profiles::AuthProfile) -> String {
     match profile
         .token_set
@@ -15096,14 +15096,14 @@ fn format_expiry(profile: &auth::profiles::AuthProfile) -> String {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum InlineProviderAuth {
     Codex,
     AnthropicSetupToken { alias: String },
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_field_value_eq(
     fields: &std::collections::HashMap<String, String>,
     key: &str,
@@ -15114,7 +15114,7 @@ fn quickstart_field_value_eq(
         .is_some_and(|value| value.trim().eq_ignore_ascii_case(expected))
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn quickstart_inline_auth(
     kind: &str,
     alias: &str,
@@ -15133,12 +15133,12 @@ fn quickstart_inline_auth(
 
 /// `~/.codex/auth.json` — the credential file the upstream Codex CLI writes.
 /// When present, offer a direct import instead of starting a fresh browser flow.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn codex_auth_json_path() -> Option<std::path::PathBuf> {
     directories::UserDirs::new().map(|u| u.home_dir().join(".codex").join("auth.json"))
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn run_inline_provider_auth(auth: InlineProviderAuth, config: &mut Config) {
     use dialoguer::Confirm;
 
@@ -15215,7 +15215,7 @@ async fn run_inline_provider_auth(auth: InlineProviderAuth, config: &mut Config)
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn run_anthropic_setup_token_inline(alias: &str, config: &mut Config) -> Result<()> {
     let status = tokio::process::Command::new("claude")
         .arg("setup-token")
@@ -15255,7 +15255,7 @@ async fn run_anthropic_setup_token_inline(alias: &str, config: &mut Config) -> R
 /// neither write into the stdout that carries the token nor hold that pipe
 /// open after the command finishes. Fire and forget — the child is never
 /// waited on.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn spawn_detached(program: &str, args: &[&str]) -> std::io::Result<std::process::Child> {
     use std::process::{Command, Stdio};
 
@@ -15271,7 +15271,7 @@ fn spawn_detached(program: &str, args: &[&str]) -> std::io::Result<std::process:
 ///
 /// Platforms other than macOS and Linux have no opener here and rely on the
 /// sign-in URL the caller prints for manual opening.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn open_url_in_system_browser(url: &str) -> bool {
     if cfg!(target_os = "macos") {
         spawn_detached("open", &[url]).is_ok()
@@ -15287,19 +15287,19 @@ fn open_url_in_system_browser(url: &str) -> bool {
 /// otherwise park the enrollment loop for that long; an hour is far above any
 /// real device code and still refuses the pathological values that make
 /// `Instant + Duration` meaningless.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const MAX_DEVICE_CODE_LIFETIME_SECS: u64 = 3600;
 
 /// Longest advertised poll interval this client will honor, for the same
 /// reason: RFC 8628 puts no ceiling on `interval` either, and one measured in
 /// hours turns the flow into an indefinite sleep.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const MAX_DEVICE_POLL_INTERVAL_SECS: u64 = 300;
 
 /// RFC 8628 section 3.5 default interval, used here as the floor: polling
 /// faster than this earns `slow_down` at best and a rate limit at worst, so a
 /// smaller (or absent, or zero) advertised value is raised to it.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const MIN_DEVICE_POLL_INTERVAL_SECS: u64 = 5;
 
 /// Bound the timings the identity provider can put this client on.
@@ -15309,7 +15309,7 @@ const MIN_DEVICE_POLL_INTERVAL_SECS: u64 = 5;
 /// value can leave the CLI sleeping between polls, or waiting for approval,
 /// for as long as the remote side likes. Mirrors zerocode's gateway-side
 /// bounds so both surfaces refuse the same responses.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn device_grant_bounds(expires_in: u64, interval: u64) -> Result<()> {
     if expires_in == 0 {
         bail!("the identity provider advertised an already-expired device code (expires_in = 0)");
@@ -15333,12 +15333,12 @@ fn device_grant_bounds(expires_in: u64, interval: u64) -> Result<()> {
 /// [`MIN_DEVICE_POLL_INTERVAL_SECS`] and then clipped to what is left of the
 /// device code's lifetime, so a sleep never outlives the code it is waiting
 /// on and the loop always gets back to the deadline check.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn device_poll_wait(interval_secs: u64, remaining: std::time::Duration) -> std::time::Duration {
     std::time::Duration::from_secs(interval_secs.max(MIN_DEVICE_POLL_INTERVAL_SECS)).min(remaining)
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn handle_oidc_command(oidc_command: OidcCommands, config: &Config) -> Result<()> {
     use zeroclaw_runtime::security::auth_provider::{DevicePollOutcome, Enrollment};
 
@@ -15500,7 +15500,7 @@ async fn handle_oidc_command(oidc_command: OidcCommands, config: &Config) -> Res
 }
 
 #[allow(clippy::too_many_lines)]
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Result<()> {
     let auth_service = auth::AuthService::from_config(config);
     let auth_cli_formatter =
@@ -15816,7 +15816,7 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
 /// wrong home for it, because that runs on ordinary gateway requests and on
 /// nested SOP and delegation rebuilds. Each call site must sit after its
 /// `runtime_trace::init_from_config`, or the record has no sink.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn warn_verifiable_intent_withheld(config: &Config) {
     if !config.verifiable_intent.enabled {
         return;
@@ -15844,7 +15844,7 @@ fn warn_verifiable_intent_withheld(config: &Config) {
 }
 
 fn running_executable_for_remediation() -> Option<std::path::PathBuf> {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         if let Some(executable) = zeroclaw_runtime::restart::recorded_launch_executable() {
             return Some(executable.to_path_buf());
@@ -15855,13 +15855,13 @@ fn running_executable_for_remediation() -> Option<std::path::PathBuf> {
         std::env::current_exe().ok()
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         std::env::current_exe().ok()
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn gate_security_posture(
     config: &zeroclaw::config::Config,
     allow_degraded: bool,
@@ -15936,7 +15936,7 @@ fn gate_security_posture(
 /// behavior). MUST be called from within the tokio runtime: it captures
 /// `Handle::current()` so the sync, under-the-engine-lock adapter calls can bridge
 /// to the async channel/provider calls.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn build_sop_adapters(config: &Config) -> zeroclaw_runtime::sop::SopEngineAdapters {
     // `llm.generate` runs on the DEFAULT agent's resolved model provider — the
     // daemon-level model of record. No resolvable provider = fail-closed.
@@ -16084,7 +16084,7 @@ fn build_sop_adapters(config: &Config) -> zeroclaw_runtime::sop::SopEngineAdapte
 ///
 /// Returns the reaper's handle (`None` when nothing was still running) so a test
 /// can observe that ownership was retained rather than merely claimed.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn reap_orphaned_sop_drivers(
     carried: Vec<tokio::task::JoinHandle<()>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
@@ -16129,7 +16129,7 @@ fn reap_orphaned_sop_drivers(
 /// returned handle and shuts it down when the foreground daemon/channel run
 /// exits. The tick itself self-approves nothing - timeout handling follows
 /// `approval_timeout_action` (default `escalate`, fail-closed).
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn spawn_sop_maintenance(
     config: &Config,
     sop_engine: Option<&std::sync::Arc<std::sync::Mutex<zeroclaw_runtime::sop::SopEngine>>>,
@@ -16193,33 +16193,33 @@ fn spawn_sop_maintenance(
 ///
 /// Shared between every producer that registers drivers and the
 /// [`SopDriverSupervisor`] that drains them before the subsystem rebuilds.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 type SopDriverSet = zeroclaw_runtime::sop::SopDriverHandles;
 
 /// How long a daemon generation waits for its in-flight cron drivers to finish
 /// before aborting the stragglers. Long enough for a step already in a provider
 /// call to land, short enough that a reload is not held hostage by one.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const SOP_DRIVER_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How long the shutdown waits for aborted drivers to actually stop. An aborted
 /// task ends at its next await point, so this is a grace for that hop, not a
 /// second drain — a driver still running when it expires is reported rather than
 /// waited on forever, so one wedged task cannot hold a reload open.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 const SOP_DRIVER_ABORT_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// One daemon generation's SOP maintenance tick. The drivers the tick starts
 /// register in the generation's [`SopDriverSupervisor`], which owns the drain;
 /// stopping the tick (see [`Self::stop`]) only guarantees no further producer
 /// runs while that drain finalizes the set.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 struct SopMaintenance {
     ticker: tokio::task::JoinHandle<()>,
 }
 
 /// What one generation's driver teardown hands to the next generation.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 struct SopDriverTeardown {
     /// Drivers aborted but not yet stopped; the next generation adopts them
     /// (see [`SopDriverSupervisor::carried`]).
@@ -16241,7 +16241,7 @@ struct SopDriverTeardown {
 ///
 /// Exists whenever the SOP engine exists; the maintenance ticker is one
 /// producer among several, not the owner.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 struct SopDriverSupervisor {
     drivers: SopDriverSet,
     /// Retained independently of driver handles, which admission may prune.
@@ -16260,7 +16260,7 @@ struct SopDriverSupervisor {
     carried: Vec<tokio::task::JoinHandle<()>>,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl SopMaintenance {
     /// Abort the tick and JOIN it. `abort` only requests cancellation, and a
     /// tick already inside its body can still spawn and register a driver;
@@ -16272,7 +16272,7 @@ impl SopMaintenance {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl SopDriverSupervisor {
     fn new(
         carried: Vec<tokio::task::JoinHandle<()>>,
@@ -16482,7 +16482,7 @@ impl SopDriverSupervisor {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[derive(Default)]
 struct SopMaintenanceTickReport {
     maintenance: zeroclaw_runtime::sop::MaintenanceSummary,
@@ -16492,7 +16492,7 @@ struct SopMaintenanceTickReport {
     cron_no_match: usize,
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 impl SopMaintenanceTickReport {
     fn is_empty(&self) -> bool {
         self.maintenance.is_empty()
@@ -16503,7 +16503,7 @@ impl SopMaintenanceTickReport {
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn run_sop_maintenance_tick(
     config: &Config,
     engine: &std::sync::Arc<std::sync::Mutex<zeroclaw_runtime::sop::SopEngine>>,
@@ -16648,7 +16648,7 @@ async fn run_gateway_if_enabled(
     }
 }
 
-#[cfg(all(feature = "agent-runtime", not(feature = "gateway")))]
+#[cfg(all(feature = "agent-core", not(feature = "gateway")))]
 #[allow(clippy::unused_async)]
 async fn run_gateway_if_enabled(
     _host: &str,
@@ -16661,7 +16661,7 @@ async fn run_gateway_if_enabled(
 
 /// The answer a build without the gateway gives for the gateway commands and
 /// the desktop companion: they need the standard build, which has the dashboard.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn no_dashboard_in_build_message() -> String {
     t(
         "cli-no-dashboard-in-build",
@@ -16683,7 +16683,7 @@ fn is_default_gateway_addr(host: &str, port: u16, default_host: &str, default_po
     host == default_host && port == default_port
 }
 
-#[cfg(any(feature = "agent-runtime", test))]
+#[cfg(any(feature = "agent-core", test))]
 fn gateway_browser_host(host: &str) -> &str {
     match host {
         "0.0.0.0" => "127.0.0.1",
@@ -16784,7 +16784,7 @@ fn available_gateway_restart_hint_port(host: &str, port: u16) -> Option<u16> {
 }
 
 /// Persist `model` as the default for the first configured provider.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn handle_models_set(config: &mut Config, model: &str) -> Result<()> {
     crate::config::migration::ensure_disk_at_current_version(&config.config_path)?;
     let (type_key, alias) = {
@@ -16816,7 +16816,7 @@ async fn handle_models_set(config: &mut Config, model: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn dispatch_models_command(model_command: ModelCommands, config: &mut Config) -> Result<()> {
     match model_command {
         ModelCommands::List {
@@ -16946,7 +16946,7 @@ mod tests {
     /// the browser opener must not inherit the CLI's standard streams. The probe
     /// child records whether its stdout and stderr are the null device, then
     /// writes noise and exits nonzero: neither may disturb the spawn.
-    #[cfg(all(unix, feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "agent-core"))]
     #[test]
     fn browser_opener_children_get_no_standard_streams() {
         let nanos = std::time::SystemTime::now()
@@ -16992,7 +16992,7 @@ mod tests {
     /// `interval`, and a client that follows both blindly can be parked for as
     /// long as the remote side likes — or handed a lifetime that makes the
     /// deadline arithmetic meaningless.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn device_grant_bounds_refuse_hostile_timings() {
         device_grant_bounds(600, 5).unwrap();
@@ -17014,7 +17014,7 @@ mod tests {
     /// left of the code's lifetime: an issuer advertising `expires_in = 1,
     /// interval = 60` must not put this client to sleep for a minute past the
     /// moment the code it is waiting on died.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn device_poll_wait_floors_and_clips_the_interval() {
         use std::time::Duration;
@@ -17036,7 +17036,7 @@ mod tests {
         assert_eq!(device_poll_wait(60, Duration::ZERO), Duration::ZERO);
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     struct SelectorTestTerminal {
         size: Option<(u16, u16)>,
         keys: std::collections::VecDeque<std::io::Result<QuickstartSelectorKey>>,
@@ -17044,7 +17044,7 @@ mod tests {
         fail_action: Option<&'static str>,
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     impl SelectorTestTerminal {
         fn new(
             size: Option<(u16, u16)>,
@@ -17067,7 +17067,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     impl QuickstartSelectorTerminal for SelectorTestTerminal {
         fn size_checked(&mut self) -> Option<(u16, u16)> {
             self.size
@@ -17119,7 +17119,7 @@ mod tests {
     /// One step of a deterministic PTY interaction: a key press, or a resize
     /// of the output terminal applied between key presses the way a terminal
     /// emulator changes a window while the selector waits for input.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     enum PtyStep {
         Key(QuickstartSelectorKey),
         ResizeOutput { rows: u16, columns: u16 },
@@ -17132,13 +17132,13 @@ mod tests {
     /// controlling terminal. Resizes are applied to the PTY master exactly as
     /// a terminal emulator would, so the adapter's own geometry query must
     /// observe them.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     struct PtyQuickstartInput {
         master: std::fs::File,
         steps: std::collections::VecDeque<PtyStep>,
     }
 
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     impl QuickstartSelectorInput for PtyQuickstartInput {
         fn read_key(&mut self) -> std::io::Result<QuickstartSelectorKey> {
             loop {
@@ -17159,7 +17159,7 @@ mod tests {
     }
 
     /// Open a PTY pair sized `rows` by `columns`, returned as `(master, slave)`.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     fn open_pty(rows: u16, columns: u16) -> (std::fs::File, std::fs::File) {
         use std::os::fd::FromRawFd;
 
@@ -17195,7 +17195,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     fn set_pty_size(pty: &std::fs::File, rows: u16, columns: u16) {
         use std::os::fd::AsRawFd;
 
@@ -17214,7 +17214,7 @@ mod tests {
 
     /// Build the production Crossterm adapter over a PTY slave with injected
     /// input, so the exact production escape sequences and geometry query run.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     fn pty_quickstart_terminal(
         master: &std::fs::File,
         slave: std::fs::File,
@@ -17230,7 +17230,7 @@ mod tests {
     }
 
     /// Read everything written to the PTY, returning once the output is idle.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     fn drain_pty_output(master: &mut std::fs::File) -> String {
         use std::os::fd::AsRawFd;
 
@@ -17275,13 +17275,13 @@ mod tests {
         String::from_utf8(output).expect("selector output should be UTF-8")
     }
 
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     const PTY_CLEAR_AND_HOME: &str = "\u{1b}[2J\u{1b}[1;1H";
 
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     const PTY_SHOW_CURSOR_AND_LEAVE_SCREEN: &str = "\u{1b}[?25h\u{1b}[?1049l";
 
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     #[test]
     fn quickstart_selector_repeated_navigation_redraws_at_pty_origin() {
         let (mut master, slave) = open_pty(20, 80);
@@ -17319,7 +17319,7 @@ mod tests {
     /// Quickstart accepts distinct input and output terminals. The frame must
     /// be fitted to the terminal that receives it: a process-global query can
     /// describe the controlling terminal while stderr is a narrower one.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     #[test]
     fn quickstart_selector_measures_the_terminal_that_receives_the_frame() {
         let (controlling_master, controlling_slave) = open_pty(20, 80);
@@ -17393,7 +17393,7 @@ mod tests {
 
     /// A resize of the output terminal alone raises no Crossterm resize event,
     /// so the recheck on the next key must read the output terminal itself.
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     #[test]
     fn quickstart_selector_fails_closed_when_only_the_output_terminal_resizes() {
         let (mut master, slave) = open_pty(20, 40);
@@ -17441,7 +17441,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", unix))]
+    #[cfg(all(feature = "agent-core", unix))]
     #[test]
     fn quickstart_output_terminal_size_is_unknown_without_reported_geometry() {
         let not_a_terminal = tempfile::tempfile().expect("temporary file");
@@ -17454,7 +17454,7 @@ mod tests {
         assert_eq!(quickstart_output_terminal_size(&slave), Some((9, 20)));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn fit_quickstart_selector_row_respects_byte_and_display_budgets() {
         let short = "[ ] Memory — not yet chosen";
@@ -17494,7 +17494,7 @@ mod tests {
         assert!(fit_quickstart_selector_row(long, 40).ends_with('…'));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_budget_rejects_unsafe_terminal_widths() {
         assert!(
@@ -17505,7 +17505,7 @@ mod tests {
         assert_eq!(quickstart_selector_row_budget(21), Some(18));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_minimum_width_keeps_actions_identifiable() {
         let budget = quickstart_selector_row_budget(QUICKSTART_SELECTOR_MIN_WIDTH).unwrap();
@@ -17539,7 +17539,7 @@ mod tests {
     /// so these are read from the committed catalogues rather than retyped:
     /// a hand-written approximation can stay distinguishable at a width where
     /// the real, longer, column-padded row has already collapsed.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn quickstart_checklist_rows_for_locale(cli_ftl: &str) -> Vec<String> {
         let mut row_keys = vec![
             "cli-quickstart-row-model-provider",
@@ -17574,10 +17574,10 @@ mod tests {
 
     /// Checklist rows: five selectors before Plugins, the Plugins row in
     /// builds with plugin support, Agent identity, and Create.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     const QUICKSTART_CHECKLIST_ROWS: usize = if cfg!(feature = "plugins-wasm") { 8 } else { 7 };
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_accepted_widths_keep_every_action_distinguishable() {
         // The blocker this guards: a width floor chosen only for arithmetic
@@ -17652,7 +17652,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_rejects_widths_that_erase_action_labels() {
         // The specific widths the previous floor blessed. At width 3 the row
@@ -17692,7 +17692,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_height_prevents_paging_suffixes() {
         let item_count = QUICKSTART_CHECKLIST_ROWS;
@@ -17719,7 +17719,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_prompt_stays_within_final_terminal_budget() {
         let prompts = [
@@ -17750,7 +17750,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_unknown_terminal_size_fails_closed() {
         // A narrow terminal with an unavailable size must not get rows fitted
@@ -17772,7 +17772,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_recheck_rejects_resize_and_unknown_size() {
         let initial = (24u16, 80u16);
@@ -17802,7 +17802,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_ctrl_c_restores_screen_even_when_cursor_restore_fails() {
         let mut term =
@@ -17835,7 +17835,7 @@ mod tests {
         assert_eq!(term.actions.last(), Some(&"flush"));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_partial_entry_failure_still_restores_screen() {
         let mut term = SelectorTestTerminal::new(Some((20, 80)), []);
@@ -17858,7 +17858,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selector_read_error_still_restores_screen() {
         let mut term = SelectorTestTerminal::new(
@@ -17875,7 +17875,7 @@ mod tests {
         assert_eq!(term.actions.last(), Some(&"flush"));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn quickstart_selection_maps_by_index_when_fitted_labels_are_identical() {
         let mut actions = vec![
@@ -17916,7 +17916,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_reads_appimage_from_entry() {
         let entry = "[Desktop Entry]\n\
@@ -17930,7 +17930,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_ignores_unrelated_entry() {
         let entry = "[Desktop Entry]\n\
@@ -17940,7 +17940,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(entry), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_rejects_substring_lookalike() {
         // Identity is the visible Name, not any field containing "zeroclaw":
@@ -17953,7 +17953,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(entry), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_keeps_quoted_path_with_spaces() {
         let entry = "[Desktop Entry]\n\
@@ -17966,7 +17966,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_rejects_unquoted_reserved_and_escaped_space() {
         // Per the Desktop Entry spec a space (a reserved character) must be
@@ -17979,7 +17979,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(escaped_space), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_decodes_quoted_literal_dollar_and_backslash() {
         // A literal `$` in a quoted path is written `\\$` (general unescape
@@ -18003,7 +18003,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn parse_exec_program_fails_closed_on_malformed_input() {
         // Unterminated quote.
@@ -18057,7 +18057,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_strips_field_codes_and_quotes() {
         let entry = "[Desktop Entry]\n\
@@ -18073,7 +18073,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(bad), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_honours_hidden_and_group_scope() {
         // Otherwise a fully valid ZeroClaw Application entry — it resolves only
@@ -18099,7 +18099,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(action_only), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn is_zeroclaw_name_matches_deliberate_identity() {
         assert!(is_zeroclaw_name("ZeroClaw"));
@@ -18111,7 +18111,7 @@ mod tests {
         assert!(!is_zeroclaw_name("Some Other App"));
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn discover_desktop_app_honours_precedence_masking_and_executability() {
         use std::os::unix::fs::PermissionsExt;
@@ -18162,7 +18162,7 @@ mod tests {
         assert_eq!(discover_desktop_app(&[broken.path().to_path_buf()]), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn discover_desktop_app_skips_lookalike_ordered_before_real_app() {
         use std::os::unix::fs::PermissionsExt;
@@ -18207,7 +18207,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn discover_desktop_app_higher_precedence_hidden_masks_lower_valid() {
         use std::os::unix::fs::PermissionsExt;
@@ -18247,7 +18247,7 @@ mod tests {
         assert_eq!(discover_desktop_app(&dirs), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn resolve_executable_rejects_relative_path_with_separator() {
         // A relative Exec value with a separator would be resolved by `which` against the
@@ -18257,7 +18257,7 @@ mod tests {
         assert_eq!(resolve_executable("sub/dir/zeroclaw-helper"), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn collect_desktop_entries_does_not_follow_directory_symlinks() {
         let dir = tempfile::tempdir().unwrap();
@@ -18281,7 +18281,7 @@ mod tests {
         assert_eq!(out[0].0, "ZeroClaw.desktop");
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn discover_desktop_app_skips_special_symlink_and_oversized_entries() {
         use std::ffi::CString;
@@ -18328,7 +18328,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_rejects_zeroclaw_name_with_unrelated_exec() {
         // A ZeroClaw display name paired with an unrelated executable must not
@@ -18342,7 +18342,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(entry), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn zeroclaw_desktop_exec_requires_application_type() {
         // A non-Application entry never resolves, even with a ZeroClaw Name and
@@ -18360,7 +18360,7 @@ mod tests {
         assert_eq!(zeroclaw_desktop_exec(no_type), None);
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn is_zeroclaw_appimage_name_anchors_identity() {
         // The published `ZeroClaw-*.AppImage` form (separator required).
@@ -18375,7 +18375,7 @@ mod tests {
         assert!(!is_zeroclaw_appimage_name("ZeroClaw.txt"));
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn is_zeroclaw_program_binds_to_supported_names() {
         // Exact published binary, or a published-form AppImage.
@@ -18389,7 +18389,7 @@ mod tests {
         assert!(!is_zeroclaw_program("/usr/bin/zeroclaw"));
     }
 
-    #[cfg(all(feature = "agent-runtime", target_os = "linux"))]
+    #[cfg(all(feature = "agent-core", target_os = "linux"))]
     #[test]
     fn discover_desktop_app_masks_nested_desktop_file_ids() {
         use std::os::unix::fs::PermissionsExt;
@@ -18482,7 +18482,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn openrc_log_writer_cli_maps_only_known_streams() {
         for (value, expected) in [
             ("stdout", ServiceLogStream::Stdout),
@@ -18510,7 +18510,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn desktop_daemon_cli_parses_hidden_command() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -18533,7 +18533,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn windows_daemon_cli_requires_config_dir_and_stays_hidden() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -18672,7 +18672,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cli_quickstart_uses_advertised_local_provider_runtime_default() {
         let providers = vec![zeroclaw_runtime::quickstart::QuickstartTypeOption {
             kind: "lmstudio".into(),
@@ -18688,7 +18688,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cli_quickstart_uses_advertised_remote_provider_runtime_default() {
         let providers = vec![zeroclaw_runtime::quickstart::QuickstartTypeOption {
             kind: "anthropic".into(),
@@ -18704,7 +18704,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cli_quickstart_uses_state_fallback_when_provider_has_no_override() {
         let providers = vec![zeroclaw_runtime::quickstart::QuickstartTypeOption {
             kind: "ollama".into(),
@@ -18758,13 +18758,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cli_definition_has_no_flag_conflicts() {
         Cli::command().debug_assert();
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn quickstart_inline_auth_uses_auth_mode_field() {
         let fields =
             std::collections::HashMap::from([("auth_mode".to_string(), " codex ".to_string())]);
@@ -18786,7 +18786,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn ensure_map_key_materializes_typed_provider_entries() {
         use crate::config::schema::Config;
         for (path, value) in [
@@ -18809,7 +18809,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn ensure_map_key_ignores_non_map_paths() {
         use crate::config::schema::Config;
         let mut config = Config::default();
@@ -18818,7 +18818,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_help_includes_model_flag() {
         let cmd = Cli::command();
         let onboard = cmd
@@ -18837,7 +18837,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn gateway_admin_url_uses_unprefixed_admin_path_by_default() {
         assert_eq!(
             gateway_admin_url("127.0.0.1", 42617, None, "/admin/paircode"),
@@ -18846,7 +18846,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn gateway_admin_url_prepends_configured_path_prefix() {
         assert_eq!(
             gateway_admin_url("localhost", 42617, Some("/zeroclaw"), "/admin/paircode/new"),
@@ -18855,7 +18855,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_accepts_model_provider_and_api_key_in_quick_mode() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -18889,7 +18889,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn completions_cli_parses_supported_shells() {
         for shell in ["bash", "fish", "zsh", "powershell", "elvish"] {
             let cli = Cli::try_parse_from(["zeroclaw", "completions", shell])
@@ -18902,7 +18902,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn completion_generation_mentions_binary_name() {
         let mut output = Vec::new();
         write_shell_completion(CompletionShell::Bash, &mut output)
@@ -18915,7 +18915,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn bash_completion_avoids_infinite_recursion() {
         let mut output = Vec::new();
         write_shell_completion(CompletionShell::Bash, &mut output)
@@ -18935,7 +18935,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_accepts_force_flag() {
         let cli = Cli::try_parse_from(["zeroclaw", "onboard", "--force"])
             .expect("onboard --force should parse");
@@ -18947,14 +18947,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_rejects_removed_interactive_flag() {
         // --interactive was removed; onboard auto-detects TTY instead.
         assert!(Cli::try_parse_from(["zeroclaw", "onboard", "--interactive"]).is_err());
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_parses_quick_flag() {
         let cli = Cli::try_parse_from(["zeroclaw", "onboard", "--quick"])
             .expect("onboard --quick should parse");
@@ -18966,7 +18966,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn gateway_get_paircode_cli_accepts_port_and_host_overrides() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -19004,7 +19004,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn security_status_cli_requires_agent_and_parses_json_form() {
         let err = Cli::try_parse_from(["zeroclaw", "security", "status"])
             .expect_err("security status requires --agent");
@@ -19025,7 +19025,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn issue_client_cert_cleans_staged_material_when_ledger_record_fails() {
         let dir = tempfile::tempdir().expect("tempdir");
         let out = tempfile::tempdir().expect("out tempdir");
@@ -19055,7 +19055,7 @@ mod tests {
     /// `delivered_at` for a fingerprint, straight from the ledger table. The
     /// ledger exposes no reader for it (nothing in production asks), so the
     /// operator-CLI test reads SQLite directly.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cert_delivered_at(data_dir: &std::path::Path, fingerprint: &str) -> Option<i64> {
         let conn = rusqlite::Connection::open(data_dir.join("tls").join("ledger.db")).unwrap();
         conn.query_row(
@@ -19076,7 +19076,7 @@ mod tests {
     /// cosmetic output: a failure there must fail the command rather than
     /// report a successful issuance over a missing or stale ca.crt.
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn issue_client_cert_out_dir_drop_in_failure_fails_the_command() {
         let dir = tempfile::tempdir().expect("tempdir");
         let out = tempfile::tempdir().expect("out tempdir");
@@ -19112,7 +19112,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn issue_client_cert_rename_failure_leaves_an_undelivered_row_that_reconciles_away() {
         use zeroclaw_runtime::security::cert_ledger::{CertLedger, CertStatus, revoked_list_path};
         let dir = tempfile::tempdir().expect("tempdir");
@@ -19236,7 +19236,7 @@ mod tests {
     /// Guards the production trigger for revocation (the path the ledger revoke
     /// API exposes but nothing operator-facing reached before this command).
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn revoke_client_cert_handler_materializes_the_revoked_file() {
         use zeroclaw_runtime::security::cert_ledger::{
             CertLedger, CertStatus, IssuanceActor, LedgerEntry, revoked_list_path,
@@ -19287,7 +19287,7 @@ mod tests {
     /// `revoke-client-cert` requires exactly one of --fingerprint / --device,
     /// and `list-client-certs` parses.
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn revoke_and_list_client_cert_cli_parsing() {
         // Neither selector -> rejected.
         assert!(Cli::try_parse_from(["zeroclaw", "security", "revoke-client-cert"]).is_err());
@@ -19341,7 +19341,7 @@ mod tests {
     /// `--rotate-device` so the destructive path cannot be silently combined
     /// with "add another client".
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn gateway_get_paircode_rotate_flags_parse_and_conflict() {
         let cli = Cli::try_parse_from(["zeroclaw", "gateway", "get-paircode", "--rotate"])
             .expect("gateway get-paircode --rotate should parse");
@@ -19387,7 +19387,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_url_combines_host_port_override_with_configured_path_prefix() {
         assert_eq!(
             gateway_admin_url(
@@ -19405,7 +19405,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_explains_bare_command_does_not_mint() {
         let default = config::GatewayConfig::default();
         let msg = paircode_no_code_message(
@@ -19428,7 +19428,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_preserves_host_port_on_suggestions() {
         let default = config::GatewayConfig::default();
         let msg = paircode_no_code_message(
@@ -19451,7 +19451,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_uses_loopback_browser_hint_for_wildcard_hosts() {
         let default = config::GatewayConfig::default();
 
@@ -19476,7 +19476,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_omits_configured_default_host_port() {
         let msg = paircode_no_code_message(
             "192.168.1.20",
@@ -19495,7 +19495,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_for_new_suggests_rotate() {
         let default = config::GatewayConfig::default();
         let msg = paircode_no_code_message(
@@ -19516,7 +19516,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_preserves_localized_output_for_show_and_disabled_branches() {
         let default = config::GatewayConfig::default();
         let show = paircode_no_code_message(
@@ -19579,7 +19579,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn paircode_no_code_message_preserves_localized_action_recovery_branches() {
         let default = config::GatewayConfig::default();
         let add_client = paircode_no_code_message(
@@ -19767,7 +19767,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_quick_and_channels_only_conflict() {
         // --quick and --channels-only should both parse at the CLI level
         // (the conflict is checked at runtime), but we verify both flags parse.
@@ -19779,7 +19779,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_bare_parses() {
         let cli = Cli::try_parse_from(["zeroclaw", "onboard"]).expect("bare onboard should parse");
 
@@ -19790,7 +19790,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn onboard_cli_positional_sections_parse() {
         for w in zeroclaw_config::sections::QUICKSTART_SECTIONS {
             let cli = Cli::try_parse_from(["zeroclaw", "onboard", w.as_str()])
@@ -19803,7 +19803,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cli_parses_estop_default_engage() {
         let cli = Cli::try_parse_from(["zeroclaw", "estop"]).expect("estop command should parse");
 
@@ -19824,7 +19824,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn cli_parses_estop_resume_domain() {
         let cli = Cli::try_parse_from(["zeroclaw", "estop", "resume", "--domain", "*.chase.com"])
             .expect("estop resume command should parse");
@@ -19839,7 +19839,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn agent_command_parses_with_temperature() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -19860,7 +19860,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn agent_command_parses_without_temperature() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -19881,7 +19881,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn agent_command_parses_session_state_file() {
         let cli = Cli::try_parse_from([
             "zeroclaw",
@@ -19904,7 +19904,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn agent_uses_provider_temperature_when_unset() {
         // When the user doesn't pass --temperature, the agent CLI
         // resolves from the agent's model_provider entry's temperature,
@@ -19931,7 +19931,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn config_set_materializes_missing_typed_provider_alias() {
         let mut config = Config::default();
         let path = "providers.models.deepseek.default.model";
@@ -19982,7 +19982,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn config_set_materializes_missing_tts_provider_alias() {
         let mut config = Config::default();
         let path = "providers.tts.openai.alloy.voice";
@@ -20014,7 +20014,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn config_set_materializes_first_dynamic_secret_map_entry() {
         let mut config = Config::default();
         let path = "providers.models.openai.fresh.extra_headers.X-Foo";
@@ -20039,7 +20039,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn config_set_materializes_missing_transcription_provider_alias() {
         let mut config = Config::default();
         let raw = "providers.transcription.groq.fast.model";
@@ -20320,7 +20320,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn config_set_materializes_missing_channel_alias() {
         let mut config = Config::default();
         let path = "channels.telegram.default.bot_token";
@@ -20357,7 +20357,7 @@ mod tests {
     /// `owner` is the SOP's `agent`. `Some("sop-runner")` names the one
     /// configured agent; `None` leaves the procedure unowned, which the
     /// headless driver must refuse rather than borrow an identity for.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     struct CronSopHarness {
         _tmp: tempfile::TempDir,
         _server: wiremock::MockServer,
@@ -20368,15 +20368,15 @@ mod tests {
         drivers: SopDriverSet,
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     const CRON_SOP_AGENT: &str = "sop-runner";
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn cron_sop_harness(owner: Option<&str>) -> CronSopHarness {
         cron_sop_harness_with(owner, false).await
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn orphaned_run_sop(name: &str) -> zeroclaw_runtime::sop::Sop {
         use zeroclaw_runtime::sop::{
             Sop, SopExecutionMode, SopPriority, SopStep, SopStepKind, SopTrigger,
@@ -20410,7 +20410,7 @@ mod tests {
     }
 
     /// Start one run on `store` and return the engine holding it plus its id.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn engine_with_one_running_run(
         name: &str,
         store: std::sync::Arc<dyn zeroclaw_runtime::sop::SopRunStore>,
@@ -20449,7 +20449,7 @@ mod tests {
     /// leave the durable row restorable: the run has to be terminal on disk,
     /// with its claim released, before the next generation reads it.
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn an_aborted_driver_settles_its_run_before_the_next_generation_restores_it() {
         use zeroclaw_runtime::sop::SopRunStore as _;
         use zeroclaw_runtime::sop::types::SopRunStatus;
@@ -20542,7 +20542,7 @@ mod tests {
     /// generation must take over the settlement rather than hold the claim
     /// forever with no driver.
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn a_run_teardown_could_not_settle_is_settled_by_the_next_generation() {
         use zeroclaw_runtime::sop::SopRunStore as _;
         use zeroclaw_runtime::sop::store::testing::FailFirstTerminalWrite;
@@ -20617,7 +20617,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn a_finished_drivers_settlement_retry_survives_reload_with_its_original_kind() {
         use zeroclaw_runtime::sop::SopRunStore as _;
         use zeroclaw_runtime::sop::store::testing::FailFirstTerminalWrite;
@@ -20755,7 +20755,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn overlapping_generations_settle_an_orphan_once_and_reconcile_stale_views() {
         use std::sync::{Arc, Mutex, mpsc};
         use std::time::Duration;
@@ -21029,7 +21029,7 @@ mod tests {
 
     /// `calls_tool`: the model asks for one tool before answering, so a test can
     /// assert on what the step recorded having run.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn cron_sop_harness_with(owner: Option<&str>, calls_tool: bool) -> CronSopHarness {
         use std::sync::{Arc, Mutex};
         use zeroclaw_config::schema::{
@@ -21187,7 +21187,7 @@ mod tests {
 
     /// Wait for the cron-started run to leave the active set, then return the
     /// retained terminal run.
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn await_terminal_cron_run(
         harness: &CronSopHarness,
     ) -> zeroclaw_runtime::sop::types::SopRun {
@@ -21209,7 +21209,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_maintenance_tick_drives_cached_cron_triggers() {
         let harness = cron_sop_harness(Some(CRON_SOP_AGENT)).await;
 
@@ -21268,7 +21268,7 @@ mod tests {
     /// what the step actually ran, so the stored record did not merely omit the
     /// calls, it asserted there had been none.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn headless_step_records_the_tool_calls_it_made() {
         let harness = cron_sop_harness_with(Some(CRON_SOP_AGENT), true).await;
 
@@ -21308,7 +21308,7 @@ mod tests {
     /// the SOP's own agent. Guards the conditional sink construction and the
     /// adapter wiring, which a dispatch-helper regression cannot see.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn filesystem_adapter_drives_a_run_with_maintenance_disabled() {
         use zeroclaw_runtime::sop::{
             Sop, SopExecutionMode, SopPriority, SopStep, SopStepKind, SopTrigger,
@@ -21433,7 +21433,7 @@ mod tests {
     /// supervised driver and reach a retained terminal state under the SOP's
     /// own agent.
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn channel_ingress_drives_started_run_to_terminal() {
         use zeroclaw_runtime::sop::{
             Sop, SopExecutionMode, SopPriority, SopStep, SopStepKind, SopTrigger,
@@ -21562,7 +21562,7 @@ mod tests {
     /// running an unattended procedure under an unrelated agent's provider,
     /// workspace, tools, and risk profile.
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_maintenance_tick_refuses_unowned_cron_sop() {
         let harness = cron_sop_harness(None).await;
 
@@ -21610,7 +21610,7 @@ mod tests {
     /// rather than quietly keep executing under the agent the operator turned
     /// off.
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_maintenance_tick_refuses_a_disabled_owner() {
         let mut harness = cron_sop_harness(Some(CRON_SOP_AGENT)).await;
         harness
@@ -21664,7 +21664,7 @@ mod tests {
     /// still running under the superseded config — the overlap this teardown
     /// exists to prevent.
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_maintenance_shutdown_joins_the_drivers_it_aborts() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -21716,7 +21716,7 @@ mod tests {
     /// handles were dropped, which detaches the tasks — it would still be false
     /// when the reaper finished.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn orphaned_sop_drivers_are_reaped_rather_than_detached() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -21758,7 +21758,7 @@ mod tests {
     /// Nothing to own: every carried driver already stopped, so there is no
     /// reaper to spawn.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn finished_drivers_need_no_reaper() {
         let driver = ::zeroclaw_spawn::spawn!(async {});
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -21781,7 +21781,7 @@ mod tests {
     /// `JoinHandle` panics, which would turn an ordinary slow driver into a
     /// shutdown panic whenever a sibling finished in time.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_maintenance_shutdown_survives_a_mixed_completion_batch() {
         // Ordered deliberately: the first resolves at once, so the drain
         // consumes its handle before the deadline; the second reaches no await
@@ -21825,7 +21825,7 @@ mod tests {
     /// than dropped — dropping a `JoinHandle` detaches the task, losing the
     /// last way to observe work still running under superseded config.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_maintenance_shutdown_carries_a_driver_that_outlives_its_abort() {
         let drivers = SopDriverSet::default();
         // Blocking, not `tokio::time::sleep`: abort lands at the next await
@@ -21898,7 +21898,7 @@ mod tests {
     /// the task only once the generation has accepted it, which is what this
     /// proves: the body never runs, rather than being cancelled once it has.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_driver_admitted_after_the_drain_never_starts() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -21968,7 +21968,7 @@ mod tests {
     /// started — and a driver body that is allowed to run does run, which is
     /// what stops the refusal test from passing vacuously.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn sop_driver_admitted_into_an_open_generation_is_created_and_owned() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -22007,7 +22007,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     fn agent_fallback_uses_hardcoded_when_config_uses_default() {
         // Test that when config uses default value (0.7), fallback still works
         let config = Config::default();
@@ -22028,7 +22028,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn gate_security_posture_fails_closed_unless_allowed() {
         use crate::config::schema::Config;
 
@@ -22063,7 +22063,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     async fn models_set_persists_model_and_preserves_slash_bearing_ids() {
         use crate::config::schema::{AnthropicModelProviderConfig, Config, ModelProviderConfig};
 
@@ -23366,7 +23366,7 @@ type = "string"
 
     /// A `[[plugins.entries]]` row as a pre-typed-config install left it:
     /// keyed by the package name, carrying the operator's values.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn legacy_package_named_entry(
         package: &str,
         hosts: &[&str],
@@ -23392,7 +23392,7 @@ type = "string"
     /// applies one (create the map key, convert the value, set it, save). The
     /// row and its grant exist on disk afterwards, and the gap is gone.
     #[tokio::test]
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     async fn the_absent_row_repair_creates_the_row_and_its_grant() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23483,7 +23483,7 @@ type = "string"
     /// command addresses exists, so the command resolves and is printed on its
     /// own. This is the shape the legacy case below must NOT take.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn the_gap_diagnostic_prints_the_grant_command_alone_when_the_canonical_row_exists() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23531,7 +23531,7 @@ type = "string"
     /// command explicitly second. Detection only: a list command must not
     /// rewrite the operator's config.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_legacy_package_named_row_gets_the_migration_step_before_the_grant_command() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23612,7 +23612,7 @@ type = "string"
     /// survive. The sibling legacy test above cannot catch this: its sole grant
     /// is also declared, so the empty-vs-legacy union is identical there.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn the_legacy_migration_command_preserves_an_operator_only_grant() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23678,7 +23678,7 @@ type = "string"
     /// A verdict line also carries the runtime's reason, which quotes the
     /// offending entry, so the value is read after the command, not from the
     /// first quote on the line.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn printed_command_value(line: &str) -> String {
         use crate::plugins::egress_ceremony::{POWERSHELL_ONLY_MARKER, ShellDialect};
         let start = line
@@ -23731,7 +23731,7 @@ type = "string"
     /// The runtime's own acceptance check for a row, with the same inputs the
     /// diagnostic hands the planner. Tests assert against this, not against a
     /// re-implementation, so "the repaired row is accepted" means exactly that.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn runtime_accepts_row(config: &crate::config::schema::Config, instance_key: &str) -> bool {
         let (hosts, allow_private) = config.plugins.entry_egress(instance_key);
         zeroclaw::plugins::egress::EgressPolicy::new(
@@ -23757,7 +23757,7 @@ type = "string"
     /// accepts into effect, and `config set` would only replace a list that
     /// is already right.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_stranded_grant_that_already_covers_the_declaration_still_prints_the_rename() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23823,7 +23823,7 @@ type = "string"
     /// command that leaves the rejected entry out, so following the steps
     /// yields a row the runtime accepts.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_stranded_grant_the_runtime_rejects_is_named_and_kept_out_of_the_printed_command() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23883,7 +23883,7 @@ type = "string"
     /// diagnostic must report the runtime's reason and print a command that
     /// yields a row the runtime accepts.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_canonical_row_the_runtime_refuses_for_whitespace_is_reported_and_repaired() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23945,7 +23945,7 @@ type = "string"
     /// publisher and declare nothing, inherits the old grant. Install must say
     /// so, private carve-outs included, and `remove` must say the grant stays.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn an_undeclaring_reinstall_is_told_it_inherits_the_existing_grant() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -23997,7 +23997,7 @@ type = "string"
     }
 
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_deployment_wide_refusal_is_reported_once_with_its_own_paths_not_as_a_row_repair() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -24070,7 +24070,7 @@ type = "string"
     /// same runtime verdict `plugin list` prints, word for word, including
     /// that the printed command alone does not complete the repair.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn reinstall_reports_the_runtime_verdict_for_an_existing_row_with_an_ungranted_carveout() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -24124,7 +24124,7 @@ type = "string"
     /// leaves the rejected entry out, rather than staying silent or printing a
     /// replacement that carries it forward.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn reinstall_names_a_rejected_host_entry_and_keeps_it_out_of_the_apply_command() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -24568,7 +24568,7 @@ type = "string"
     /// always has, then one line per bound alias that names the
     /// `plugin.<alias>` binding and that instance's own key.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn plugin_info_prints_one_channel_key_line_per_bound_alias() {
         let manifest = manifest_with(
             "chat-bridge",
@@ -24620,7 +24620,7 @@ type = "string"
     /// and the host and carries the `config patch` command that creates the
     /// row with its grant.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn plugin_list_reports_a_channel_instance_gap_with_the_row_creating_command() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -24659,7 +24659,7 @@ type = "string"
     /// the channel gap stays the one row-creating command and no rename step
     /// is printed.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_package_named_row_never_strands_a_channel_instance_grant() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -24696,7 +24696,7 @@ type = "string"
     /// rename instead, as the instance's readiness report does. A bound alias
     /// the grammar accepts keeps its repair.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn plugin_list_names_the_table_to_rename_for_an_absent_row_under_an_alias_outside_the_grammar()
     {
         use crate::plugins::egress_ceremony::egress_create_command;
@@ -24762,7 +24762,7 @@ type = "string"
     /// default tool binding, exactly as before), then each channel binding
     /// that still names the package, with the table that drops it.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn plugin_remove_reports_kept_channel_rows_and_dangling_bindings() {
         use crate::plugins::channel_instance::{bound_channel_aliases, instance_rows};
 
@@ -24851,7 +24851,7 @@ type = "string"
     /// it, but removing the package still reports the grant the row keeps,
     /// because a package bound to that alias later inherits it.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn plugin_remove_reports_a_kept_channel_grant_for_a_version_that_owns_no_state() {
         use crate::plugins::channel_instance::instance_rows;
 
@@ -24895,7 +24895,7 @@ type = "string"
 
     /// A plugin source directory: `manifest_toml` beside a stub component, the
     /// shape `plugin install` admits. The stub is never load-checked.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn write_plugin_source(manifest_toml: &str) -> tempfile::TempDir {
         let source = tempfile::tempdir().expect("source dir");
         std::fs::write(source.path().join("manifest.toml"), manifest_toml).expect("write manifest");
@@ -24905,14 +24905,14 @@ type = "string"
 
     /// A host with one package installed through the real `PluginHost`, as
     /// `plugin install` leaves one, and the directories it lives in.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     struct InstalledPackage {
         host: zeroclaw::plugins::host::PluginHost,
         _source: tempfile::TempDir,
         _plugins: tempfile::TempDir,
     }
 
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn install_package(manifest_toml: &str) -> InstalledPackage {
         let source = write_plugin_source(manifest_toml);
         let plugins = tempfile::tempdir().expect("plugins dir");
@@ -24930,7 +24930,7 @@ type = "string"
     /// The manifest of package `name` providing `capabilities`, requesting
     /// `permissions` and declaring `hosts`, with no config schema: one a real
     /// host admits.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn package_manifest_toml(
         name: &str,
         capabilities: &[&str],
@@ -24958,7 +24958,7 @@ type = "string"
     }
 
     /// The `[channels.plugin.<alias>]` table saved on disk, if there is one.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn binding_on_disk(path: &std::path::Path, alias: &str) -> Option<toml::Table> {
         let raw = std::fs::read_to_string(path).expect("config file must exist");
         let doc: toml::Table = toml::from_str(&raw).expect("saved config must be valid TOML");
@@ -24972,7 +24972,7 @@ type = "string"
     }
 
     /// The name of every `[[plugins.entries]]` row saved on disk, in order.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn entry_names_on_disk(path: &std::path::Path) -> Vec<String> {
         let raw = std::fs::read_to_string(path).expect("config file must exist");
         let doc: toml::Table = toml::from_str(&raw).expect("saved config must be valid TOML");
@@ -24988,7 +24988,7 @@ type = "string"
     }
 
     /// The `egress_hosts` a saved row grants; empty when the key is absent.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn granted_on_disk(path: &std::path::Path, key: &str) -> Vec<String> {
         entry_on_disk(path, key)
             .get("egress_hosts")
@@ -25003,7 +25003,7 @@ type = "string"
     /// The saved text of the first table headed `header`, through its last
     /// sub-table and without trailing blank lines: exactly the bytes a save
     /// that did not touch the table must leave alone.
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn table_text(raw: &str, header: &str) -> String {
         let path = header.trim_matches(|c| c == '[' || c == ']');
         let nested = [format!("[{path}."), format!("[[{path}.")];
@@ -25035,7 +25035,7 @@ type = "string"
     /// grant with the command that edits it. A socket-only channel is seeded
     /// the same way: a row counts every governed transport.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_creates_the_binding_and_seeds_the_declaration_on_declared() {
         use crate::plugins::channel_instance::EgressDecision;
         use crate::plugins::egress_ceremony::egress_set_command;
@@ -25123,7 +25123,7 @@ type = "string"
     /// grants it later. That command resolves against the row the ceremony
     /// created.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_with_none_creates_the_row_with_an_empty_grant_and_prints_the_grant_command() {
         use crate::plugins::channel_instance::EgressDecision;
         use crate::plugins::egress_ceremony::{egress_hosts_path, egress_set_command};
@@ -25197,7 +25197,7 @@ type = "string"
     /// use is refused before anything is written: no binding, no row, and the
     /// config file byte-identical. The refusal lists the hosts and both flags.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_refuses_without_a_decision_when_hosts_are_declared_and_writes_nothing() {
         let installed = install_package(&package_manifest_toml(
             "chat-bridge",
@@ -25254,7 +25254,7 @@ type = "string"
     /// and the config file stays byte-identical, whether the flag is repeated
     /// or omitted, since an existing row needs no decision.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_is_idempotent_a_second_run_leaves_the_config_file_byte_identical() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -25311,7 +25311,7 @@ type = "string"
     /// profile included, keeps its exact bytes. A binding made with `config
     /// set`, which has no row, gets its row, and keeps its exact bytes.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_repairs_a_binding_that_has_no_row_and_a_row_that_has_no_binding_without_touching_their_bytes()
      {
         use crate::plugins::channel_instance::EgressDecision;
@@ -25433,7 +25433,7 @@ hosts = ["irc.example.net"]
     /// its empty grant, the declaration difference is printed with the command
     /// that applies it, and the flag is reported as not applied.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_never_extends_an_existing_row_even_with_declared() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -25512,7 +25512,7 @@ hosts = ["irc.example.net"]
     /// Another package's alias is never taken over: the refusal names the
     /// owner, and config, in memory and on disk, is left as it was.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_refuses_an_alias_owned_by_another_package_and_changes_nothing() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -25585,7 +25585,7 @@ hosts = ["irc.example.net"]
     /// grammar rejects, print the alias as typed escaped, inside the
     /// grammar's reason as well.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn binding_refusals_before_the_alias_grammar_print_the_alias_escaped() {
         use crate::plugins::channel_instance::BindingRefusal;
 
@@ -25610,7 +25610,7 @@ hosts = ["irc.example.net"]
     /// that failed to load at all, refuses the ceremony before any write; a
     /// dropped table of another alias does not.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_refuses_a_degraded_plugins_or_channels_section() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -25688,7 +25688,7 @@ hosts = ["irc.example.net"]
     /// binding `support` grants the new row the manifest's declaration and
     /// nothing else, and leaves both other rows as they were.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_seeds_alias_b_from_the_manifest_only_never_from_alias_a_or_the_tool_row() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -25763,7 +25763,7 @@ hosts = ["irc.example.net"]
     /// refuses is reported through the resolver's message, whose property
     /// name, publisher text holding a bidirectional override, is escaped.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_prints_required_keys_with_commands_only_for_addressable_names_and_never_values() {
         use crate::plugins::channel_instance::config_set_command_for;
         use crate::plugins::egress_ceremony::ShellDialect;
@@ -25966,7 +25966,7 @@ maxLength = 1
     /// it constructs the instance, so the readiness report runs the same
     /// verdict on it and prints the config-invalid line, never the value.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn readiness_reports_a_retained_row_that_a_manifest_without_state_refuses() {
         use crate::plugins::channel_instance::{channel_instance_row, config_verdict};
 
@@ -26041,7 +26041,7 @@ maxLength = 1
     /// so the report names the row by its key and says to remove the values
     /// and keep the row, never to delete it, and never prints the value.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn readiness_reports_retained_values_on_a_row_that_still_holds_the_egress_grant() {
         use crate::plugins::channel_instance::{channel_instance_row, config_verdict};
 
@@ -26115,7 +26115,7 @@ maxLength = 1
     /// unmet precondition at a time, each naming what supplies it. The
     /// ceremony itself enables nothing and edits no agent.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn readiness_reports_the_runtime_verdict_for_each_unmet_precondition() {
         use crate::plugins::channel_instance::config_set_command_for;
         use crate::plugins::egress_ceremony::ShellDialect;
@@ -26218,7 +26218,7 @@ maxLength = 1
     /// declaration the ceremony granted leaves no egress gap, and the note
     /// that a running daemon needs a restart or reload closes the report.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn readiness_reports_ready_when_every_precondition_holds() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -27000,7 +27000,7 @@ maxLength = 1
     /// as `plugin list`, and roll the package publication back. The unsupported
     /// row remains untouched for the operator to update deliberately.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn reinstall_refuses_a_legacy_row_without_creating_or_mutating_config() {
         use zeroclaw::plugins::host::PluginHost;
 
@@ -27153,7 +27153,7 @@ hosts = ["api.example.com", "api2.example.com"]
     /// take effect until the deployment is fixed. Install is still refused and
     /// still rolled back, announcing nothing.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn reinstall_under_a_deployment_wide_refusal_reports_the_deployment_once_without_row_steps()
      {
         use zeroclaw::plugins::host::PluginHost;
@@ -27284,7 +27284,7 @@ hosts = ["api.example.com", "api2.example.com"]
     /// command through the real setter against the directory it names changes
     /// profile A and leaves profile B's grant byte-for-byte intact.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn the_printed_command_targets_the_inspected_profile_and_leaves_the_other_alone() {
         let manifest = tool_manifest(
             "weather-tool",
@@ -28084,7 +28084,7 @@ hosts = ["api.example.com", "api2.example.com"]
     /// it is for the tool row, and the lines name the instance. A bound alias
     /// without a row is left to `plugin bind`.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn an_update_reports_the_grant_of_each_bound_channel_row() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let mut config = config_in_dir(tmp.path());
@@ -28586,7 +28586,7 @@ type = "integer"
     /// rule, the binding and the channel row by the binding ceremony, and one
     /// save persists all three.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn install_with_channel_alias_binds_and_seeds_in_one_save() {
         use crate::plugins::channel_instance::EgressDecision;
         use zeroclaw::plugins::host::PluginHost;
@@ -28672,7 +28672,7 @@ type = "integer"
     /// before the load check and before anything is published: no package
     /// directory, no loaded plugin, no announcement, and config untouched.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn install_with_channel_alias_refuses_before_publish_when_the_decision_is_missing() {
         use zeroclaw::plugins::host::PluginHost;
 
@@ -28741,7 +28741,7 @@ type = "integer"
     /// neither the tool row nor the binding nor the channel row; a retry
     /// against a clean config is a fresh install that binds exactly once.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn install_seed_failure_with_a_channel_request_rolls_back_and_persists_nothing_and_retry_binds_once()
      {
         use crate::plugins::channel_instance::EgressDecision;
@@ -28836,7 +28836,7 @@ type = "integer"
     /// decision, and one per decision, each on its own line, when the
     /// manifest declares a destination its channel can reach.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn install_without_channel_alias_prints_the_bind_hint_for_a_channel_package() {
         use crate::plugins::channel_instance::{
             plugin_bind_command_for, plugin_bind_decision_commands_for,
@@ -28937,7 +28937,7 @@ type = "integer"
     /// taking effect. The refusal names the migration, the file stays
     /// byte-identical, and the install publishes nothing.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn bind_and_install_with_channel_alias_refuse_an_older_schema_and_leave_it_byte_identical()
      {
         use zeroclaw::plugins::host::PluginHost;
@@ -29016,7 +29016,7 @@ type = "integer"
 
     /// One `plugin bind` request a printed line makes: the `--config-dir` it
     /// selects, the package, the alias and the egress decision.
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     type BindRequest = (
         Option<String>,
         String,
@@ -29029,7 +29029,7 @@ type = "integer"
     /// through one real `sh` exactly as printed, indentation included, with
     /// `zeroclaw` replaced by a function that records each call's arguments,
     /// and the CLI's own parser reads them.
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     fn bind_requests_from_pasted_lines(
         lines: &[&str],
         scratch: &std::path::Path,
@@ -29082,7 +29082,7 @@ type = "integer"
 
     /// The `plugin bind` request one printed line makes when it is pasted on
     /// its own ([`bind_requests_from_pasted_lines`]).
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     fn bind_request_from_printed_line(line: &str, scratch: &std::path::Path) -> BindRequest {
         let mut requests = bind_requests_from_pasted_lines(&[line], scratch);
         assert_eq!(requests.len(), 1, "one line, one request");
@@ -29097,7 +29097,7 @@ type = "integer"
     /// `sh` and parsed by the CLI's own parser, binds the row and grants the
     /// declaration.
     #[tokio::test]
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     async fn the_printed_row_missing_declared_line_binds_the_row_as_printed() {
         use crate::plugins::channel_instance::plugin_bind_decision_commands_for;
         use crate::plugins::egress_ceremony::ShellDialect;
@@ -29185,7 +29185,7 @@ type = "integer"
     /// after it finds the row in place, so the ceremony grants nothing and
     /// says the flag was not applied.
     #[tokio::test]
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     async fn the_two_printed_decision_lines_pasted_together_grant_nothing() {
         use crate::plugins::channel_instance::EgressDecision;
 
@@ -29284,7 +29284,7 @@ type = "integer"
     /// and writes nothing. With the placeholder replaced by an alias, the
     /// same line binds.
     #[tokio::test]
-    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(unix, feature = "plugins-wasm", feature = "agent-core"))]
     async fn the_printed_bind_hint_is_refused_until_its_alias_placeholder_is_replaced() {
         use crate::plugins::channel_instance::{ALIAS_PLACEHOLDER, BindingRefusal, EgressDecision};
 
@@ -29363,7 +29363,7 @@ type = "integer"
     /// each bound alias's readiness, as `plugin info` does, instead of the
     /// generic bind hint. It still creates no channel row.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn install_without_channel_alias_reports_the_readiness_of_aliases_already_bound() {
         use zeroclaw::plugins::host::PluginHost;
 
@@ -29425,7 +29425,7 @@ type = "integer"
     /// alias, and `plugin remove` keeps the tool row's warning. The alias
     /// reaches the terminal escaped.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn an_alias_no_instance_can_be_named_by_is_skipped_and_reported_escaped() {
         use crate::plugins::channel_instance::{
             bound_channel_aliases, instance_rows, unkeyed_channel_aliases,
@@ -29521,7 +29521,7 @@ type = "integer"
     /// the one line for an alias no instance can be keyed by, which is not
     /// asked about.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn the_package_report_prints_the_per_alias_readiness_blocks_from_one_query() {
         use crate::plugins::channel_instance::unkeyed_channel_aliases;
 
@@ -29604,7 +29604,7 @@ type = "integer"
     /// plan's failure. Block for block, that is what the one-alias report
     /// prints.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn the_package_report_asks_about_each_alias_alone_when_the_plan_cannot_be_built() {
         use crate::plugins::channel_instance::{config_set_command_for, unkeyed_channel_aliases};
         use crate::plugins::egress_ceremony::ShellDialect;
@@ -29706,7 +29706,7 @@ type = "integer"
     /// prints the alias escaped, the reason included, and so does the key
     /// line `plugin info` prints for the instance.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_bound_alias_the_alias_grammar_rejects_is_told_to_rename_rather_than_bind() {
         let installed = install_package(&package_manifest_toml(
             "chat-bridge",
@@ -29838,7 +29838,7 @@ type = "integer"
     /// that names such a table, the rename line, the removed binding and the
     /// skipped alias, quotes it the same way.
     #[test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     fn a_disabled_binding_under_an_alias_outside_the_grammar_names_the_table_to_edit() {
         let installed = install_package(&package_manifest_toml(
             "chat-bridge",
@@ -29911,7 +29911,7 @@ type = "integer"
     /// readiness comes the one line for the skipped binding, escaped, and the
     /// requested alias binds as usual.
     #[tokio::test]
-    #[cfg(all(feature = "plugins-wasm", feature = "agent-runtime"))]
+    #[cfg(all(feature = "plugins-wasm", feature = "agent-core"))]
     async fn install_with_channel_alias_also_reports_a_bound_alias_no_instance_can_be_named_by() {
         use crate::plugins::channel_instance::{EgressDecision, unkeyed_channel_aliases};
         use zeroclaw::plugins::host::PluginHost;

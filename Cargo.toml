@@ -230,6 +230,7 @@ non_row_features = [
     "metrics",
     "embedded-web",
     "local-agent-minimal",
+    "agent-core",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
@@ -299,7 +300,7 @@ default = [
 # Without this, you get the kernel: config + providers + memory + CLI chat.
 # Channels are opt-in via the lean `default-channels` bundle, `channels-full`,
 # or individual `channel-*` features.
-agent-runtime = [
+agent-core = [
     "dep:zeroclaw-runtime", "dep:zeroclaw-eval", "dep:zeroclaw-channels", "dep:zeroclaw-tools",
     "dep:rusqlite",
     "dep:which",
@@ -309,6 +310,10 @@ agent-runtime = [
     "dep:base64",
     "dep:ring",
 ]
+
+# Everything the standard runtime had before HORO-2382 split it: the same
+# dependencies, now named `agent-core` so inbound listener code can be separated.
+agent-runtime = ["agent-core"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,

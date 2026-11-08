@@ -949,7 +949,7 @@ fn config_init_channel_alias_survives_config_reload() {
     );
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[test]
 fn agent_targeting_config_commands_fail_closed_while_daemon_owns_config() {
     let config_dir = tempfile::tempdir().expect("temp config dir");
@@ -1014,7 +1014,7 @@ fn agent_targeting_config_commands_fail_closed_while_daemon_owns_config() {
     assert!(!config.agents.contains_key("recreated"));
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 #[test]
 fn standalone_agent_ownership_uses_resolved_temp_data_dir_and_preserves_alias_validation() {
     let config_dir = tempfile::tempdir().expect("temp config dir");
@@ -1067,7 +1067,7 @@ fn standalone_agent_ownership_uses_resolved_temp_data_dir_and_preserves_alias_va
     );
 }
 
-#[cfg(all(feature = "agent-runtime", feature = "channel-acp-server"))]
+#[cfg(all(feature = "agent-core", feature = "channel-acp-server"))]
 #[test]
 fn standalone_acp_ownership_refuses_before_store_open_and_retains_stdio_authority() {
     use zeroclaw::channels::acp_server::{AcpServer, AcpServerConfig};
