@@ -16,6 +16,7 @@ pub mod tui_identity;
 pub mod turn;
 pub mod types;
 pub mod upload;
+#[cfg(feature = "daemon-listeners")]
 pub mod wss;
 
 /// How long a cancelled listener waits for the connections it accepted to
