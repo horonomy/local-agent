@@ -231,6 +231,7 @@ non_row_features = [
     "embedded-web",
     "local-agent-minimal",
     "agent-core",
+    "daemon-listeners",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
@@ -313,7 +314,11 @@ agent-core = [
 
 # Everything the standard runtime had before HORO-2382 split it: the same
 # dependencies, now named `agent-core` so inbound listener code can be separated.
-agent-runtime = ["agent-core"]
+agent-runtime = ["agent-core", "daemon-listeners"]
+
+# Inbound listener code: the daemon's WSS, relay, enrollment and local-RPC servers.
+# Standard builds get it through `agent-runtime`; `local-agent-minimal` does not.
+daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,

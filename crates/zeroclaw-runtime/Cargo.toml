@@ -112,6 +112,9 @@ schema-export = ["dep:schemars", "zeroclaw-config/schema-export", "zeroclaw-sop-
 
 
 browser-native = []
+# Inbound listener servers (WSS, relay bridge, enrollment, local RPC socket).
+# Off by default; the root crate enables it through `daemon-listeners`.
+daemon-listeners = []
 plugins-wasm = ["dep:zeroclaw-plugins", "zeroclaw-plugins/plugins-wasmtime"]
 # Adds the Cranelift JIT to the plugin host so a `.wasm` component can be
 # compiled on the host instead of requiring a precompiled `.cwasm`. Production
