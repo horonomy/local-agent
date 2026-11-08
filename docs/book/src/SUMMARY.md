@@ -30,6 +30,7 @@
   - [NixOS](./setup/nixos.md)
   - [Docker & containers](./setup/container.md)
   - [Service management](./setup/service.md)
+  - [Minimal runtime profile](./setup/local-agent-minimal.md)
   - [Platform install files](./setup/dist-files.md)
 - [Architecture](./architecture/overview.md)
   - [Request lifecycle](./architecture/request-lifecycle.md)
