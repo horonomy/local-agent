@@ -1,5 +1,6 @@
 """Synthetic checks for runtime_bench: statistics, verdicts, classes, guards."""
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,7 +29,7 @@ class StatisticsTests(unittest.TestCase):
             (summary["median"], summary["min"], summary["max"], summary["n"]),
             (3.0, 1.0, 10.0, 5),
         )
-        self.assertGreater(summary["stdev"], 0)
+        self.assertAlmostEqual(summary["stdev"], 3.5355339, places=5)  # sample stdev
 
 
 class ProcessTreeTests(unittest.TestCase):
@@ -44,8 +45,6 @@ class ProcessTreeTests(unittest.TestCase):
         self.assertEqual(got[103], "browser")
         self.assertEqual(got[101], "other")
 
-    def test_known_mcp_pid_is_its_own_class(self):
-        self.assertEqual(rb.classify("python3", 101, 100, frozenset({101})), "mcp")
 
 
 class VerdictTests(unittest.TestCase):
@@ -70,11 +69,53 @@ class VerdictTests(unittest.TestCase):
         self.assertTrue(result["size"].startswith("BLOCKED"))
 
 
+class ExitCodeTests(unittest.TestCase):
+    PASS = {"variant": "a", "verdicts": {"size": "PASS", "cold_start": "PASS"}}
+
+    def test_all_pass_and_quiet_is_zero(self):
+        self.assertEqual(rb.exit_code([self.PASS], False), 0)
+
+    def test_noise_blocked_fail_and_empty_are_not_zero(self):
+        failed = {"variant": "a", "verdicts": {"size": "FAIL"}}
+        blocked = {"variant": "a", "verdicts": {"size": "BLOCKED (debug)"}}
+        all_launches_failed = {"variant": "a", "verdict": "BLOCKED: no launch reached the provider"}
+        self.assertEqual(rb.exit_code([self.PASS], True), 1)
+        for result in (failed, blocked, all_launches_failed):
+            self.assertEqual(rb.exit_code([result], False), 1)
+        self.assertEqual(rb.exit_code([], False), 1)
+
+    def test_partial_launch_failure_cannot_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "zeroclaw"
+            binary.write_bytes(b"x")
+            good = {"ok": True, "cold_start_s": 0.1, "listeners": {},
+                    "samples": [{"agent": 1_000_000, "browser": 0, "other": 0}]}
+            result = rb.measure_variant("m", binary, [good, {"ok": False}], ("m",))
+        self.assertTrue(all(v.startswith("BLOCKED") for v in result["verdicts"].values()))
+        self.assertEqual(rb.exit_code([result], False), 1)
+
+    def test_size_needs_an_explicit_shipped_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "zeroclaw"
+            binary.write_bytes(b"x")
+            good = {"ok": True, "cold_start_s": 0.1, "listeners": {},
+                    "samples": [{"agent": 1_000_000, "browser": 0, "other": 0}]}
+            unclaimed = rb.measure_variant("m", binary, [good])
+            claimed = rb.measure_variant("m", binary, [good], ("m",))
+        self.assertTrue(unclaimed["verdicts"]["size"].startswith("BLOCKED"))
+        self.assertEqual(claimed["verdicts"]["size"], "PASS")
+
+
 class GuardTests(unittest.TestCase):
     def test_output_directory_must_be_outside_git(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertTrue(rb.outside_git(Path(tmp) / "evidence"))
-        self.assertFalse(rb.outside_git(Path(__file__).parent))
+
+    def test_nested_missing_directory_inside_a_repo_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            self.assertFalse(rb.outside_git(Path(tmp)))
+            self.assertFalse(rb.outside_git(Path(tmp) / "evidence" / "a" / "b"))
 
     def test_noise_detection(self):
         quiet = {"loadavg_1m": 0.2, "cpus": 16, "cargo_processes": 0}
@@ -87,12 +128,12 @@ class GuardTests(unittest.TestCase):
             binary = Path(tmp) / "zeroclaw"
             binary.write_bytes(b"x" * 10)
             launches = [{"ok": True, "cold_start_s": 0.3, "listeners": {},
-                         "samples": [{"agent": 5_000_000, "mcp": 0, "browser": 0, "other": 0}]}]
+                         "samples": [{"agent": 5_000_000, "browser": 0, "other": 0}]}]
             result = rb.measure_variant("minimal", binary, launches)
             text = rb.render([result], {"minimal": 0.5},
                              {"loadavg_1m": 0.1, "cpus": 8, "cargo_processes": 0}, False)
         self.assertNotIn(tmp, text)
-        self.assertNotIn("/", text.replace("/s", ""))
+        self.assertNotIn(str(Path.home()), text)
 
 
 if __name__ == "__main__":

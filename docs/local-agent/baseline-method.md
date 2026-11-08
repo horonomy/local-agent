@@ -83,12 +83,14 @@ No fabricated measurements or skipped-as-passed results are permitted.
 
 `scripts/local_agent/runtime_bench.py` measures built binaries side by side
 (`--variant NAME=PATH`, repeatable) and keeps raw results in `--out`, which must be
-outside every Git worktree. Size comes from `binary_size_report.py` on the shipped
-`release` profile; a debug binary is reported as BLOCKED for size, never PASS.
+outside every Git worktree. Size is the byte count of each file passed; it counts as a
+shipped measurement only for a variant named with `--shipped` (an assertion that the file
+is the stripped `release` artifact). An unclaimed or debug binary is BLOCKED for size, and
+`binary_size_report.py` remains the authoritative, reproducible size figure.
 
 ```sh
 python3.13 scripts/local_agent/runtime_bench.py \
-  --variant standard=PATH --variant minimal=PATH \
+  --variant standard=PATH --variant minimal=PATH --shipped standard --shipped minimal \
   --out "$HOME/Library/Application Support/local-agent-evidence/HORO-2386/RUN" \
   --launches 10 --idle-seconds 10
 python3.13 -I -m unittest discover -s scripts/local_agent -p 'test_runtime_bench.py'
@@ -98,12 +100,17 @@ Definitions: cold start is monotonic time from just before spawn to the local st
 provider receiving the agent's first request ("process-cold, file cache warm"; purging
 the cache needs root). Idle memory is the agent waiting on the stalling stub, sampled once
 a second after a 5 s settle, one median per launch, then median, p95, stdev, min and max
-across launches. The agent process and the whole process tree are reported separately;
-MCP and browser children are classed by process name only (never command lines), and the
-tree sum double-counts shared pages. Budgets are judged on decimal units and on the
+across launches (stdev is the sample standard deviation). Every launch uses a fresh config,
+home and workspace, so it includes first-run state creation rather than a warm restart. The
+agent process and the whole process tree are reported separately; browser children are
+classed by process name only (never command lines), this harness starts no MCP server so its
+idle state has no MCP class, and the tree sum double-counts shared pages. Budgets are judged on decimal units and on the
 median, and a p95 over budget is listed as a tail breach. The first launch of a freshly
 linked binary, which macOS assesses before running it, is timed once per binary and
-reported on its own line. Launches interleave variants (A B A B); the batch is labelled
-NOISY, and exits non-zero, when `cargo` is running or the load average exceeds half the
-CPU count, and the run refuses to start while a heavy Local Agent build holds the
-admission lock. Only the text summary is public: no JSON, logs or paths.
+reported on its own line. Launches interleave variants (A B A B). The machine is sampled
+before the batch and after every launch group; the batch is labelled NOISY, and exits
+non-zero, when `cargo` is running, a heavy Local Agent build holds the admission lock, or
+the load average exceeds half the CPU count. The run refuses to start (exit 2) while that
+lock is held. It exits 0 only when every budget passed and nothing is BLOCKED: a variant
+where any launch failed, an all-failed run and an unclaimed size are never a pass. Only the
+text summary is public: no JSON, logs or paths.

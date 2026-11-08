@@ -173,19 +173,34 @@ def inspect_tree(root_pid: int) -> dict[str, list[str]]:
     return found
 
 
+def group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def stop_agent(proc: subprocess.Popen) -> None:
-    if proc.poll() is not None:
-        return
-    for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
+    """End the agent's whole process group, even if the root already exited.
+
+    SIGTERM first, then SIGKILL; the group is checked each time so children that
+    outlive the root, or ignore SIGTERM, are not left running.
+    """
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        deadline = time.monotonic() + 10
         try:
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
-            return
-        try:
-            proc.wait(timeout=grace)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+            break
+        while time.monotonic() < deadline:
+            proc.poll()  # reaps the root so a zombie leader does not keep the group alive
+            if not group_alive(proc.pid):
+                return
+            time.sleep(0.1)
+    proc.poll()
 
 
 def warm_up(binary: Path) -> float:

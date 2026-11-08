@@ -7,6 +7,8 @@ so machine drift hits every variant alike. Definitions, per baseline-method.md:
 * cold start: monotonic time from just before the agent process is spawned to
   the moment a local stub provider receives the agent's first request. The
   process is "process-cold, file cache warm": purging the cache needs root.
+  Every launch uses a fresh config, home and workspace, so it includes first-run
+  state creation rather than a warm restart.
 * idle memory: the agent is alive and waiting on the stalling stub ("awaiting
   provider response"). After a settle period, resident memory of the agent
   process and of its whole tree is sampled once a second; each launch yields a
@@ -20,8 +22,14 @@ text summary with no paths or command lines.
 
 Usage: runtime_bench.py --variant NAME=PATH [--variant NAME=PATH ...]
                         --out DIR [--launches 10] [--idle-seconds 10]
-Exit 0: every budget met. Exit 1: a budget breached or the batch is noisy.
-Exit 2: the premise failed (bad binary, output dir inside Git, machine busy).
+Exit 0: every budget met and nothing BLOCKED. Exit 1: a budget breached, a
+verdict BLOCKED, or the batch is noisy. Exit 2: the premise failed (bad binary,
+output dir inside Git, a heavy build holds the admission lock).
+
+Size is the byte count of the file you pass, and it only counts as a shipped
+measurement for a variant you name with --shipped (an assertion that the file is
+the stripped `release`-profile artifact). Use binary_size_report.py for the
+authoritative, reproducible size.
 """
 
 import argparse
@@ -72,17 +80,15 @@ def summarize(values: list[float]) -> dict:
         "n": len(values),
         "median": statistics.median(values),
         "p95": percentile(values, 95),
-        "stdev": statistics.pstdev(values) if len(values) > 1 else 0.0,
+        "stdev": statistics.stdev(values) if len(values) > 1 else 0.0,
         "min": min(values),
         "max": max(values),
     }
 
 
-def classify(comm: str, pid: int, root_pid: int, mcp_pids: frozenset = frozenset()) -> str:
+def classify(comm: str, pid: int, root_pid: int) -> str:
     if pid == root_pid:
         return "agent"
-    if pid in mcp_pids:
-        return "mcp"
     name = os.path.basename(comm).lower()
     if any(name.startswith(b) for b in BROWSER_COMMS):
         return "browser"
@@ -113,7 +119,7 @@ def tree_rss(root_pid: int) -> dict[str, int]:
             if pid not in members and (ppid in members or pgid == root_pid):
                 members.add(pid)
                 grew = True
-    totals: dict[str, int] = {"agent": 0, "mcp": 0, "browser": 0, "other": 0}
+    totals: dict[str, int] = {"agent": 0, "browser": 0, "other": 0}
     for pid, _ppid, _pgid, rss_kb, comm in rows:
         if pid in members:
             totals[classify(comm, pid, root_pid)] += rss_kb * 1024
@@ -126,11 +132,16 @@ def machine_state() -> dict:
         "loadavg_1m": os.getloadavg()[0],
         "cpus": os.cpu_count() or 1,
         "cargo_processes": len(cargo),
+        "heavy_lock": heavy_lock_held(),
     }
 
 
 def is_noisy(state: dict) -> bool:
-    return state["cargo_processes"] > 0 or state["loadavg_1m"] > state["cpus"] * 0.5
+    return (
+        state["cargo_processes"] > 0
+        or state.get("heavy_lock", False)
+        or state["loadavg_1m"] > state["cpus"] * 0.5
+    )
 
 
 def heavy_lock_held() -> bool:
@@ -138,17 +149,22 @@ def heavy_lock_held() -> bool:
         return False
     import fcntl
 
-    with open(HEAVY_LOCK, "w") as handle:
+    fd = os.open(HEAVY_LOCK, os.O_RDONLY)  # read-only: never truncate the owner's file
+    try:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return True
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
     return False
 
 
 def outside_git(path: Path) -> bool:
-    probe = path if path.exists() else path.parent
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent  # nearest existing ancestor decides
     result = subprocess.run(
         ["git", "-C", str(probe), "rev-parse", "--is-inside-work-tree"],
         capture_output=True, text=True, check=False,
@@ -165,7 +181,10 @@ def one_launch(binary: Path, port: int, idle_seconds: int) -> dict:
         lp.Stall.connections = 0
         TimedStall.first_request_at = None
         started = time.monotonic()
-        proc = lp.launch_agent(binary, root)
+        try:
+            proc = lp.launch_agent(binary, root)
+        except OSError:
+            return {"ok": False}
         if not lp.wait_until_idle(proc) or TimedStall.first_request_at is None:
             return {"ok": False}
         cold = TimedStall.first_request_at - started
@@ -185,7 +204,7 @@ def one_launch(binary: Path, port: int, idle_seconds: int) -> dict:
 def per_launch_medians(launch: dict) -> dict[str, float]:
     return {
         cls: statistics.median(s[cls] for s in launch["samples"])
-        for cls in ("agent", "mcp", "browser", "other")
+        for cls in ("agent", "browser", "other")
     }
 
 
@@ -206,11 +225,11 @@ def verdicts(size: int, shipped: bool, cold: dict, rss: dict, listeners: bool) -
     result["cold_start"] += tail(cold, COLD_START_BUDGET_S)
     result["idle_rss"] += tail(rss, RSS_BUDGET_BYTES)
     if not shipped:
-        result["size"] = "BLOCKED (not a stripped release build)"
+        result["size"] = "BLOCKED (not named --shipped, or a debug path)"
     return result
 
 
-def measure_variant(name: str, binary: Path, launches: list[dict]) -> dict:
+def measure_variant(name: str, binary: Path, launches: list[dict], shipped_names=()) -> dict:
     good = [launch for launch in launches if launch.get("ok")]
     if not good:
         return {"variant": name, "verdict": "BLOCKED: no launch reached the provider"}
@@ -220,8 +239,8 @@ def measure_variant(name: str, binary: Path, launches: list[dict]) -> dict:
     tree_rss_summary = summarize([sum(m.values()) for m in medians])
     listeners = any(launch["listeners"] for launch in good)
     size = binary.stat().st_size
-    shipped = "/debug/" not in str(binary)
-    return {
+    shipped = name in shipped_names and "/debug/" not in str(binary)
+    result = {
         "variant": name,
         "bytes": size,
         "sha256": sha256(binary),
@@ -234,13 +253,19 @@ def measure_variant(name: str, binary: Path, launches: list[dict]) -> dict:
         "listener_found": listeners,
         "verdicts": verdicts(size, shipped, cold, agent_rss, listeners),
     }
+    if len(good) < len(launches):  # a variant that only sometimes works has no verdict
+        note = f"BLOCKED: only {len(good)} of {len(launches)} launches reached the provider"
+        result["verdicts"] = dict.fromkeys(result["verdicts"], note)
+    return result
 
 
 def render(results: list[dict], first_launch: dict, state: dict, noisy: bool) -> str:
     lines = [f"batch: load {state['loadavg_1m']:.2f} on {state['cpus']} cpus, "
              f"cargo processes {state['cargo_processes']}, {'NOISY' if noisy else 'quiet'}"]
     for r in results:
-        lines.append(f"[{r['variant']}] first launch {first_launch[r['variant']]:.1f}s (reported, not sampled)")
+        first = first_launch[r["variant"]]
+        first_text = f"{first:.1f}s (reported, not sampled)" if first >= 0 else "FAILED"
+        lines.append(f"[{r['variant']}] first launch {first_text}")
         if "bytes" not in r:
             lines.append(f"  {r['verdict']}")
             continue
@@ -278,22 +303,43 @@ def premise_error(variants, out: Path) -> str | None:
     return None
 
 
-def run_batches(variants: dict[str, Path], launches: int, idle_seconds: int, port: int):
-    first_launch = {name: lp.warm_up(binary) for name, binary in variants.items()}
-    for binary in variants.values():  # discarded warm-ups
+def warm_binary(binary: Path) -> float:
+    """First launch (timed, reported) plus three discarded warm-ups; -1 if it fails."""
+    try:
+        first = lp.warm_up(binary)
         for _ in range(3):
-            subprocess.run([str(binary), "--version"], capture_output=True, check=False)
+            subprocess.run([str(binary), "--version"], capture_output=True, check=False,
+                           timeout=lp.FIRST_LAUNCH_TIMEOUT)
+        return first
+    except (OSError, subprocess.TimeoutExpired):
+        return -1.0
+
+
+def run_batches(variants: dict[str, Path], launches: int, idle_seconds: int, port: int):
+    first_launch = {name: warm_binary(binary) for name, binary in variants.items()}
     collected: dict[str, list[dict]] = {name: [] for name in variants}
+    states = [machine_state()]
     for _ in range(launches):
         for name, binary in variants.items():
             collected[name].append(one_launch(binary, port, idle_seconds))
-    return first_launch, collected
+        states.append(machine_state())
+    return first_launch, collected, states
+
+
+def exit_code(results: list[dict], noisy: bool) -> int:
+    """0 only when every budget passed and nothing is BLOCKED, FAILED or noisy."""
+    verdict_text = [str(v) for r in results for v in r.get("verdicts", {}).values()]
+    verdict_text += [r["verdict"] for r in results if "verdict" in r]
+    unproven = any(v.startswith(("FAIL", "BLOCKED")) for v in verdict_text)
+    return 1 if unproven or noisy or not results else 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", action="append", required=True)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--shipped", action="append", default=[],
+                        help="variant NAME whose binary is the stripped release-profile artifact")
     parser.add_argument("--launches", type=int, default=10)
     parser.add_argument("--idle-seconds", type=int, default=10)
     args = parser.parse_args()
@@ -308,22 +354,20 @@ def main() -> int:
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        before = machine_state()
-        first_launch, collected = run_batches(
+        first_launch, collected, states = run_batches(
             variants, args.launches, args.idle_seconds, server.server_address[1]
         )
-        after = machine_state()
     finally:
         server.shutdown()
-    noisy = is_noisy(before) or is_noisy(after)
-    results = [measure_variant(n, variants[n], collected[n]) for n in variants]
+        server.server_close()
+    noisy = any(is_noisy(state) for state in states)
+    results = [measure_variant(n, variants[n], collected[n], args.shipped) for n in variants]
     args.out.mkdir(parents=True, exist_ok=True)
-    raw = {"results": results, "first_launch_s": first_launch, "before": before,
-           "after": after, "launches": collected}
+    raw = {"results": results, "first_launch_s": first_launch, "machine_states": states,
+           "launches": collected}
     (args.out / "raw.json").write_text(json.dumps(raw, indent=2))
-    print(render(results, first_launch, after, noisy))
-    breached = any("FAIL" in str(v) for r in results for v in r.get("verdicts", {}).values())
-    return 1 if breached or noisy else 0
+    print(render(results, first_launch, states[-1], noisy))
+    return exit_code(results, noisy)
 
 
 if __name__ == "__main__":
