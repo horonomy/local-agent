@@ -77,6 +77,14 @@ The Linux selector checks formatting, compares the PR base SHA with the checked-
 
 For `scoped`, the Windows job passes explicit `-p` arguments to `cargo nextest`; for `full`, it runs `cargo nextest run --locked --no-fail-fast --workspace --exclude zeroclaw-desktop`. When `needs_plugin_host=true`, it installs `wasm32-wasip2` and appends the feature-enabled `zeroclaw-plugins` component targets (`channel_plugin_e2e`, `tool_plugin_timeout_e2e`, `reference_plugin`, `reference_plugin_e2e`, and `tool_plugin_e2e`), plugin library tests, runtime live-config and admission regressions, gateway library tests, the root CLI plugin tests (the plugin registry client, the `plugins::` modules including the egress ceremony's Windows shell proofs, the CLI egress ceremony tests, and the `plugin update` tests in the root binary), the `plugin_update_cli` and `plugin_info_cli` component tests, which run the real binary, and the root `plugin_channel_runtime_e2e` and `channel_egress_e2e` targets. Every appended invocation runs even when an earlier one fails, and the summary preserves each phase status plus the failure inventory. The job reports separate baseline, plugin-host, and total durations. Ordinary `scoped` and `full` selections do not pay the plugin-host compilation cost. This PR workflow restores compatible `platform-test` cache entries but never saves them. It checks out the frozen PR merge SHA and does not persist checkout credentials. A skipped Windows job is intentional and visible beside the selector result.
 
+The advisory Windows job sets `CARGO_PROFILE_TEST_DEBUG=0` at job scope to reduce
+repeated compilation and linking across its feature-specific test phases. Debug
+assertions, optimization level, all test commands and the 90-minute budget remain
+unchanged; backtraces have less source detail. The pinned cache action hashes this
+Cargo setting before restoring artifacts, and PR runs still never save caches.
+Actual completion of every selected phase is required before citing native
+coverage; a timeout is not a pass.
+
 ### Scheduled Platform Tests (`platform-tests.yml`)
 
 Runs `cargo nextest run --locked --workspace --exclude zeroclaw-desktop --no-fail-fast` on `macos-15` and `windows-latest` after a cheap Linux formatting check. This nightly full-workspace run is the backstop for label-selected Windows coverage and inventories failures with `--no-fail-fast`.

@@ -437,6 +437,99 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(any(windows, test))]
+fn win32_error_code_from_hresult(hresult: i32) -> Option<i32> {
+    let hresult = u32::from_ne_bytes(hresult.to_ne_bytes());
+    if hresult & 0xffff_0000 == 0x8007_0000 {
+        i32::try_from(hresult & 0xffff)
+            .ok()
+            .filter(|code| *code != 0)
+    } else {
+        None
+    }
+}
+
+#[cfg(windows)]
+fn io_error_from_hresult<E>(hresult: i32, error: E) -> std::io::Error
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    match win32_error_code_from_hresult(hresult) {
+        Some(code) => std::io::Error::from_raw_os_error(code),
+        None => std::io::Error::other(error),
+    }
+}
+
+#[cfg(test)]
+mod hresult_error_tests {
+    use super::win32_error_code_from_hresult;
+
+    #[test]
+    fn extracts_only_nonzero_win32_hresult_codes() {
+        assert_eq!(
+            win32_error_code_from_hresult(i32::from_ne_bytes(0x8007_0002_u32.to_ne_bytes())),
+            Some(2)
+        );
+        assert_eq!(
+            win32_error_code_from_hresult(i32::from_ne_bytes(0x8007_0005_u32.to_ne_bytes())),
+            Some(5)
+        );
+        assert_eq!(
+            win32_error_code_from_hresult(i32::from_ne_bytes(0x8007_00b7_u32.to_ne_bytes())),
+            Some(183)
+        );
+        assert_eq!(
+            win32_error_code_from_hresult(i32::from_ne_bytes(0x8007_0000_u32.to_ne_bytes())),
+            None
+        );
+        assert_eq!(
+            win32_error_code_from_hresult(i32::from_ne_bytes(0x8000_4005_u32.to_ne_bytes())),
+            None
+        );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_hresult_error_tests {
+    use super::io_error_from_hresult;
+    use std::io::ErrorKind;
+
+    #[test]
+    fn win32_hresult_errors_preserve_os_error_kinds() {
+        for (hresult, raw_os_error, kind) in [
+            (
+                i32::from_ne_bytes(0x8007_0002_u32.to_ne_bytes()),
+                2,
+                ErrorKind::NotFound,
+            ),
+            (
+                i32::from_ne_bytes(0x8007_0005_u32.to_ne_bytes()),
+                5,
+                ErrorKind::PermissionDenied,
+            ),
+            (
+                i32::from_ne_bytes(0x8007_00b7_u32.to_ne_bytes()),
+                183,
+                ErrorKind::AlreadyExists,
+            ),
+        ] {
+            let error = io_error_from_hresult(hresult, std::io::Error::other("synthetic"));
+            assert_eq!(error.raw_os_error(), Some(raw_os_error));
+            assert_eq!(error.kind(), kind);
+        }
+    }
+
+    #[test]
+    fn non_win32_hresult_retains_original_error_as_other() {
+        let error = io_error_from_hresult(
+            i32::from_ne_bytes(0x8000_4005_u32.to_ne_bytes()),
+            std::io::Error::other("original HRESULT error"),
+        );
+        assert_eq!(error.kind(), ErrorKind::Other);
+        assert!(error.to_string().contains("original HRESULT error"));
+    }
+}
+
 #[cfg(windows)]
 fn rename_new(from: &Dir, name: &str, to: &Dir, dest: &str) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -470,8 +563,10 @@ fn rename_new(from: &Dir, name: &str, to: &Dir, dest: &str) -> std::io::Result<(
     // SAFETY: owned UTF-16 buffers each have one terminating NUL, no interior
     // NUL, and live through this synchronous call. Neither pointer escapes.
     // MoveFileW refuses ANY existing destination; never use a replacing fallback.
-    unsafe { MoveFileW(PCWSTR(source.as_ptr()), PCWSTR(destination.as_ptr())) }
-        .map_err(std::io::Error::other)
+    unsafe { MoveFileW(PCWSTR(source.as_ptr()), PCWSTR(destination.as_ptr())) }.map_err(|error| {
+        let hresult = error.code().0;
+        io_error_from_hresult(hresult, error)
+    })
 }
 
 #[cfg(not(any(unix, windows)))]
