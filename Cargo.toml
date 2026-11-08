@@ -322,9 +322,10 @@ daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,
-# tools, MCP and CLI chat, with no gateway, ACP bridge or messaging-channel
-# features. It is a non-additive marker: src/lib.rs rejects it combined with an
-# ingress feature, so `--all-features` on this crate intentionally fails to build.
+# tools, MCP and CLI chat, with no gateway, ACP bridge, daemon listener or
+# messaging-channel features. It is a non-additive marker: src/lib.rs rejects it
+# combined with an ingress feature, so `--all-features` on this crate intentionally
+# fails to build.
 # Not the installer's `--minimal` kernel selection, which has no tools or memory.
 local-agent-minimal = ["agent-core"]
 
