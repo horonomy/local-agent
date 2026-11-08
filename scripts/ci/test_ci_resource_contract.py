@@ -255,6 +255,34 @@ class CiResourceContractTests(unittest.TestCase):
         self.assertNotIn("CARGO_PROFILE_TEST_DEBUG_ASSERTIONS", workflow)
         self.assertNotIn("CARGO_PROFILE_TEST_OPT_LEVEL", workflow)
 
+    def test_advisory_windows_bounds_debug_without_changing_native_phases(self) -> None:
+        workflow = (ROOT / ".github/workflows/windows-tests.yml").read_text(
+            encoding="utf-8"
+        )
+        native = workflow.split("\n  windows-test:\n", 1)[1]
+        header, steps = native.split("\n    steps:\n", 1)
+        self.assertIn('CARGO_PROFILE_TEST_DEBUG: "0"', header)
+        self.assertIn("timeout-minutes: 90", header)
+        self.assertIn("          toolchain: 1.96.1\n", steps)
+        self.assertIn("          save-if: false\n", steps)
+        self.assertEqual(steps.count("cargo nextest run --locked --no-fail-fast"), 11)
+        for phase in (
+            "baseline",
+            "hardware",
+            "plugin_components",
+            "plugin_lib",
+            "plugin_runtime_config",
+            "plugin_runtime_admission",
+            "plugin_gateway",
+            "plugin_cli",
+            "plugin_update_cli",
+            "plugin_root",
+        ):
+            self.assertIn(f"{phase}_status=${{PIPESTATUS[0]}}", steps)
+        self.assertIn('exit "$overall_status"', steps)
+        self.assertNotIn("CARGO_PROFILE_TEST_DEBUG_ASSERTIONS", workflow)
+        self.assertNotIn("CARGO_PROFILE_TEST_OPT_LEVEL", workflow)
+
     def test_landlock_remains_on_standard_github_linux(self) -> None:
 
         self.assertRegex(self.landlock, r"runs-on: ubuntu-(?:24\.04|latest)\n")
