@@ -8994,6 +8994,22 @@ fn install_daemon_sigbus_reset() -> Result<()> {
     Ok(())
 }
 
+/// Commands that start a listener, background service or channel receive loop.
+#[cfg(feature = "local-agent-minimal")]
+fn minimal_profile_refused_surface(command: &Commands) -> Option<&'static str> {
+    match command {
+        Commands::Daemon { .. } => Some("daemon"),
+        Commands::Service { .. } => Some("service"),
+        Commands::Relay { .. } => Some("relay"),
+        Commands::Gateway { .. } => Some("gateway"),
+        Commands::Acp { .. } => Some("acp"),
+        Commands::Channel {
+            channel_command: zeroclaw::ChannelCommands::Start,
+        } => Some("channel start"),
+        _ => None,
+    }
+}
+
 fn main() -> Result<()> {
     let command = Cli::command();
 
@@ -9548,6 +9564,18 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         && config_dir.trim().is_empty()
     {
         bail!("--config-dir cannot be empty");
+    }
+
+    // Refuse before any config load or runtime setup so the minimal profile can
+    // never open an inbound surface, even for a config that enables one.
+    #[cfg(feature = "local-agent-minimal")]
+    if let Some(surface) = minimal_profile_refused_surface(&cli.command) {
+        // i18n-exempt: profile refusal must not depend on the runtime catalogue.
+        bail!(
+            "`zeroclaw {surface}` is not available in the local-agent-minimal profile, which \
+             has no daemon, gateway, relay, service or channel-listener surface. Build the \
+             standard profile (`cargo build --release`) to use it."
+        );
     }
 
     #[cfg(target_os = "macos")]

@@ -17,6 +17,7 @@ mod cost_status_cli;
 #[cfg(feature = "agent-runtime")]
 mod cron_delivery_cli;
 mod cron_help_examples;
+#[cfg(not(feature = "local-agent-minimal"))]
 mod daemon_startup_feedback;
 mod degraded_config_remediation;
 #[cfg(all(feature = "agent-runtime", feature = "gateway", target_os = "linux"))]
@@ -27,6 +28,7 @@ mod dockerignore_test;
 mod gateway;
 mod gemini_capabilities;
 mod hardware_probe_feature_graph;
+mod minimal_profile_cli;
 mod minimal_profile_feature_graph;
 mod oidc_enrollment_cli;
 mod otel_dependency_feature_regression;
@@ -34,6 +36,7 @@ mod plugin_feature_graph;
 mod provider_resolution;
 mod provider_schema;
 #[cfg(feature = "agent-runtime")]
+#[cfg(not(feature = "local-agent-minimal"))]
 mod relay_claim_cli;
 mod reply_target_field_regression;
 mod schema_export_feature_graph;
