@@ -9045,6 +9045,16 @@ fn minimal_profile_config_violations(config: &Config) -> Vec<String> {
 fn minimal_profile_refused_surface(command: &Commands) -> Option<&'static str> {
     match command {
         Commands::Daemon { .. } => Some("daemon"),
+        // Teardown and inspection stay available so a unit installed by a standard
+        // build can be stopped and removed with this binary.
+        Commands::Service {
+            service_command:
+                zeroclaw::ServiceCommands::Stop
+                | zeroclaw::ServiceCommands::Uninstall
+                | zeroclaw::ServiceCommands::Status
+                | zeroclaw::ServiceCommands::Logs { .. },
+            ..
+        } => None,
         Commands::Service { .. } => Some("service"),
         Commands::Relay { .. } => Some("relay"),
         Commands::Gateway { .. } => Some("gateway"),

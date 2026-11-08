@@ -28,12 +28,15 @@ fn minimal_profile_is_exactly_agent_runtime() {
 }
 
 #[test]
-fn compile_guard_names_every_ingress_feature() {
+fn compile_guard_names_the_known_ingress_features() {
     let lib = include_str!("../../src/lib.rs");
     let guard_start = lib
         .find("feature = \"local-agent-minimal\"")
         .expect("src/lib.rs must carry the local-agent-minimal compile guard");
-    let guard = &lib[guard_start..guard_start + 700];
+    let guard_len = lib[guard_start..]
+        .find("compile_error!")
+        .expect("the guard must end at its compile_error!");
+    let guard = &lib[guard_start..guard_start + guard_len];
     for ingress in [
         "gateway",
         "acp-bridge",
@@ -42,9 +45,10 @@ fn compile_guard_names_every_ingress_feature() {
         "channels-full",
         "channel-acp-server",
         "channel-webhook",
+        "channel-voice-call",
+        "channel-line",
+        "channel-lark",
         "whatsapp-web",
-        "voice-wake",
-        "tool-claude-code-runner",
     ] {
         assert!(
             guard.contains(&format!("feature = \"{ingress}\"")),

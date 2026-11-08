@@ -35,7 +35,17 @@ fn ingress_commands_are_refused_before_any_setup() {
         (vec!["gateway"], "gateway"),
         (vec!["acp"], "acp"),
         (vec!["channel", "start"], "channel start"),
-        (vec!["service", "status"], "service"),
+        (vec!["service", "install"], "service"),
+        (
+            vec![
+                "relay",
+                "claim",
+                "synthetic-token",
+                "--control",
+                "https://control.invalid",
+            ],
+            "relay",
+        ),
     ] {
         let stderr = run_refused(&args);
         assert!(
@@ -67,6 +77,10 @@ fn hostile_config_enabling_remote_surfaces_is_refused() {
         ("[enroll]\nenabled = true\n", "[enroll] enabled"),
         ("[a2a.server]\nenabled = true\n", "[a2a.server] enabled"),
         (
+            "[tunnel]\ntunnel_provider = \"tailscale\"\n",
+            "[tunnel] provider tailscale",
+        ),
+        (
             "[channels.telegram.default]\nbot_token = \"synthetic-test-token\"\n",
             "[channels.telegram] configured",
         ),
@@ -96,7 +110,17 @@ fn default_config_is_not_refused_as_hostile() {
     let output = run_with_config("", &["cron", "list"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("does not provide"),
+        output.status.success() && !stderr.contains("does not provide"),
         "a clean config must pass the hostile-config gate; got: {stderr}"
+    );
+}
+
+#[test]
+fn service_teardown_stays_reachable_for_units_from_a_standard_build() {
+    let output = run_with_config("", &["service", "status"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("is not available in the local-agent-minimal profile"),
+        "service teardown/inspection must not be profile-refused; got: {stderr}"
     );
 }

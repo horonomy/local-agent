@@ -21,9 +21,10 @@ root crate intentionally does not build.
 
 | Surface | Behavior in this profile |
 | --- | --- |
-| `gateway`, `embedded-web`, `acp-bridge`, webhook and ACP-server channels | Not compiled in. Combining any of them with the profile is a `compile_error!`. |
-| Messaging channel adapters (`channel-*`, `default-channels`, `channels-full`) | Not compiled in. A config that names one is refused (see below). |
-| `daemon`, `service`, `relay`, `gateway`, `acp`, `channel start` | Refused at startup, before config is loaded or any state is written. |
+| `gateway`, `embedded-web`, `acp-bridge`, the webhook, ACP-server, voice-call, LINE and Lark channels (they bind listeners) | Not compiled in. Combining any of them with the profile is a `compile_error!`. |
+| Messaging channel bundles (`default-channels`, `channels-full`) | Not compiled in; combining them with the profile is a `compile_error!`. A config that names a channel the build does not compile is refused (see below). |
+| `daemon`, `relay`, `gateway`, `acp`, `channel start` and the `service` commands that start or install a unit | Refused at startup, before config is loaded or any state is written. `service stop`, `uninstall`, `status` and `logs` stay available to remove a unit installed by a standard build. |
+| `zeroclaw update` | Never replaces this binary with a standard release archive, with or without `--standard`. |
 | `[wss]`, `[relay]`, `[enroll]`, `[a2a.server]`, a tunnel provider | A config that enables one is refused instead of silently ignored. |
 
 `config`, `doctor`, `status`, `self-test`, `auth`, `memory`, `skills` and `security`
@@ -36,8 +37,11 @@ remain available so a non-minimal config can be repaired.
 - The runtime crate still contains its WSS, enrollment, relay and local-RPC code. It is
   unreachable in this profile because the commands and configuration above are refused;
   it is not removed from the binary. The profile does not claim "no listener code linked".
-- Provider OAuth callbacks and OIDC enrollment use short-lived, user-initiated
-  loopback listeners. They are not gated.
+- Provider OAuth sign-in (for example the Gemini and OpenAI flows) uses a short-lived,
+  user-initiated loopback callback listener. It is not gated.
+- An individual messaging `channel-*` feature that only polls or sends (for example
+  `channel-telegram`) can still be added by hand. It is inert here, because
+  `channel start` and the daemon are refused, but it is outside this profile's claim.
 - `zeroclaw` installer `--minimal` and the xtask `Minimal` selection mean the kernel
   build, whose `agent` command is a plain chat loop without tools or memory. That is a
   different profile and must not be reported as this one.

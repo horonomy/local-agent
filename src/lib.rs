@@ -34,8 +34,11 @@
     clippy::unnecessary_wraps
 )]
 
-// The `local-agent-minimal` profile promises no inbound surface. Keep this list in
-// step with tests/component/minimal_profile_feature_graph.rs.
+// The `local-agent-minimal` profile promises no inbound network surface. This
+// lists the bundles plus every individual channel feature that binds a listener
+// (webhook, ACP, voice-call, LINE, Lark callbacks); other messaging channels are
+// poll/outbound clients. Keep it in step with
+// tests/component/minimal_profile_feature_graph.rs.
 #[cfg(all(
     feature = "local-agent-minimal",
     any(
@@ -46,9 +49,10 @@
         feature = "channels-full",
         feature = "channel-acp-server",
         feature = "channel-webhook",
+        feature = "channel-voice-call",
+        feature = "channel-line",
+        feature = "channel-lark",
         feature = "whatsapp-web",
-        feature = "voice-wake",
-        feature = "tool-claude-code-runner",
     )
 ))]
 compile_error!(
