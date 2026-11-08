@@ -139,3 +139,56 @@ fn unresolved_or_missing_provider_makes_no_connection() {
         );
     }
 }
+
+#[test]
+fn provider_override_must_name_a_configured_alias() {
+    let approved = Recorder::start();
+    let unapproved = Recorder::start();
+    let root = prepare(Some("custom.approved"), &approved);
+    let override_url = format!("custom:http://localhost:{}", unapproved.port);
+    let output = agent_command(root.path())
+        .args(["--model-provider", &override_url])
+        .output()
+        .expect("spawn zeroclaw");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "an unconfigured override must be refused"
+    );
+    assert!(
+        stderr.contains("must name a provider configured"),
+        "refusal must say why; got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("localhost"),
+        "the rejected value must not be echoed (it can carry a credential)"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        (approved.connections(), unapproved.connections()),
+        (0, 0),
+        "a refused override must contact no endpoint"
+    );
+}
+
+#[test]
+fn provider_override_naming_the_configured_alias_is_honored() {
+    let recorder = Recorder::start();
+    let root = prepare(Some("custom.approved"), &recorder);
+    let mut child = agent_command(root.path())
+        .args(["--model-provider", "custom.approved"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn zeroclaw");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while recorder.connections() == 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(
+        recorder.connections() > 0,
+        "control: an override naming a configured alias must still work"
+    );
+}
