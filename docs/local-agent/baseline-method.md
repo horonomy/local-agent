@@ -78,3 +78,32 @@ reproduction or a successful sibling job as a waiver.
 The MVP 1.0 size/RSS/startup budgets are targets, not acceptance shortcuts.
 Maintain capability and permission boundaries even if measurements exceed them.
 No fabricated measurements or skipped-as-passed results are permitted.
+
+## Runtime benchmark harness
+
+`scripts/local_agent/runtime_bench.py` measures built binaries side by side
+(`--variant NAME=PATH`, repeatable) and keeps raw results in `--out`, which must be
+outside every Git worktree. Size comes from `binary_size_report.py` on the shipped
+`release` profile; a debug binary is reported as BLOCKED for size, never PASS.
+
+```sh
+python3.13 scripts/local_agent/runtime_bench.py \
+  --variant standard=PATH --variant minimal=PATH \
+  --out "$HOME/Library/Application Support/local-agent-evidence/HORO-2386/RUN" \
+  --launches 10 --idle-seconds 10
+python3.13 -I -m unittest discover -s scripts/local_agent -p 'test_runtime_bench.py'
+```
+
+Definitions: cold start is monotonic time from just before spawn to the local stub
+provider receiving the agent's first request ("process-cold, file cache warm"; purging
+the cache needs root). Idle memory is the agent waiting on the stalling stub, sampled once
+a second after a 5 s settle, one median per launch, then median, p95, stdev, min and max
+across launches. The agent process and the whole process tree are reported separately;
+MCP and browser children are classed by process name only (never command lines), and the
+tree sum double-counts shared pages. Budgets are judged on decimal units and on the
+median, and a p95 over budget is listed as a tail breach. The first launch of a freshly
+linked binary, which macOS assesses before running it, is timed once per binary and
+reported on its own line. Launches interleave variants (A B A B); the batch is labelled
+NOISY, and exits non-zero, when `cargo` is running or the load average exceeds half the
+CPU count, and the run refuses to start while a heavy Local Agent build holds the
+admission lock. Only the text summary is public: no JSON, logs or paths.
