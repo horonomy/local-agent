@@ -34,19 +34,19 @@ remain available so a non-minimal config can be repaired.
 
 ## Provider approval and egress
 
-Only a provider you configured is ever contacted:
+`zeroclaw agent` contacts only a provider you configured:
 
 - The agent runs only as a configured `[agents.<alias>]`, and its `model_provider` must
   resolve to `[providers.models.<family>.<alias>]`. An unresolved reference, or none, makes
   `zeroclaw agent` exit with an error before any network activity.
-- `--model-provider` is accepted only when it names a configured `<family>.<alias>`. A bare
-  family or a URL is refused, and the refusal does not echo the value because a URL can
-  carry a credential. Without this rule a `custom:` override naming a URL would
+- `--model-provider` is accepted only when it names a configured `<family>.<alias>`, on
+  `agent`, `models refresh`, `models list`, `doctor models` and
+  `doctor update-context-windows`. A bare family or a URL is refused, and the refusal does
+  not echo the value because a URL can carry a credential. Without this rule a `custom:` override naming a URL would
   send the request to an endpoint the config never approved.
-- The minimal closure contains no metrics exporter or telemetry crate
-  (`minimal_profile_artifact.sh tree` asserts the Prometheus exporter is absent, with a
-  positive control from the default graph). Update checks run only on an explicit
-  `zeroclaw update`.
+- The minimal closure contains no Prometheus exporter
+  (`minimal_profile_artifact.sh tree` asserts it is absent, with a positive control from
+  the default graph). That is the only metrics or telemetry crate the check looks for.
 
 Evidence, none of which touches the host network:
 
@@ -57,6 +57,7 @@ python3.13 scripts/local_agent/egress_probe.py --binary target/debug/zeroclaw --
 python3.13 scripts/local_agent/egress_probe.py --binary target/debug/zeroclaw --mode unapproved-alias
 python3.13 scripts/local_agent/egress_probe.py --binary target/debug/zeroclaw --mode keyed-baseline
 python3.13 scripts/local_agent/egress_probe.py --binary target/debug/zeroclaw --mode override-custom
+python3.13 scripts/local_agent/egress_probe.py --binary target/debug/zeroclaw --mode override-models-refresh
 ```
 
 `egress_probe.py` runs the agent under macOS `sandbox-exec` with every non-loopback
@@ -67,9 +68,11 @@ passing. A sandbox denial is not observable from outside, so an attempt is infer
 the recorders and the error text. The system resolver stays reachable under this profile,
 so a hostname lookup can still happen; no connection to a non-loopback address can succeed.
 
-Not covered here: the tool sandbox's own DNS allowance, LLM-invoked network tools such as
-`web_fetch` (approval-gated, not automatic), the `model_switch` catalog fallback and the
-open-skills environment override. Those are tracked as open decisions for HORO-2385.
+Not covered here: the model catalog lookups (the `openai` family's `list_models()` always
+fetches models.dev, and `models refresh --all` is not probed), update checks, the tool
+sandbox's own DNS allowance, LLM-invoked network tools such as `web_fetch`
+(approval-gated, not automatic), the `model_switch` catalog fallback and the open-skills
+environment override. Those are tracked as open decisions for HORO-2385.
 
 ## Limits of the claim
 

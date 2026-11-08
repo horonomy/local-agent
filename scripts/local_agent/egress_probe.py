@@ -9,6 +9,7 @@ config.
 
 Usage: egress_probe.py --binary PATH --mode MODE
   MODE: approved | unapproved-alias | keyed-baseline | override-custom
+        | override-models-refresh
 Exit 0: PASS. Exit 1: FAIL (unapproved egress or acceptance). Exit 2: premise
 failed (sandbox unavailable, control failed, bad binary).
 
@@ -46,8 +47,12 @@ ATTEMPT = re.compile(
     r"|failed to lookup|nodename nor servname",
     re.IGNORECASE,
 )
-ENDPOINT = re.compile(r"model provider at (https?://[^/\s]+)", re.IGNORECASE)
-MODES = ("approved", "unapproved-alias", "keyed-baseline", "override-custom")
+# Host only: userinfo (`user:key@`) is stripped so a credential is never reported.
+ENDPOINT = re.compile(r"model provider at https?://(?:[^/@\s]*@)?([^/\s]+)", re.IGNORECASE)
+REFUSAL = "must name a provider configured"
+UNRESOLVED = "does not resolve"
+MODES = ("approved", "unapproved-alias", "keyed-baseline", "override-custom",
+         "override-models-refresh")
 KEYED = "openai.default"  # a keyed provider family with no uri: its public endpoint
 
 
@@ -91,7 +96,12 @@ def control(approved: Recorder) -> bool:
     )
     done = sandboxed([sys.executable, "-c", code], stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL)
-    return done.wait(timeout=30) == 0 and approved.seen >= 1
+    try:
+        return done.wait(timeout=30) == 0 and approved.seen >= 1
+    except subprocess.TimeoutExpired:
+        done.kill()
+        done.wait()
+        return False
 
 
 def write_config(root: Path, provider: str | None, approved_port: int) -> None:
@@ -117,21 +127,24 @@ def write_config(root: Path, provider: str | None, approved_port: int) -> None:
     )
 
 
-def agent_args(binary: Path, root: Path, extra: list[str]) -> list[str]:
-    return [str(binary), "--config-dir", str(root / "config"), "agent",
-            "--agent", "probe", *extra, "--message", "hello"]
+def command_args(binary: Path, root: Path, command: list[str]) -> list[str]:
+    return [str(binary), "--config-dir", str(root / "config"), *command]
 
 
-def run_agent(binary: Path, root: Path, extra: list[str]) -> tuple[int, str]:
+def run_agent(binary: Path, root: Path, command: list[str]) -> tuple[int, str]:
     env = {"PATH": os.environ.get("PATH", ""), "HOME": str(root / "home"), "LC_ALL": "C"}
-    proc = sandboxed(agent_args(binary, root, extra), cwd=root, env=env,
+    proc = sandboxed(command_args(binary, root, command), cwd=root, env=env,
                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                      start_new_session=True, text=True)
     try:
         _, err = proc.communicate(timeout=RUN_TIMEOUT)
     except subprocess.TimeoutExpired:
         lp.stop_agent(proc)
-        _, err = proc.communicate()
+        try:
+            _, err = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            err = ""
     return proc.returncode, err or ""
 
 
@@ -144,26 +157,36 @@ def verdict(mode: str, code: int, err: str, approved: Recorder, other: Recorder)
     if mode == "approved":
         ok = approved.seen > 0 and not attempt and other.seen == 0
     elif mode == "unapproved-alias":
-        ok = code != 0 and approved.seen == 0 and other.seen == 0 and not attempt
+        ok = (code != 0 and UNRESOLVED in err and approved.seen == 0
+              and other.seen == 0 and not attempt)
     elif mode == "keyed-baseline":
         # Control for the next mode: the keyed provider reaches for its public
         # endpoint, which the sandbox denies, so the attempt must be inferable.
         ok = attempt and approved.seen == 0 and other.seen == 0
-    else:  # override-custom: the agent's key must not follow a CLI URL
-        ok = other.seen == 0
+    else:  # override-*: a CLI URL must be refused outright, never followed
+        ok = (code != 0 and REFUSAL.lower() in err.lower() and other.seen == 0
+              and approved.seen == 0 and not attempt)
     return {**base, "verdict": "PASS" if ok else "FAIL"}
 
 
+def agent_command(extra: list[str]) -> list[str]:
+    return ["agent", "--agent", "probe", *extra, "--message", "hello"]
+
+
 def mode_inputs(mode: str, other: Recorder) -> tuple[str | None, list[str]]:
+    """Agent provider reference and the command line (after --config-dir)."""
+    # `localhost`, not 127.0.0.1: the override URL parser reads an all-numeric
+    # host as an integer address (127.0.0.1 became 0.0.0.127 in testing).
+    override = ["--model-provider", f"custom:http://localhost:{other.port}"]
     if mode == "unapproved-alias":
-        return "custom.ghost", []
+        return "custom.ghost", agent_command([])
     if mode == "keyed-baseline":
-        return KEYED, []
+        return KEYED, agent_command([])
     if mode == "override-custom":
-        # `localhost`, not 127.0.0.1: the override URL parser reads an all-numeric
-        # host as an integer address (127.0.0.1 became 0.0.0.127 in testing).
-        return KEYED, ["--provider", f"custom:http://localhost:{other.port}"]
-    return "custom.approved", []
+        return KEYED, agent_command(override)
+    if mode == "override-models-refresh":
+        return KEYED, ["models", "refresh", *override]
+    return "custom.approved", agent_command([])
 
 
 def main() -> int:
@@ -182,17 +205,16 @@ def main() -> int:
         print(json.dumps({"verdict": "premise-failed", "reason": premise}))
         return 2
 
-    approved, other = Recorder(), Recorder()
+    approved, other, calibration = Recorder(), Recorder(), Recorder()
     root = Path(tempfile.mkdtemp(prefix="egress-probe-"))
     try:
-        if not control(approved):
+        if not control(calibration):
             print(json.dumps({"verdict": "premise-failed", "reason": "sandbox control"}))
             return 2
-        approved.seen = 0
         lp.warm_up(binary)
-        provider, extra = mode_inputs(args.mode, other)
+        provider, command = mode_inputs(args.mode, other)
         write_config(root, provider, approved.port)
-        code, err = run_agent(binary, root, extra)
+        code, err = run_agent(binary, root, command)
         time.sleep(0.3)
         report = verdict(args.mode, code, err, approved, other)
         print(json.dumps(report, sort_keys=True))
@@ -200,6 +222,7 @@ def main() -> int:
     finally:
         approved.close()
         other.close()
+        calibration.close()
         shutil.rmtree(root, ignore_errors=True)
 
 

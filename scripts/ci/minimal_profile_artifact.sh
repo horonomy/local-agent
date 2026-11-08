@@ -40,6 +40,10 @@ check_tree() {
       exit 2
     fi
   done
+  if ! grep -qE -- '^prometheus v' <<<"$default"; then
+    echo "FAIL control: default graph lacks the prometheus crate; the exporter check cannot prove anything" >&2
+    exit 2
+  fi
   if [[ -z "$minimal" ]] || ! grep -q '^zeroclaw-runtime' <<<"$minimal"; then
     echo "FAIL control: minimal graph is empty or lacks zeroclaw-runtime" >&2
     exit 2
