@@ -4,28 +4,20 @@
 
 use std::process::Command;
 
-fn run_refused(args: &[&str]) -> String {
-    let config_dir = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_zeroclaw"))
+fn run_zeroclaw(config_dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_zeroclaw"))
         .arg("--config-dir")
-        .arg(config_dir.path())
+        .arg(config_dir)
         .args(args)
         .env("LC_ALL", "C")
         .output()
-        .expect("spawn zeroclaw");
-    assert!(
-        !output.status.success(),
-        "`zeroclaw {}` must be refused in the minimal profile",
-        args.join(" ")
-    );
-    assert!(
-        std::fs::read_dir(config_dir.path())
-            .unwrap()
-            .next()
-            .is_none(),
-        "a refused command must not create config or state under the config dir"
-    );
-    String::from_utf8_lossy(&output.stderr).into_owned()
+        .expect("spawn zeroclaw")
+}
+
+fn run_with_config(config_toml: &str, args: &[&str]) -> std::process::Output {
+    let config_dir = tempfile::tempdir().unwrap();
+    std::fs::write(config_dir.path().join("config.toml"), config_toml).unwrap();
+    run_zeroclaw(config_dir.path(), args)
 }
 
 #[test]
@@ -47,7 +39,21 @@ fn ingress_commands_are_refused_before_any_setup() {
             "relay",
         ),
     ] {
-        let stderr = run_refused(&args);
+        let config_dir = tempfile::tempdir().unwrap();
+        let output = run_zeroclaw(config_dir.path(), &args);
+        assert!(
+            !output.status.success(),
+            "`zeroclaw {}` must be refused",
+            args.join(" ")
+        );
+        assert!(
+            std::fs::read_dir(config_dir.path())
+                .unwrap()
+                .next()
+                .is_none(),
+            "a refused command must not create config or state under the config dir"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         assert!(
             stderr.contains(&format!(
                 "`zeroclaw {surface}` is not available in the local-agent-minimal profile"
@@ -55,18 +61,6 @@ fn ingress_commands_are_refused_before_any_setup() {
             "refusal for `{surface}` must name the profile; got: {stderr}"
         );
     }
-}
-
-fn run_with_config(config_toml: &str, args: &[&str]) -> std::process::Output {
-    let config_dir = tempfile::tempdir().unwrap();
-    std::fs::write(config_dir.path().join("config.toml"), config_toml).unwrap();
-    Command::new(env!("CARGO_BIN_EXE_zeroclaw"))
-        .arg("--config-dir")
-        .arg(config_dir.path())
-        .args(args)
-        .env("LC_ALL", "C")
-        .output()
-        .expect("spawn zeroclaw")
 }
 
 #[test]

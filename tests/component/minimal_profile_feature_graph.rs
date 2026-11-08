@@ -1,42 +1,49 @@
 //! Pins the `local-agent-minimal` feature graph (HORO-2381): the profile is only
-//! `agent-runtime`, and the compile-time guard must name every root feature that
-//! brings in a gateway, ACP, web or messaging ingress surface.
+//! `agent-runtime`, and the compile-time guard must name the root features that
+//! bring in a gateway, ACP, web or listener-bearing channel surface.
 
-fn root_feature_values(feature: &str) -> Vec<String> {
-    let manifest = include_str!("../../Cargo.toml");
-    let prefix = format!("{feature} ");
-    let line = manifest
-        .lines()
-        .find(|line| line.trim_start().starts_with(&prefix))
-        .unwrap_or_else(|| panic!("root Cargo.toml must define the `{feature}` feature"));
-    let list_start = line.find('[').expect("feature line must carry a list");
-    let list_end = line.rfind(']').expect("feature line must close its list");
-    line[list_start + 1..list_end]
-        .split(',')
-        .map(|v| v.trim().trim_matches('"').to_string())
-        .filter(|v| !v.is_empty())
+fn root_features() -> toml::Table {
+    include_str!("../../Cargo.toml")
+        .parse::<toml::Table>()
+        .expect("root Cargo.toml must parse")["features"]
+        .as_table()
+        .expect("root Cargo.toml must have a [features] table")
+        .clone()
+}
+
+fn members(features: &toml::Table, name: &str) -> Vec<String> {
+    features[name]
+        .as_array()
+        .unwrap_or_else(|| panic!("`{name}` must be a feature list"))
+        .iter()
+        .map(|v| v.as_str().expect("feature members are strings").to_string())
         .collect()
 }
 
 #[test]
-fn minimal_profile_is_exactly_agent_runtime() {
-    assert_eq!(
-        root_feature_values("local-agent-minimal"),
-        vec!["agent-runtime".to_string()],
-        "the minimal profile must add nothing beyond agent-runtime"
+fn minimal_profile_is_exactly_agent_runtime_and_never_a_default() {
+    let features = root_features();
+    assert_eq!(members(&features, "local-agent-minimal"), ["agent-runtime"]);
+    assert!(
+        !members(&features, "default")
+            .iter()
+            .any(|m| m == "local-agent-minimal"),
+        "the marker feature must never be a default"
     );
 }
 
 #[test]
 fn compile_guard_names_the_known_ingress_features() {
     let lib = include_str!("../../src/lib.rs");
-    let guard_start = lib
+    let start = lib
         .find("feature = \"local-agent-minimal\"")
         .expect("src/lib.rs must carry the local-agent-minimal compile guard");
-    let guard_len = lib[guard_start..]
-        .find("compile_error!")
-        .expect("the guard must end at its compile_error!");
-    let guard = &lib[guard_start..guard_start + guard_len];
+    let guard = &lib[start
+        ..start
+            + lib[start..]
+                .find("compile_error!")
+                .expect("guard ends at compile_error!")];
+    let features = root_features();
     for ingress in [
         "gateway",
         "acp-bridge",
@@ -51,22 +58,12 @@ fn compile_guard_names_the_known_ingress_features() {
         "whatsapp-web",
     ] {
         assert!(
+            features.contains_key(ingress),
+            "`{ingress}` must exist in the manifest"
+        );
+        assert!(
             guard.contains(&format!("feature = \"{ingress}\"")),
             "compile guard must reject `{ingress}` alongside local-agent-minimal"
         );
     }
-}
-
-#[test]
-fn default_features_do_not_include_the_minimal_profile() {
-    let manifest = include_str!("../../Cargo.toml");
-    let start = manifest
-        .find("\ndefault = [")
-        .expect("root Cargo.toml must define the `default` feature");
-    let block = &manifest[start..];
-    let defaults = &block[..block.find(']').expect("default list must close")];
-    assert!(
-        !defaults.contains("local-agent-minimal"),
-        "the marker feature must never be a default; got: {defaults}"
-    );
 }

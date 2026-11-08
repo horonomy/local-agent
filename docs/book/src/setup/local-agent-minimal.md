@@ -59,4 +59,4 @@ cargo tree --locked -p zeroclaw --no-default-features --features local-agent-min
 
 The last command must show no `zeroclaw-channels feature "channel-*"`. The cumulative
 Golden Journey is run with the minimal binary as described in
-[Golden journeys runner](../../../local-agent/golden-journeys-runner.md).
+`docs/local-agent/golden-journeys-runner.md` in the repository.
