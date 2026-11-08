@@ -21,9 +21,14 @@ fn members(features: &toml::Table, name: &str) -> Vec<String> {
 }
 
 #[test]
-fn minimal_profile_is_exactly_agent_runtime_and_never_a_default() {
+fn minimal_profile_is_exactly_agent_core_and_never_a_default() {
     let features = root_features();
-    assert_eq!(members(&features, "local-agent-minimal"), ["agent-runtime"]);
+    assert_eq!(members(&features, "local-agent-minimal"), ["agent-core"]);
+    assert_eq!(
+        members(&features, "agent-runtime"),
+        ["agent-core", "daemon-listeners"],
+        "agent-runtime must stay the core plus the inbound listeners"
+    );
     assert!(
         !members(&features, "default")
             .iter()
@@ -45,6 +50,7 @@ fn compile_guard_names_the_known_ingress_features() {
                 .expect("guard ends at compile_error!")];
     let features = root_features();
     for ingress in [
+        "daemon-listeners",
         "gateway",
         "acp-bridge",
         "embedded-web",

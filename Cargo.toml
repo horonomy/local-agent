@@ -326,7 +326,7 @@ daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 # features. It is a non-additive marker: src/lib.rs rejects it combined with an
 # ingress feature, so `--all-features` on this crate intentionally fails to build.
 # Not the installer's `--minimal` kernel selection, which has no tools or memory.
-local-agent-minimal = ["agent-runtime"]
+local-agent-minimal = ["agent-core"]
 
 # Lean channel bundle included in `default`. These channels cover local/editor
 # ACP, gateway/webhook ingress, and common first-run external chat/email paths.

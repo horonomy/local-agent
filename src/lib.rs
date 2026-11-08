@@ -42,6 +42,7 @@
 #[cfg(all(
     feature = "local-agent-minimal",
     any(
+        feature = "daemon-listeners",
         feature = "gateway",
         feature = "acp-bridge",
         feature = "embedded-web",
