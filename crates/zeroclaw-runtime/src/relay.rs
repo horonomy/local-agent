@@ -648,11 +648,12 @@ async fn serve_once(
 pub fn relay_server_name(host: &str) -> Result<rustls::pki_types::ServerName<'static>> {
     let invalid = || anyhow::Error::msg(format!("invalid relay host '{host}'"));
     let name = rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|_| invalid())?;
-    // A value such as `relay/evil` parses as a URI whose host is only `relay`,
-    // so a successful parse is not enough: the parsed host must be the input.
-    let uri: tokio_tungstenite::tungstenite::http::Uri =
-        format!("wss://{host}/").parse().map_err(|_| invalid())?;
-    if uri.host() != Some(host) {
+    // rustls also accepts a bare IPv6 literal, but `wss://2001:db8::1/` has no
+    // valid authority (IPv6 hosts need brackets, which rustls refuses), so the
+    // registration URI built from it would be rejected. Every other value
+    // rustls accepts (DNS names and IPv4) is made only of characters that
+    // cannot end the URI authority early, such as `/`, `?`, `#` or `@`.
+    if host.contains(':') {
         return Err(invalid());
     }
     Ok(name)
@@ -2344,6 +2345,8 @@ mod relay_server_name_tests {
             "relay",
             "192.0.2.10",
             "relay-1.eu.example.com",
+            "Relay.Example",
+            "relay_1.example",
         ] {
             assert!(relay_server_name(host).is_ok(), "{host} should be accepted");
         }
@@ -2358,6 +2361,10 @@ mod relay_server_name_tests {
             "relay#x",
             "user@relay",
             "[2001:db8::1]",
+            "2001:db8::1",
+            "::1",
+            "relay:443",
+            "relay:",
             "relay example",
             "relay..example",
         ] {
