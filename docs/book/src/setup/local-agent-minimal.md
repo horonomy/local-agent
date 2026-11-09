@@ -10,7 +10,7 @@ as the composed validation profile.
 ```sh
 cargo build --release --locked --bin zeroclaw \
   --no-default-features --features local-agent-minimal
-zeroclaw agent -m "hello"
+zeroclaw agent -a <alias> -m "hello"
 ```
 
 `local-agent-minimal` is exactly `agent-core`: the standard runtime's dependencies
