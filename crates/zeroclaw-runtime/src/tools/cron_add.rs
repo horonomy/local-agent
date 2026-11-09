@@ -283,7 +283,7 @@ impl Tool for CronAddTool {
                         "channel": {
                             "type": "string",
                             "pattern": cron::cron_delivery_channel_pattern(),
-                            "description": "Channel to deliver output to: either a channel type ('telegram') or a configured instance's composite key ('telegram.work'). Supported types: telegram, discord, slack, mattermost, qq, whatsapp, webhook, lark, feishu, dingtalk, wechat, signal, email. From a chat turn this resolves to that conversation's own channel instance; pass the composite key to deliver elsewhere."
+                            "description": format!("Channel to deliver output to: either a channel type ('telegram') or a configured instance's composite key ('telegram.work'). Supported types: {}. From a chat turn this resolves to that conversation's own channel instance; pass the composite key to deliver elsewhere.", cron::cron_delivery_supported_types())
                         },
                         "to": {
                             "type": "string",

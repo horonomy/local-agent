@@ -68,6 +68,11 @@ pub(crate) fn cron_delivery_channel_pattern() -> String {
     )
 }
 
+/// Comma-separated `CRON_DELIVERY_SCHEMA_CHANNELS`, for tool descriptions.
+pub(crate) fn cron_delivery_supported_types() -> String {
+    CRON_DELIVERY_SCHEMA_CHANNELS.join(", ")
+}
+
 /// Validate a shell command against an agent's security policy
 /// (allowlist + risk gate). `agent_alias` names the agent under whose
 /// risk profile the command will run. Returns `Ok(())` if the command
