@@ -103,6 +103,8 @@ pub enum ChannelKind {
     Lark,
     Line,
     Linq,
+    /// Retained after the bundled Matrix adapter was removed so historical
+    /// attribution records that name it still deserialize.
     Matrix,
     Mattermost,
     #[strum(serialize = "mochat")]
@@ -136,12 +138,12 @@ pub enum ChannelKind {
 impl ChannelKind {
     /// Whether this channel can deliver inbound events that fan into an SOP.
     /// `Cli` is a local interactive session, `Plugin` is a synthetic attribution
-    /// bucket, and `Wati` is retained only for historical attribution records;
-    /// none is a live background event source. Every other kind is a real inbound
+    /// bucket, and `Wati` and `Matrix` are retained only for historical
+    /// attribution records; none is a live background event source. Every other kind is a real inbound
     /// channel a SOP can trigger on.
     #[must_use]
     pub fn inbound_capable(self) -> bool {
-        !matches!(self, Self::Cli | Self::Plugin | Self::Wati)
+        !matches!(self, Self::Cli | Self::Plugin | Self::Wati | Self::Matrix)
     }
 
     /// Canonical snake_case wire string, single-sourced from `IntoStaticStr`.
@@ -494,6 +496,20 @@ mod tests {
             .expect("historical WATI attribution must remain readable");
         assert_eq!(stored.channel_type, Some(ChannelKind::Wati));
         assert!(!ChannelKind::Wati.inbound_capable());
+    }
+
+    #[test]
+    fn retired_matrix_kind_still_deserializes_from_historical_attribution() {
+        #[derive(serde::Deserialize)]
+        struct StoredAttribution {
+            #[serde(default, with = "super::channel_kind_opt_serde")]
+            channel_type: Option<ChannelKind>,
+        }
+
+        let stored: StoredAttribution = serde_json::from_str(r#"{"channel_type":"matrix"}"#)
+            .expect("historical Matrix attribution must remain readable");
+        assert_eq!(stored.channel_type, Some(ChannelKind::Matrix));
+        assert!(!ChannelKind::Matrix.inbound_capable());
     }
 
     #[test]
