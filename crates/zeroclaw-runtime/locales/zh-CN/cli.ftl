@@ -254,7 +254,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     管理通信通道。
 
-    添加、删除、列出、发送以及对将 ZeroClaw 连接到消息平台的通道进行健康检查。支持的通道类型：telegram、discord、slack、whatsapp、matrix、imessage、email。
+    添加、删除、列出、发送以及对将 ZeroClaw 连接到消息平台的通道进行健康检查。支持的通道类型：telegram、discord、slack、whatsapp、imessage、email。
 
     示例：
     zeroclaw channel list
@@ -299,19 +299,19 @@ cli-config-long-about =
 
     通过点分路径查看、设置或初始化配置属性。使用 'schema' 转储配置文件的完整 JSON Schema。
 
-    属性通过点分路径寻址（例如 channels.matrix.mention-only）。
+    属性通过点分路径寻址（例如 channels.telegram.mention-only）。
     密钥字段（API 密钥、令牌）会自动使用掩码输入。
     枚举字段在省略值时提供交互式选择。
 
     示例：
     zeroclaw config list                                  # 列出所有属性
     zeroclaw config list --secrets                        # 仅列出密钥
-    zeroclaw config list --filter channels.matrix         # 按前缀过滤
-    zeroclaw config get channels.matrix.mention-only      # 获取值
-    zeroclaw config set channels.matrix.mention-only true # 设置值
-    zeroclaw config set channels.matrix.access-token      # 密钥：掩码输入
-    zeroclaw config set channels.matrix.stream-mode       # 枚举：交互式选择
-    zeroclaw config init channels.matrix                  # 使用默认值初始化部分
+    zeroclaw config list --filter channels.telegram         # 按前缀过滤
+    zeroclaw config get channels.telegram.mention-only      # 获取值
+    zeroclaw config set channels.telegram.mention-only true # 设置值
+    zeroclaw config set channels.telegram.bot-token      # 密钥：掩码输入
+    zeroclaw config set channels.telegram.stream-mode       # 枚举：交互式选择
+    zeroclaw config init channels.telegram                  # 使用默认值初始化部分
     zeroclaw config schema                                # 将 JSON Schema 打印到 stdout
     zeroclaw config schema > schema.json
 

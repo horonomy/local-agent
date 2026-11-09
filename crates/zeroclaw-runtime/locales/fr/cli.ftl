@@ -255,7 +255,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     Gérer les canaux de communication.
 
-    Ajouter, supprimer, lister, envoyer et vérifier la santé des canaux qui connectent ZeroClaw aux plateformes de messagerie. Types de canaux pris en charge : telegram, discord, slack, whatsapp, matrix, imessage, email.
+    Ajouter, supprimer, lister, envoyer et vérifier la santé des canaux qui connectent ZeroClaw aux plateformes de messagerie. Types de canaux pris en charge : telegram, discord, slack, whatsapp, imessage, email.
 
     Exemples :
     zeroclaw channel list
@@ -303,19 +303,19 @@ cli-config-long-about =
 
     Afficher, définir ou initialiser les propriétés de la configuration par chemin ponctué. Utilisez 'schema' pour.dumping le schéma JSON complet pour le fichier de configuration.
 
-    Les propriétés sont adressées par chemin ponctué (par ex. channels.matrix.mention-only).
+    Les propriétés sont adressées par chemin ponctué (par ex. channels.telegram.mention-only).
     Les champs secrets (clés API, jetons) utilisent automatiquement une entrée masquée.
     Les champs énumérables offrent une sélection interactive lorsque la valeur est omise.
 
     Exemples :
     zeroclaw config list                                  # lister toutes les propriétés
     zeroclaw config list --secrets                        # lister uniquement les secrets
-    zeroclaw config list --filter channels.matrix         # filtrer par préfixe
-    zeroclaw config get channels.matrix.mention-only      # obtenir une valeur
-    zeroclaw config set channels.matrix.mention-only true # définir une valeur
-    zeroclaw config set channels.matrix.access-token      # secret : entrée masquée
-    zeroclaw config set channels.matrix.stream-mode       # enum : sélection interactive
-    zeroclaw config init channels.matrix                  # initier la section par défaut
+    zeroclaw config list --filter channels.telegram         # filtrer par préfixe
+    zeroclaw config get channels.telegram.mention-only      # obtenir une valeur
+    zeroclaw config set channels.telegram.mention-only true # définir une valeur
+    zeroclaw config set channels.telegram.bot-token      # secret : entrée masquée
+    zeroclaw config set channels.telegram.stream-mode       # enum : sélection interactive
+    zeroclaw config init channels.telegram                  # initier la section par défaut
     zeroclaw config schema                                # imprimer le schéma JSON vers stdout
     zeroclaw config schema > schema.json
 

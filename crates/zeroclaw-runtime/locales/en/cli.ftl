@@ -283,7 +283,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     Manage communication channels.
 
-    Add, remove, list, send, and health-check channels that connect ZeroClaw to messaging platforms. Supported channel types: telegram, discord, slack, whatsapp, matrix, imessage, email.
+    Add, remove, list, send, and health-check channels that connect ZeroClaw to messaging platforms. Supported channel types: telegram, discord, slack, whatsapp, imessage, email.
 
     Examples:
       zeroclaw channel list
@@ -332,19 +332,19 @@ cli-config-long-about =
 
     View, set, or initialize config properties by dotted path. Use 'schema' to dump the full JSON Schema for the config file.
 
-    Properties are addressed by dotted path (e.g. channels.matrix.mention-only).
+    Properties are addressed by dotted path (e.g. channels.telegram.mention-only).
     Secret fields (API keys, tokens) automatically use masked input.
     Enum fields offer interactive selection when value is omitted.
 
     Examples:
       zeroclaw config list                                  # list all properties
       zeroclaw config list --secrets                        # list only secrets
-      zeroclaw config list --filter channels.matrix         # filter by prefix
-      zeroclaw config get channels.matrix.mention-only      # get a value
-      zeroclaw config set channels.matrix.mention-only true # set a value
-      zeroclaw config set channels.matrix.access-token      # secret: masked input
-      zeroclaw config set channels.matrix.stream-mode       # enum: interactive select
-      zeroclaw config init channels.matrix                  # init section with defaults
+      zeroclaw config list --filter channels.telegram         # filter by prefix
+      zeroclaw config get channels.telegram.mention-only      # get a value
+      zeroclaw config set channels.telegram.mention-only true # set a value
+      zeroclaw config set channels.telegram.bot-token      # secret: masked input
+      zeroclaw config set channels.telegram.stream-mode       # enum: interactive select
+      zeroclaw config init channels.telegram                  # init section with defaults
       zeroclaw config schema                                # print JSON Schema to stdout
       zeroclaw config schema > schema.json
 
