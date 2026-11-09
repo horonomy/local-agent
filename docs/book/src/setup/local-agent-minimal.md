@@ -90,6 +90,15 @@ environment override. Those are tracked as open decisions for HORO-2385.
   (`scripts/ci/minimal_profile_artifact.sh tree` asserts they are absent and that the
   default graph still has them). Other dependencies the listeners use, such as `rustls`,
   remain because the client helpers need them.
+- Proxy environment variables are honored. The HTTP clients for provider requests are
+  built with `reqwest` (version 0.12) and the code never calls `no_proxy()` on them, so
+  `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` from the process environment apply
+  to the approved provider as they do to any other request; the `[proxy]` config section
+  adds explicit proxies on top of this. A proxy therefore sees the approved
+  provider's traffic (and, for plain `http` endpoints, its content); the approval policy
+  limits which endpoint is contacted, not the network path to it. Leave these variables
+  unset, or list the provider host in `NO_PROXY`, when that path is not acceptable. The
+  egress probe does not set proxy variables, so it does not cover this path.
 - Provider OAuth sign-in (for example the Gemini and OpenAI flows) uses a short-lived,
   user-initiated loopback callback listener. It is not gated, and `listener_probe.py`
   does not exercise it.
