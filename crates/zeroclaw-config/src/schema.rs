@@ -64,7 +64,7 @@ impl ApplicationCapabilities {
 
 /// A channel type whose bundled adapter was removed. A leftover
 /// `[channels.<key>]` section is skipped (never fatal) and surfaced through
-/// [`Config::retired_channel_config_sections`]; references to it from agents,
+/// `Config::retired_channel_config_sections`; references to it from agents,
 /// peer groups or proxy selectors fail validation with the retirement hint.
 pub struct RetiredChannelType {
     /// Section key under `[channels]` / `[channels_config]`.
