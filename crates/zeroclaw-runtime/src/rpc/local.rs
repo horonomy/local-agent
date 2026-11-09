@@ -1277,7 +1277,7 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use anyhow::{Context, Result};
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
     /// On Windows the "listener" is a single pending server instance. After
