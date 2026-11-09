@@ -77,9 +77,7 @@ pub use crate::wecom_ws::WeComWsChannel;
 use crate::wecom_ws::WeComWsRuntimePolicy;
 #[cfg(feature = "channel-whatsapp-cloud")]
 pub use crate::whatsapp::WhatsAppChannel;
-pub use zeroclaw_api::channel::{
-    Channel, ChannelMessage, DraftProgress, DraftProgressKind, ListenerHealth, SendMessage,
-};
+pub use zeroclaw_api::channel::{Channel, ChannelMessage, ListenerHealth, SendMessage};
 // Local channel types (in misc, not zeroclaw-channels)
 pub use crate::cli::CliChannel;
 pub use crate::link_enricher;
@@ -142,7 +140,7 @@ use zeroclaw_runtime::util::truncate_with_ellipsis;
 type CronChannelRegistry = Arc<HashMap<String, Arc<dyn Channel>>>;
 
 /// Live channel registry consulted by `deliver_announcement` so cron sends reuse the
-/// authenticated channel instance (Matrix E2EE can't tolerate per-send session restore).
+/// authenticated channel instance (stateful channels can't tolerate per-send session restore).
 /// Replaced wholesale by the active channel task and cleared when that task ends.
 static CRON_CHANNEL_REGISTRY: std::sync::RwLock<Option<CronChannelRegistry>> =
     std::sync::RwLock::new(None);
@@ -276,18 +274,6 @@ const CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP: u64 = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
 const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
 const CHANNEL_TYPING_REFRESH_INTERVAL_SECS: u64 = 4;
-// matrix-sdk typing notices expire after four seconds and suppress resends for
-// the first three seconds. Refresh between those boundaries while the
-// single-message draft is still not visible.
-const MATRIX_SINGLE_MESSAGE_TYPING_REFRESH_INTERVAL_MS: u64 = 3_500;
-const _: () = assert!(
-    MATRIX_SINGLE_MESSAGE_TYPING_REFRESH_INTERVAL_MS > 3_000
-        && MATRIX_SINGLE_MESSAGE_TYPING_REFRESH_INTERVAL_MS < 4_000,
-    "Matrix typing refresh must clear matrix-sdk's resend gate before notice expiry"
-);
-// Typing is best-effort auxiliary feedback. Never let a stalled stop request
-// delay the first visible single-message draft indefinitely.
-const MATRIX_SINGLE_MESSAGE_TYPING_CLEANUP_TIMEOUT_MS: u64 = 100;
 const CHANNEL_HEALTH_HEARTBEAT_SECS: u64 = 30;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_PREVIEW_LIMIT: usize = 10;
@@ -562,7 +548,6 @@ struct InterruptOnNewMessageConfig {
     slack: bool,
     discord: bool,
     mattermost: bool,
-    matrix: bool,
     whatsapp: bool,
 }
 
@@ -573,7 +558,6 @@ impl InterruptOnNewMessageConfig {
             "slack" => self.slack,
             "discord" => self.discord,
             "mattermost" => self.mattermost,
-            "matrix" => self.matrix,
             "whatsapp" => self.whatsapp,
             _ => false,
         }
@@ -603,10 +587,6 @@ fn interrupt_on_new_message_config(
             .mattermost
             .values()
             .any(|mm| mm.interrupt_on_new_message),
-        matrix: channels
-            .matrix
-            .values()
-            .any(|mx| mx.interrupt_on_new_message),
         whatsapp: channels
             .whatsapp
             .values()
@@ -651,12 +631,6 @@ fn interrupt_on_new_message_enabled(
             .prompt_config
             .channels
             .mattermost
-            .get(alias)
-            .is_some_and(|config| config.interrupt_on_new_message),
-        "matrix" => ctx
-            .prompt_config
-            .channels
-            .matrix
             .get(alias)
             .is_some_and(|config| config.interrupt_on_new_message),
         "whatsapp" => ctx
@@ -1747,12 +1721,7 @@ fn conversation_history_key_in_scope(
     msg: &zeroclaw_api::channel::ChannelMessage,
     channel_scope: &str,
 ) -> String {
-    let thread_scope = match msg.thread_ts.as_deref() {
-        // Matrix thread_ts is a delivery anchor, not a topic boundary: root
-        // and follow-ups must share one sender+room session.
-        Some(_) if is_matrix_channel_name(&msg.channel) => None,
-        other => other,
-    };
+    let thread_scope = msg.thread_ts.as_deref();
     let raw = match (msg.conversation_scope, thread_scope) {
         (zeroclaw_api::channel::ChannelConversationScope::ReplyTarget, _) => {
             format!("{channel_scope}_{}", msg.reply_target)
@@ -1838,11 +1807,7 @@ fn scope_override_key(
 }
 
 fn followup_thread_id(msg: &zeroclaw_api::channel::ChannelMessage) -> Option<String> {
-    if is_matrix_channel_name(&msg.channel) {
-        msg.thread_ts.clone()
-    } else {
-        msg.thread_ts.clone().or_else(|| Some(msg.id.clone()))
-    }
+    msg.thread_ts.clone().or_else(|| Some(msg.id.clone()))
 }
 
 /// Interruption/cancellation is always personal: a newer message or `/stop`
@@ -2091,18 +2056,6 @@ pub(crate) fn strip_tool_call_tags(message: &str) -> String {
 
 fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
-        "matrix" => Some(
-            "When responding on Matrix:\n\
-             - Use Markdown formatting (bold, italic, code blocks)\n\
-             - Be concise and direct\n\
-             - For media attachments use markers: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>], or [VOICE:<path-or-url>]\n\
-             - Local marker paths may be workspace-relative or absolute, but they must resolve inside the configured workspace directory.\n\
-             - Copy paths from inbound messages or file tools exactly into markers. Do not add, remove, or rewrite path components.\n\
-             - Remote media is also accepted via http:// or https:// URLs in the same marker form.\n\
-             - Keep normal text outside markers and never wrap markers in code fences.\n\
-             - When you receive a [Voice message], the user spoke to you. Respond naturally as in conversation.\n\
-             - Your text reply will automatically be converted to audio and sent back as a voice message.\n",
-        ),
         "discord" => Some(
             "When responding on Discord:\n\
              - Use Markdown formatting (bold, italic, code blocks)\n\
@@ -2709,7 +2662,6 @@ fn supports_runtime_model_switch(channel_name: &str) -> bool {
         channel_name,
         "telegram"
             | "discord"
-            | "matrix"
             | "slack"
             | "wecom_ws"
             | "whatsapp"
@@ -2723,10 +2675,6 @@ fn should_bypass_reply_intent_precheck(
     direct_message: bool,
 ) -> bool {
     msg.explicitly_addressed || direct_message
-}
-
-fn is_matrix_channel_name(channel_name: &str) -> bool {
-    channel_name == "matrix" || channel_name.starts_with("matrix:")
 }
 
 fn parse_thinking_command_arg(raw: Option<&str>) -> Result<Option<ThinkingLevel>, String> {
@@ -3404,7 +3352,7 @@ fn is_agent_scope_authorized(
 
 /// Canonical peer-username form used by the agent-scope gate. Inbound
 /// channels (Telegram: `Self::normalize_identity`; IRC: `Match::CaseInsensitive`;
-/// Matrix: same) already collapse the inbound sender into a stripped /
+/// and others) already collapse the inbound sender into a stripped /
 /// case-folded identity before calling `allowlist::is_user_allowed`. The
 /// gate must apply the same shape to the configured `external_peers`
 /// list so an operator's `"@user_1"` / `"user_1"` / `"@Alice"` entries
@@ -3428,30 +3376,14 @@ fn normalize_peer_username(raw: &str) -> String {
 ///   voice-peer groups are configured for it, or a miss on Telegram must leave
 ///   the channel's input-driven voice mode in charge. The caller keeps the
 ///   channel's own fallback intact.
-/// - `Some(true)` — the sender matches a configured voice peer, or a Matrix
-///   `mirror` peer whose message was a voice note.
-/// - `Some(false)` — the sender is a Matrix `text` peer, a Matrix `mirror`
-///   peer whose message was text, or voice peers ARE configured for this
-///   channel and the sender is not among them. This is the authoritative
-///   negative: callers must not fall back to room membership, or a non-member
-///   sender in a room that also contains a voice-group member would
-///   incorrectly get voiced.
-///
-/// On Matrix the groups are consulted in the order `voice`, `text`, `mirror`,
-/// so a sender named by more than one gets the first match. A `mirror` verdict
-/// is `msg.voice_origin` — the inbound event's own voice flag, never the
-/// transcript or an earlier message in the room — so it is bound to this one
-/// message and cannot leak between senders or turns.
+/// - `Some(true)` — the sender matches a configured voice peer.
 ///
 /// The decision lives here because this is the only place that holds both the
 /// sender and the reply target. A channel that inspects its own outbound
-/// recipient instead cannot answer it correctly wherever the two differ: on
-/// Matrix a reply is addressed to a room (`!room:server`) while peer groups
-/// name senders (`@user:server`), so comparing the recipient against
-/// `external_peers` never matches, and `["*"]` fails a literal comparison too.
-/// Telegram has the same split — a group reply is addressed to the group's
-/// chat id while a peer group names a sender — and only its private chats have
-/// an address that is the peer's own id.
+/// recipient instead cannot answer it correctly wherever the two differ:
+/// Telegram replies to a group are addressed to the group's chat id while a
+/// peer group names a sender, and only its private chats have an address that
+/// is the peer's own id.
 ///
 /// Matching mirrors [`is_agent_scope_authorized`]: both the configured peers
 /// and the sender are normalized through [`normalize_peer_username`], then
@@ -3464,9 +3396,8 @@ fn normalize_peer_username(raw: &str) -> String {
 /// inbound sender to consult and is decided by the channel from its target
 /// address instead.
 ///
-/// A miss is the authoritative negative only for Matrix. Telegram also voices
-/// input-driven conversations from session state, so a config miss there must
-/// stay "no opinion" rather than suppress that.
+/// A miss stays "no opinion": Telegram also voices input-driven conversations
+/// from session state, so a config miss must not suppress that.
 fn sender_prefers_voice(
     ctx: &ChannelRuntimeContext,
     msg: &zeroclaw_api::channel::ChannelMessage,
@@ -3474,8 +3405,7 @@ fn sender_prefers_voice(
     use zeroclaw_config::multi_agent::OutputModality;
 
     let channel_type = msg.channel.as_str();
-    let matrix = channel_type.starts_with("matrix");
-    if !(matrix || channel_type.starts_with("telegram")) {
+    if !channel_type.starts_with("telegram") {
         return None;
     }
     let channel_alias = msg.channel_alias.as_deref().unwrap_or(channel_type);
@@ -3505,32 +3435,16 @@ fn sender_prefers_voice(
                 )
             })
     };
-    let voice_peers = peers_of(OutputModality::Voice);
-    if names_sender(&voice_peers) {
-        return Some(true);
-    }
-    if !matrix {
-        return None;
-    }
-    if names_sender(&peers_of(OutputModality::Text)) {
-        return Some(false);
-    }
-    if names_sender(&peers_of(OutputModality::Mirror)) {
-        return Some(msg.voice_origin);
-    }
-    (!voice_peers.is_empty()).then_some(false)
+    names_sender(&peers_of(OutputModality::Voice)).then_some(true)
 }
 
 /// Maps a [`sender_prefers_voice`] verdict to the
 /// `(suppress_voice_override, force_voice_override)` pair the no-`send_via`
 /// reply-delivery arm passes down to `SendMessage` / `finalize_draft`.
 ///
-/// Broken out of that call site so the mapping — which is the fix for the
-/// negative-sender-verdict regression (an authoritative "not a voice peer"
-/// must suppress voice rather than fall back to room-membership lookup) — is
-/// unit-testable on its own, and so a delivery-level test that mounts real
-/// Matrix room membership (in `matrix.rs`, where that scaffolding lives) can
-/// drive the exact production mapping without reconstructing the large
+/// Broken out of that call site so the mapping — an authoritative negative
+/// verdict must suppress voice rather than fall back to the channel's own
+/// lookup — is unit-testable on its own without reconstructing the large
 /// `ChannelRuntimeContext` this module builds `sender_prefers_voice`'s input
 /// from.
 pub(crate) fn voice_override_from_sender_verdict(verdict: Option<bool>) -> (Option<bool>, bool) {
@@ -6541,8 +6455,6 @@ async fn run_draft_updater_with_leak_detection(
             }
             // Structured tool events remain visible to ordinary draft
             // consumers through the runtime's conservative legacy renderer.
-            // Matrix has its own disclosure policy in
-            // `run_matrix_single_message_draft_updater`.
             event @ (StreamDelta::ToolStart { .. } | StreamDelta::ToolComplete { .. }) => {
                 if let Some(text) = event.legacy_status() {
                     let visible = sanitize_streaming_draft_text(&text, &known_tool_names);
@@ -7922,141 +7834,6 @@ fn spawn_scoped_typing_task(
     })
 }
 
-/// Matrix `single_message` drafts are externally visible. This carries typing
-/// from accepted input through pre-delivery work and stops it before the draft.
-/// A proper general lifecycle still requires event-subsystem ownership.
-struct MatrixSingleMessageTypingScope {
-    cancellation: CancellationToken,
-    handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl Drop for MatrixSingleMessageTypingScope {
-    fn drop(&mut self) {
-        self.cancellation.cancel();
-    }
-}
-
-fn start_matrix_single_message_typing_scope(
-    channel: Arc<dyn Channel>,
-    recipient: String,
-) -> MatrixSingleMessageTypingScope {
-    start_matrix_single_message_typing_scope_with_interval(
-        channel,
-        recipient,
-        Duration::from_millis(MATRIX_SINGLE_MESSAGE_TYPING_REFRESH_INTERVAL_MS),
-    )
-}
-
-fn start_matrix_single_message_typing_scope_with_interval(
-    channel: Arc<dyn Channel>,
-    recipient: String,
-    refresh_interval: Duration,
-) -> MatrixSingleMessageTypingScope {
-    let cancellation = CancellationToken::new();
-    let handle = spawn_matrix_single_message_typing_task(
-        channel,
-        recipient,
-        refresh_interval,
-        cancellation.clone(),
-    );
-    MatrixSingleMessageTypingScope {
-        cancellation,
-        handle: Some(handle),
-    }
-}
-
-fn spawn_matrix_single_message_typing_task(
-    channel: Arc<dyn Channel>,
-    recipient: String,
-    refresh_interval: Duration,
-    cancellation: CancellationToken,
-) -> tokio::task::JoinHandle<()> {
-    zeroclaw_spawn::spawn!(async move {
-        let mut interval = tokio::time::interval(refresh_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        interval.tick().await;
-        let cancelled_before_start = tokio::select! {
-            () = cancellation.cancelled() => true,
-            result = channel.start_typing(&recipient) => {
-                if let Err(e) = result {
-                    ::zeroclaw_log::record!(
-                        DEBUG,
-                        ::zeroclaw_log::Event::new(
-                            module_path!(),
-                            ::zeroclaw_log::Action::Note
-                        )
-                        .with_attrs(::serde_json::json!({
-                            "error": scrub_typing_error(&e)
-                        })),
-                        "failed to start typing"
-                    );
-                }
-                false
-            }
-        };
-        if !cancelled_before_start {
-            loop {
-                tokio::select! {
-                    () = cancellation.cancelled() => break,
-                    _ = interval.tick() => {
-                        if let Err(e) = channel.start_typing(&recipient).await {
-                            ::zeroclaw_log::record!(
-                                DEBUG,
-                                ::zeroclaw_log::Event::new(
-                                    module_path!(),
-                                    ::zeroclaw_log::Action::Note
-                                )
-                                .with_attrs(::serde_json::json!({
-                                    "error": scrub_typing_error(&e)
-                                })),
-                                "failed to refresh typing"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        match tokio::time::timeout(
-            Duration::from_millis(MATRIX_SINGLE_MESSAGE_TYPING_CLEANUP_TIMEOUT_MS),
-            channel.stop_typing(&recipient),
-        )
-        .await
-        {
-            Ok(Err(e)) => {
-                ::zeroclaw_log::record!(
-                    DEBUG,
-                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
-                        .with_attrs(::serde_json::json!({"error": scrub_typing_error(&e)})),
-                    "failed to stop typing"
-                );
-            }
-            Err(_) => {
-                ::zeroclaw_log::record!(
-                    DEBUG,
-                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note),
-                    "timed out stopping typing"
-                );
-            }
-            Ok(Ok(())) => {}
-        }
-    })
-}
-
-async fn stop_matrix_single_message_typing_scope(mut scope: MatrixSingleMessageTypingScope) {
-    scope.cancellation.cancel();
-    if let Some(mut handle) = scope.handle.take() {
-        match tokio::time::timeout(
-            Duration::from_millis(MATRIX_SINGLE_MESSAGE_TYPING_CLEANUP_TIMEOUT_MS),
-            &mut handle,
-        )
-        .await
-        {
-            Ok(result) => log_worker_join_result(result),
-            Err(_) => handle.abort(),
-        }
-    }
-}
-
 struct ScopedTypingTask {
     cancellation_token: CancellationToken,
     handle: tokio::task::JoinHandle<()>,
@@ -8329,736 +8106,6 @@ async fn process_channel_message_with_delivery_id(
     .await;
 }
 
-/// Resolve whether this inbound message uses Matrix `single_message`
-/// streaming. This is the only Matrix-specific branch the orchestrator needs:
-/// the channel still owns draft rendering, while the orchestrator avoids
-/// sending duplicate standalone tool-notification messages.
-fn matrix_single_message_streaming_enabled_for_config(
-    config: &zeroclaw_config::schema::Config,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> bool {
-    matrix_config_for_message(config, msg).is_some_and(|config| {
-        config.stream_mode == zeroclaw_config::schema::MatrixStreamMode::SingleMessage
-    })
-}
-
-fn matrix_config_for_message<'a>(
-    config: &'a zeroclaw_config::schema::Config,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> Option<&'a zeroclaw_config::schema::MatrixConfig> {
-    if msg.channel != "matrix" {
-        return None;
-    }
-    config.channels.matrix.get(msg.channel_alias.as_ref()?)
-}
-
-fn matrix_single_message_streaming_enabled(
-    ctx: &ChannelRuntimeContext,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> bool {
-    matrix_single_message_streaming_enabled_for_config(ctx.prompt_config.as_ref(), msg)
-}
-
-fn matrix_stream_reasoning_for_config(
-    config: &zeroclaw_config::schema::Config,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> zeroclaw_config::schema::StreamReasoningMode {
-    matrix_config_for_message(config, msg).map_or(
-        zeroclaw_config::schema::StreamReasoningMode::default(),
-        |config| config.stream_reasoning,
-    )
-}
-
-fn matrix_stream_reasoning(
-    ctx: &ChannelRuntimeContext,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> zeroclaw_config::schema::StreamReasoningMode {
-    matrix_stream_reasoning_for_config(ctx.prompt_config.as_ref(), msg)
-}
-
-fn matrix_draft_update_interval_ms_for_config(
-    config: &zeroclaw_config::schema::Config,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> u64 {
-    let default_interval = zeroclaw_config::schema::MatrixConfig::default()
-        .draft_update_interval_ms
-        .max(50);
-    matrix_config_for_message(config, msg).map_or(default_interval, |config| {
-        config.draft_update_interval_ms.max(50)
-    })
-}
-
-fn matrix_draft_update_interval_ms(
-    ctx: &ChannelRuntimeContext,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> u64 {
-    matrix_draft_update_interval_ms_for_config(ctx.prompt_config.as_ref(), msg)
-}
-
-fn matrix_stream_draft_lines_for_config(
-    config: &zeroclaw_config::schema::Config,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> usize {
-    let default_lines = zeroclaw_config::schema::MatrixConfig::default().stream_draft_lines;
-    matrix_config_for_message(config, msg).map_or(default_lines, |config| config.stream_draft_lines)
-}
-
-fn matrix_stream_draft_lines(
-    ctx: &ChannelRuntimeContext,
-    msg: &zeroclaw_api::channel::ChannelMessage,
-) -> usize {
-    matrix_stream_draft_lines_for_config(ctx.prompt_config.as_ref(), msg)
-}
-
-fn single_message_pending_has_prefix(text: &str, prefix: &str) -> bool {
-    text.strip_prefix(prefix)
-        .is_some_and(|rest| !rest.is_empty())
-}
-
-fn single_message_pending_thinking_round(progress: &DraftProgress) -> Option<usize> {
-    matches!(progress.kind, DraftProgressKind::Status)
-        .then(|| zeroclaw_runtime::agent::loop_::thinking_status_round(&progress.text))
-        .flatten()
-}
-
-fn single_message_pending_is_thinking_status(progress: &DraftProgress) -> bool {
-    single_message_pending_thinking_round(progress).is_some()
-}
-
-fn single_message_pending_is_reasoning(progress: &DraftProgress) -> bool {
-    matches!(progress.kind, DraftProgressKind::Reasoning)
-        && single_message_pending_has_prefix(
-            &progress.text,
-            zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX,
-        )
-}
-
-fn single_message_pending_visible_lines(progress: &DraftProgress) -> usize {
-    if single_message_pending_is_reasoning(progress) {
-        progress
-            .text
-            .trim_end_matches(&['\r', '\n'][..])
-            .split('\n')
-            .count()
-            .max(1)
-    } else {
-        1
-    }
-}
-
-fn trim_pending_visible_lines_from_front(
-    progress: &DraftProgress,
-    remove_lines: usize,
-) -> DraftProgress {
-    if remove_lines == 0 {
-        return progress.clone();
-    }
-
-    let rendered = progress.text.trim_end_matches(&['\r', '\n'][..]);
-    let total = single_message_pending_visible_lines(progress);
-    if remove_lines >= total {
-        let mut empty = progress.clone();
-        empty.text.clear();
-        return empty;
-    }
-
-    let retained = rendered
-        .split('\n')
-        .skip(remove_lines)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let text = if single_message_pending_is_reasoning(progress)
-        && !retained.starts_with(zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX)
-    {
-        format!(
-            "{}{retained}",
-            zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX
-        )
-    } else {
-        retained
-    };
-    DraftProgress {
-        kind: progress.kind,
-        text,
-    }
-}
-
-fn trim_matrix_single_message_pending(pending: &mut Vec<DraftProgress>, max_lines: usize) {
-    if max_lines == 0 {
-        return;
-    }
-    let mut total_lines = pending
-        .iter()
-        .map(single_message_pending_visible_lines)
-        .sum::<usize>();
-    while total_lines > max_lines {
-        let remove_lines = total_lines - max_lines;
-        let line_count = single_message_pending_visible_lines(&pending[0]);
-        if remove_lines >= line_count {
-            pending.remove(0);
-            total_lines = total_lines.saturating_sub(line_count);
-        } else {
-            pending[0] = trim_pending_visible_lines_from_front(&pending[0], remove_lines);
-            break;
-        }
-    }
-}
-
-fn push_matrix_single_message_pending(
-    pending: &mut Vec<DraftProgress>,
-    progress: DraftProgress,
-    max_lines: usize,
-) {
-    if progress.text.is_empty() {
-        return;
-    }
-    if let Some(incoming_round) = single_message_pending_thinking_round(&progress)
-        && let Some(existing) = pending.last_mut()
-        && single_message_pending_is_thinking_status(existing)
-    {
-        if incoming_round >= single_message_pending_thinking_round(existing).unwrap_or(0) {
-            *existing = progress;
-        }
-        trim_matrix_single_message_pending(pending, max_lines);
-        return;
-    }
-
-    if let Some(fragment) = progress
-        .text
-        .strip_prefix(zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX)
-        && let Some(existing) = pending.last_mut()
-        && single_message_pending_is_reasoning(existing)
-    {
-        existing.text.push_str(fragment);
-        trim_matrix_single_message_pending(pending, max_lines);
-        return;
-    }
-
-    pending.push(progress);
-    trim_matrix_single_message_pending(pending, max_lines);
-}
-
-const RUNTIME_ONLY_TOOL_ARGUMENTS: &[&str] = &["approved", "__config"];
-
-/// Matrix's canonical safe-display policy for native standard tools. Extensions
-/// and unresolved events never use this table, even when their public name collides.
-///
-/// A schema-annotation alternative could mark displayable properties in each
-/// provider-facing `ToolSpec` and recursively traverse nested schemas. It is
-/// deliberately deferred: provider compatibility for custom schema keywords is
-/// not established, nested-path configuration broadens this feature, and safe
-/// mode intentionally omits composite values. A follow-up PR may introduce
-/// that general metadata model above this Matrix-local policy.
-const MATRIX_REQUIRED_SAFE_TOOL_ARGUMENTS: &[(&[&str], &[&str])] = &[
-    (&["shell"], &["command"]),
-    (&["file_read"], &["path", "offset", "limit", "encoding"]),
-    (&["file_write"], &["path", "encoding"]),
-    (&["file_edit"], &["path"]),
-    (&["glob_search"], &["pattern"]),
-    (
-        &["content_search"],
-        &[
-            "pattern",
-            "path",
-            "output_mode",
-            "include",
-            "case_sensitive",
-            "max_results",
-        ],
-    ),
-    (&["git_operations"], &["action", "path", "branch"]),
-    (&["cron_add"], &["name", "job_type"]),
-    (&["cron_remove", "cron_run", "cron_update"], &[]),
-    (&["cron_runs"], &["limit"]),
-    (&["schedule"], &["action", "expression", "delay", "run_at"]),
-    (&["send_message_to_peer", "send_via"], &[]),
-    (&["ask_user"], &["timeout_secs"]),
-    (
-        &["escalate_to_human"],
-        &["urgency", "wait_for_response", "timeout_secs"],
-    ),
-    (&["reaction"], &["action", "emoji"]),
-    (&["poll"], &["duration_minutes", "multi_select"]),
-    (
-        &["channel_room"],
-        &["action", "name", "visibility", "encryption"],
-    ),
-    (&["sessions_list"], &["limit"]),
-    (&["sessions_history"], &["limit"]),
-    (&["sessions_send"], &[]),
-    (&["memory_store"], &["category"]),
-    (&["memory_recall"], &["query", "limit"]),
-    (&["memory_forget"], &[]),
-    (
-        &["memory_export"],
-        &["namespace", "category", "since", "until"],
-    ),
-    (&["memory_purge"], &["namespace"]),
-    (
-        &["model_routing_config"],
-        &["action", "model_provider", "model"],
-    ),
-    (&["model_switch"], &["action", "model_provider", "model"]),
-    (&["proxy_config"], &["action", "scope"]),
-    (&["http_request"], &["method"]),
-    (&["web_search_tool"], &["query"]),
-    (&["image_info"], &["path"]),
-    (&["canvas"], &["action"]),
-    (&["backup"], &[]),
-    (
-        &[
-            "cron_list",
-            "spawn_subagent",
-            "sessions_current",
-            "browser_open",
-            "web_fetch",
-            "screenshot",
-            "weather",
-            "pushover",
-            "calculator",
-        ],
-        &[],
-    ),
-];
-
-// These are configured or feature-gated standard tools. They are part of the
-// same presentation policy, but the default registry used by the drift test
-// intentionally does not construct them.
-const MATRIX_OPTIONAL_SAFE_TOOL_ARGUMENTS: &[(&[&str], &[&str])] = &[
-    (
-        &["delegate"],
-        &["action", "agent", "background", "timeout_ms"],
-    ),
-    (&["sessions_reset", "sessions_delete"], &[]),
-    (&["read_skill", "skill_view"], &["name"]),
-    (&["skills_list"], &["source"]),
-    (&["skill_manage"], &["action", "name"]),
-    (
-        &["sop_execute", "sop_advance", "sop_approve", "sop_status"],
-        &["action"],
-    ),
-    (&["sop_workshop"], &["action", "name"]),
-    (&["sop_list"], &[]),
-    (&["browser"], &["action"]),
-    (&["browser_delegate", "text_browser"], &["action"]),
-    (&["tool_search"], &["query", "max_results"]),
-    (
-        &["file_upload", "file_upload_bundle", "file_download"],
-        &["path"],
-    ),
-    (&["security_ops"], &["action"]),
-    (&["data_management"], &[]),
-    (&["image_gen"], &["model", "size", "quality"]),
-    (
-        &[
-            "cloud_ops",
-            "cloud_patterns",
-            "project_intel",
-            "report_template",
-        ],
-        &["action", "provider", "path", "name", "format"],
-    ),
-    (
-        &[
-            "notion",
-            "jira",
-            "microsoft365",
-            "google_workspace",
-            "linkedin",
-            "composio",
-        ],
-        &["action"],
-    ),
-    (&["email_search"], &["folder", "limit"]),
-    (&["email_read"], &["folder"]),
-    (&["discord_search"], &["limit"]),
-    (&["hardware_board_info"], &["board"]),
-    (
-        &["hardware_memory_map", "hardware_memory_read"],
-        &["board", "address", "length"],
-    ),
-    (&["mcp_resources", "mcp_prompts"], &["action"]),
-    (
-        &[
-            "execute_pipeline",
-            "knowledge",
-            "llm_task",
-            "vi_verify",
-            "claude_code",
-            "claude_code_runner",
-            "codex_cli",
-            "gemini_cli",
-            "opencode_cli",
-        ],
-        &[],
-    ),
-];
-
-fn matrix_safe_tool_arguments(tool: &str) -> Option<&'static [&'static str]> {
-    MATRIX_REQUIRED_SAFE_TOOL_ARGUMENTS
-        .iter()
-        .chain(MATRIX_OPTIONAL_SAFE_TOOL_ARGUMENTS)
-        .find_map(|(tools, arguments)| tools.contains(&tool).then_some(*arguments))
-}
-
-fn matrix_tool_progress(
-    event: &zeroclaw_runtime::agent::loop_::StreamDelta,
-    config: &Config,
-    matrix_alias: &str,
-) -> Option<String> {
-    let settings = config
-        .channels
-        .matrix
-        .get(matrix_alias)
-        .map_or(&[][..], |matrix| matrix.stream_tool_arguments.as_slice());
-    match event {
-        zeroclaw_runtime::agent::loop_::StreamDelta::ToolStart {
-            tool,
-            arguments,
-            tool_provenance,
-        } => {
-            let subject = matrix_tool_subject(tool, arguments, *tool_provenance, settings);
-            Some(format!("\u{23f3} {subject}\n"))
-        }
-        zeroclaw_runtime::agent::loop_::StreamDelta::ToolComplete {
-            tool,
-            arguments,
-            tool_provenance,
-            secs,
-            success,
-            error,
-        } => {
-            let subject = matrix_tool_subject(tool, arguments, *tool_provenance, settings);
-            if *success {
-                Some(format!("\u{2705} {subject} ({secs}s)\n"))
-            } else if let Some(error) = error {
-                Some(format!(
-                    "\u{274c} {subject} ({secs}s): {}\n",
-                    truncate_with_ellipsis(&matrix_scrub_display(error), 200)
-                ))
-            } else {
-                Some(format!("\u{274c} {subject} ({secs}s)\n"))
-            }
-        }
-        _ => None,
-    }
-}
-
-fn matrix_tool_subject(
-    tool: &str,
-    arguments: &serde_json::Value,
-    tool_provenance: Option<zeroclaw_api::attribution::ToolProvenance>,
-    settings: &[zeroclaw_config::schema::StreamToolArgumentEntry],
-) -> String {
-    // Tool lookup can fail, leaving a parser/model-supplied name without a
-    // trusted registry identity. Scrub and flatten every name at the Matrix
-    // presentation boundary; the draft transport performs Markdown/HTML
-    // escaping exactly once when it inserts the complete progress entry.
-    let display_tool = matrix_scrub_display(tool);
-    matrix_tool_argument_hint(tool, arguments, tool_provenance, settings).map_or_else(
-        || display_tool.clone(),
-        |hint| format!("{display_tool}: {hint}"),
-    )
-}
-
-fn matrix_tool_argument_hint(
-    tool: &str,
-    arguments: &serde_json::Value,
-    tool_provenance: Option<zeroclaw_api::attribution::ToolProvenance>,
-    settings: &[zeroclaw_config::schema::StreamToolArgumentEntry],
-) -> Option<String> {
-    use zeroclaw_config::schema::{
-        DEFAULT_STREAM_TOOL_ARGUMENT_CHARS, StreamToolArgumentBase, StreamToolArgumentEntry,
-    };
-
-    let serde_json::Value::Object(map) = arguments else {
-        return None;
-    };
-    let (default_base, default_chars) = settings
-        .iter()
-        .find_map(|entry| match entry {
-            StreamToolArgumentEntry::Defaults {
-                default_base,
-                argument_chars,
-            } => Some((
-                *default_base,
-                argument_chars.unwrap_or(DEFAULT_STREAM_TOOL_ARGUMENT_CHARS),
-            )),
-            StreamToolArgumentEntry::Tool { .. } => None,
-        })
-        .unwrap_or((
-            StreamToolArgumentBase::Safe,
-            DEFAULT_STREAM_TOOL_ARGUMENT_CHARS,
-        ));
-    let rule = settings.iter().find_map(|entry| match entry {
-        StreamToolArgumentEntry::Tool {
-            tool: rule_tool,
-            base,
-            include,
-            exclude,
-            argument_chars,
-        } if rule_tool == tool => Some((base, include, exclude, argument_chars)),
-        _ => None,
-    });
-    let (base, include, exclude, max_chars) = rule.map_or(
-        (default_base, &[][..], &[][..], default_chars),
-        |(base, include, exclude, argument_chars)| {
-            (
-                base.unwrap_or(default_base),
-                include.as_slice(),
-                exclude.as_slice(),
-                argument_chars.unwrap_or(default_chars),
-            )
-        },
-    );
-    let mut keys: Vec<(&str, bool)> = match base {
-        StreamToolArgumentBase::None => Vec::new(),
-        StreamToolArgumentBase::Safe => {
-            if matrix_safe_display_tool(tool_provenance) {
-                matrix_safe_tool_arguments(tool).unwrap_or_default()
-            } else {
-                &[]
-            }
-        }
-        .iter()
-        .copied()
-        .filter(|key| map.get(*key).is_some_and(matrix_is_scalar))
-        .map(|key| (key, false))
-        .collect(),
-        StreamToolArgumentBase::All => map.keys().map(|key| (key.as_str(), true)).collect(),
-    };
-    for key in include {
-        if map.contains_key(key) {
-            if let Some(existing) = keys.iter_mut().find(|(name, _)| *name == key) {
-                existing.1 = true;
-            } else {
-                keys.push((key, true));
-            }
-        }
-    }
-    keys.retain(|(key, _)| {
-        !exclude.iter().any(|excluded| excluded == key)
-            && !RUNTIME_ONLY_TOOL_ARGUMENTS.contains(key)
-    });
-    let parts: Vec<String> = keys
-        .into_iter()
-        .filter_map(|(key, explicit)| {
-            matrix_render_argument(key, map.get(key)?, max_chars, explicit)
-        })
-        .collect();
-    (!parts.is_empty()).then(|| parts.join(", "))
-}
-
-/// Matrix owns this disclosure policy. Only a resolved native tool may use its
-/// reviewed safe argument list; extensions and unresolved names are name-only.
-fn matrix_safe_display_tool(
-    tool_provenance: Option<zeroclaw_api::attribution::ToolProvenance>,
-) -> bool {
-    matches!(
-        tool_provenance,
-        Some(zeroclaw_api::attribution::ToolProvenance::Native)
-    )
-}
-
-fn matrix_render_argument(
-    key: &str,
-    value: &serde_json::Value,
-    max_chars: usize,
-    explicit: bool,
-) -> Option<String> {
-    if value.is_null() || (!explicit && !matrix_is_scalar(value)) {
-        return None;
-    }
-    let rendered = if zeroclaw_runtime::agent::is_credential_key(key) {
-        "[redacted]".to_string()
-    } else {
-        // The shared structured redactor owns credential policy, including key
-        // classification. Fix any newly discovered structured credential leak
-        // there rather than adding a Matrix-only exception.
-        let value = zeroclaw_runtime::agent::scrub_credentials_value(value.clone());
-        let rendered = match &value {
-            serde_json::Value::String(value) => value.clone(),
-            serde_json::Value::Bool(_) | serde_json::Value::Number(_) => value.to_string(),
-            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-                serde_json::to_string(&value).unwrap_or_else(|_| value.to_string())
-            }
-            serde_json::Value::Null => return None,
-        };
-        matrix_scrub_structured_display(&rendered)
-    };
-    if rendered.is_empty() {
-        None
-    } else if max_chars == 0 {
-        Some(format!("{key}={rendered}"))
-    } else {
-        Some(format!(
-            "{key}={}",
-            truncate_with_ellipsis(&rendered, max_chars)
-        ))
-    }
-}
-
-fn matrix_is_scalar(value: &serde_json::Value) -> bool {
-    matches!(
-        value,
-        serde_json::Value::String(_) | serde_json::Value::Bool(_) | serde_json::Value::Number(_)
-    )
-}
-
-fn matrix_normalize_display(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn matrix_scrub_display(value: &str) -> String {
-    matrix_normalize_display(&scrub_credentials(&zeroclaw_runtime::security::scrub(
-        value,
-    )))
-}
-
-fn matrix_scrub_structured_display(value: &str) -> String {
-    matrix_normalize_display(&zeroclaw_runtime::security::scrub(value))
-}
-
-fn matrix_scrub_progress_text(value: &str) -> String {
-    scrub_credentials(&zeroclaw_runtime::security::scrub(
-        &strip_think_tags_inline(value),
-    ))
-}
-
-fn matrix_progress_text(
-    event: &zeroclaw_runtime::agent::loop_::StreamDelta,
-    config: &Config,
-    matrix_alias: &str,
-) -> Option<DraftProgress> {
-    use zeroclaw_runtime::agent::loop_::{REASONING_FULL_PREFIX, StreamDelta};
-
-    let progress = match event {
-        StreamDelta::Status(text) => Some(DraftProgress::status(matrix_scrub_progress_text(text))),
-        StreamDelta::ToolStart { .. } | StreamDelta::ToolComplete { .. } => {
-            matrix_tool_progress(event, config, matrix_alias).map(DraftProgress::status)
-        }
-        StreamDelta::Reasoning(text) => Some(DraftProgress::reasoning(matrix_scrub_progress_text(
-            &format!("{REASONING_FULL_PREFIX}{text}"),
-        ))),
-        StreamDelta::Text(_) | StreamDelta::Lifecycle(_) | StreamDelta::FlushBarrier(_) => None,
-    }?;
-
-    // Every dynamic component has its own presentation/structured redaction,
-    // but the completed line is the Matrix progress egress boundary. Keep one
-    // canonical detector pass here after assembly, before buffering or
-    // transport encoding, so a future dynamic field cannot bypass the guard.
-    // Do not apply `scrub_credentials` again: structured-value redaction is
-    // the shared authority for serialized tool arguments.
-    Some(DraftProgress {
-        kind: progress.kind,
-        text: zeroclaw_runtime::security::scrub(&progress.text),
-    })
-}
-
-async fn run_matrix_single_message_draft_updater(
-    mut rx: tokio::sync::mpsc::Receiver<zeroclaw_runtime::agent::loop_::StreamDelta>,
-    channel: Arc<dyn Channel>,
-    reply_target: String,
-    draft_id: String,
-    interval_ms: u64,
-    stream_draft_lines: usize,
-    matrix_config: Arc<Config>,
-    matrix_alias: String,
-) {
-    let interval = Duration::from_millis(interval_ms.max(50));
-    let (flush_tx, mut flush_rx) = tokio::sync::mpsc::channel::<Option<String>>(1);
-    let mut ticker = tokio::time::interval(interval);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    ticker.tick().await;
-
-    let mut pending = Vec::<DraftProgress>::new();
-    let mut rx_open = true;
-    let mut flush_in_flight = false;
-
-    macro_rules! queue_progress {
-        ($event:expr) => {
-            if let Some(text) = matrix_progress_text(&$event, &matrix_config, &matrix_alias) {
-                push_matrix_single_message_pending(&mut pending, text, stream_draft_lines);
-            }
-        };
-    }
-
-    macro_rules! drain_ready {
-        () => {
-            loop {
-                match rx.try_recv() {
-                    Ok(event) => queue_progress!(event),
-                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
-                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                        rx_open = false;
-                        break;
-                    }
-                }
-            }
-        };
-    }
-
-    macro_rules! start_flush {
-        () => {
-            if !flush_in_flight && !pending.is_empty() {
-                let batch = std::mem::take(&mut pending);
-                let channel = Arc::clone(&channel);
-                let reply_target = reply_target.clone();
-                let draft_id = draft_id.clone();
-                let flush_tx = flush_tx.clone();
-                flush_in_flight = true;
-                zeroclaw_spawn::spawn!(async move {
-                    let result = channel
-                        .update_typed_draft_progress_batch(&reply_target, &draft_id, &batch)
-                        .await
-                        .map_err(|e| e.to_string());
-                    let _ = flush_tx.send(result.err()).await;
-                });
-            }
-        };
-    }
-
-    loop {
-        if !rx_open && !flush_in_flight {
-            start_flush!();
-            if pending.is_empty() && !flush_in_flight {
-                break;
-            }
-        }
-
-        tokio::select! {
-            maybe_event = rx.recv(), if rx_open => {
-                match maybe_event {
-                    Some(event) => {
-                        queue_progress!(event);
-                        drain_ready!();
-                    }
-                    None => {
-                        rx_open = false;
-                    }
-                }
-            }
-            _ = ticker.tick(), if !flush_in_flight && !pending.is_empty() => {
-                start_flush!();
-            }
-            maybe_error = flush_rx.recv(), if flush_in_flight => {
-                flush_in_flight = false;
-                if let Some(Some(error)) = maybe_error {
-                    ::zeroclaw_log::record!(
-                        DEBUG,
-                        ::zeroclaw_log::Event::new(
-                            module_path!(),
-                            ::zeroclaw_log::Action::Note
-                        )
-                        .with_attrs(::serde_json::json!({"error": error})),
-                        "Coalesced draft progress update failed"
-                    );
-                }
-            }
-        }
-    }
-}
-
 /// Resolve the effective `ack_reactions` value for a channel message.
 ///
 /// Per-channel overrides (e.g. `[channels.lark.work].ack_reactions`)
@@ -9085,13 +8132,6 @@ fn resolve_channel_ack_reactions(
             .prompt_config
             .channels
             .telegram
-            .get(alias)
-            .and_then(|c| c.ack_reactions)
-            .unwrap_or(ctx.ack_reactions),
-        "matrix" => ctx
-            .prompt_config
-            .channels
-            .matrix
             .get(alias)
             .and_then(|c| c.ack_reactions)
             .unwrap_or(ctx.ack_reactions),
@@ -9866,16 +8906,6 @@ async fn process_channel_message_body(
         outgoing_user_turn_raw_content = Some(raw_content);
     }
 
-    let matrix_single_message_streaming =
-        matrix_single_message_streaming_enabled(ctx.as_ref(), &msg);
-    let mut matrix_single_message_typing_scope = if matrix_single_message_streaming {
-        target_channel.as_ref().map(|channel| {
-            start_matrix_single_message_typing_scope(Arc::clone(channel), msg.reply_target.clone())
-        })
-    } else {
-        None
-    };
-
     // ── Reply-intent precheck ────────────────────────────────────────
     let direct_message = target_channel
         .as_ref()
@@ -10043,9 +9073,6 @@ async fn process_channel_message_body(
     };
 
     if let AssistantChannelOutcome::NoReply { kind, reason } = reply_intent {
-        if let Some(scope) = matrix_single_message_typing_scope.take() {
-            stop_matrix_single_message_typing_scope(scope).await;
-        }
         reconcile_early_ack(
             ctx.as_ref(),
             &msg,
@@ -10161,11 +9188,6 @@ async fn process_channel_message_body(
     // Partial mode: send an initial draft message for progressive editing.
     let draft_message_id = if use_draft_streaming {
         if let Some(channel) = target_channel.as_ref() {
-            if matrix_single_message_streaming
-                && let Some(scope) = matrix_single_message_typing_scope.take()
-            {
-                stop_matrix_single_message_typing_scope(scope).await;
-            }
             match channel
                 .send_draft(&SendMessage::reply_to(
                     &msg,
@@ -10207,60 +9229,39 @@ async fn process_channel_message_body(
             let reply_target = msg.reply_target.clone();
             let draft_id = draft_id_ref.to_string();
             let draft_lease = turn_lease.clone();
-            if matrix_single_message_streaming {
-                let interval_ms = matrix_draft_update_interval_ms(ctx.as_ref(), &msg);
-                let stream_draft_lines = matrix_stream_draft_lines(ctx.as_ref(), &msg);
-                let matrix_config = Arc::clone(&ctx.prompt_config);
-                let matrix_alias = msg.channel_alias.clone().unwrap_or_default();
-                Some(zeroclaw_spawn::spawn!(async move {
-                    let _lease = draft_lease;
-                    run_matrix_single_message_draft_updater(
-                        rx,
-                        channel,
-                        reply_target,
-                        draft_id,
-                        interval_ms,
-                        stream_draft_lines,
-                        matrix_config,
-                        matrix_alias,
-                    )
-                    .await;
-                }))
-            } else {
-                let turn_flush_narration = channel.supports_turn_flush_narration();
-                // Each permanent narration flush must cross the same outbound hook +
-                // leak-detection boundary as the final reply; capture the pieces the
-                // policy needs since `ctx`/`msg` are not moved into this task.
-                let outbound_hooks = ctx.hooks.clone();
-                let outbound_channel = msg.channel.clone();
-                // Same registry the final sanitizer reads, resolved once per turn
-                // rather than per delta.
-                let known_tool_names: HashSet<String> = ctx
-                    .tools_registry
-                    .iter()
-                    .map(|tool| tool.name().to_ascii_lowercase())
-                    .collect();
-                let streamed_draft_text = Arc::clone(&streamed_draft_text);
-                let leak_detection = ctx.prompt_config.security.leak_detection.clone();
-                let content_format = outbound_content_format_for_channel(&msg.channel);
-                Some(zeroclaw_spawn::spawn!(async move {
-                    let _lease = draft_lease;
-                    run_draft_updater_with_leak_detection(
-                        channel,
-                        reply_target,
-                        draft_id,
-                        known_tool_names,
-                        streamed_draft_text,
-                        leak_detection,
-                        content_format,
-                        turn_flush_narration,
-                        outbound_hooks,
-                        outbound_channel,
-                        rx,
-                    )
-                    .await;
-                }))
-            }
+            let turn_flush_narration = channel.supports_turn_flush_narration();
+            // Each permanent narration flush must cross the same outbound hook +
+            // leak-detection boundary as the final reply; capture the pieces the
+            // policy needs since `ctx`/`msg` are not moved into this task.
+            let outbound_hooks = ctx.hooks.clone();
+            let outbound_channel = msg.channel.clone();
+            // Same registry the final sanitizer reads, resolved once per turn
+            // rather than per delta.
+            let known_tool_names: HashSet<String> = ctx
+                .tools_registry
+                .iter()
+                .map(|tool| tool.name().to_ascii_lowercase())
+                .collect();
+            let streamed_draft_text = Arc::clone(&streamed_draft_text);
+            let leak_detection = ctx.prompt_config.security.leak_detection.clone();
+            let content_format = outbound_content_format_for_channel(&msg.channel);
+            Some(zeroclaw_spawn::spawn!(async move {
+                let _lease = draft_lease;
+                run_draft_updater_with_leak_detection(
+                    channel,
+                    reply_target,
+                    draft_id,
+                    known_tool_names,
+                    streamed_draft_text,
+                    leak_detection,
+                    content_format,
+                    turn_flush_narration,
+                    outbound_hooks,
+                    outbound_channel,
+                    rx,
+                )
+                .await;
+            }))
         } else {
             None
         }
@@ -10269,8 +9270,7 @@ async fn process_channel_message_body(
     };
 
     // Give draft-capable channels stable lifecycle signals before model work.
-    // Matrix single-message keeps its transcript path and ignores these typed
-    // chrome events; other channels decide how to render or rate-limit them.
+    // Channels decide how to render or rate-limit these typed chrome events.
     if let Some(tx) = delta_tx.as_ref() {
         let _ = tx
             .send(zeroclaw_runtime::agent::loop_::StreamDelta::Lifecycle(
@@ -10284,13 +9284,10 @@ async fn process_channel_message_body(
             .await;
     }
 
-    // Preserve the existing typing task placement and lifecycle for all other
-    // modes. Matrix single-message has already completed its short typing
-    // scope before its first visible draft delivery.
+    // Preserve the existing typing task placement and lifecycle.
     let is_partial_draft = target_channel
         .as_ref()
-        .is_some_and(|ch| ch.supports_draft_updates() && !ch.supports_multi_message_streaming())
-        || matrix_single_message_streaming;
+        .is_some_and(|ch| ch.supports_draft_updates() && !ch.supports_multi_message_streaming());
     let typing_controller = if is_partial_draft {
         None
     } else {
@@ -10327,9 +9324,7 @@ async fn process_channel_message_body(
     // Bounded so a slow downstream channel cannot grow this queue
     // without bound. See `ChannelNotifyObserver::record_event` for the
     // drop-on-full contract.
-    let (notify_tx, notify_task) = if matrix_single_message_streaming {
-        (None, None)
-    } else {
+    let (notify_tx, notify_task) = {
         let (notify_tx, mut notify_rx) = tokio::sync::mpsc::channel::<String>(128);
         let notify_channel = target_channel.clone();
         let notify_reply_target = msg.reply_target.clone();
@@ -10411,9 +9406,6 @@ async fn process_channel_message_body(
         }
     });
     let mut loop_knobs = LoopKnobs::default();
-    if matrix_single_message_streaming {
-        loop_knobs.draft_reasoning = matrix_stream_reasoning(ctx.as_ref(), &msg);
-    }
     let turn_id = uuid::Uuid::new_v4().to_string();
     // Bracket the channel turn so lifecycle events
     // reach observers (and, via the broadcast hook, /api/events and
@@ -10776,9 +9768,6 @@ async fn process_channel_message_body(
         "LLM call completed"
     );
 
-    if let Some(scope) = matrix_single_message_typing_scope.take() {
-        stop_matrix_single_message_typing_scope(scope).await;
-    }
     if let Some(typing) = typing_controller.as_ref() {
         typing.pause().await;
     }
@@ -11021,17 +10010,9 @@ async fn process_channel_message_body(
             } else {
                 // No `send_via` override: the peer group the sender belongs to
                 // decides. A positive verdict sets `force_voice` with
-                // `suppress_voice` left `None`. A negative verdict is
-                // authoritative — the sender is a `text` peer, a `mirror` peer
-                // who sent text, or known to be outside every voice group
-                // configured for this channel — so it is carried as an
-                // explicit `suppress_voice_override` rather than left to fall
-                // back to room-membership lookup, which would incorrectly
-                // voice a reply to a non-member sender in a room that also
-                // contains a voice-group member. A Matrix `mirror` member's
-                // verdict follows the message's `voice_origin`. `None` (no
-                // groups configured, or a non-Matrix channel) keeps that
-                // membership fallback intact.
+                // `suppress_voice` left `None`. `None` (no groups configured
+                // or no match) leaves the channel's own modality fallback
+                // intact.
                 let (suppress, force_voice) =
                     voice_override_from_sender_verdict(sender_prefers_voice(&ctx, &msg));
                 (
@@ -17105,7 +16086,7 @@ pub async fn start_channels_with_authority_and_plugin_webhooks(
         ));
         tool_descs.push((
             "channel_room",
-            "Create channel rooms and invite users through active channels. Use with Matrix channel keys such as matrix.default.",
+            "Create channel rooms and invite users through active channels that support rooms. Use with channel keys such as `<channel>.<alias>`.",
         ));
         if !config.agents.is_empty() {
             tool_descs.push((
@@ -17715,7 +16696,7 @@ pub async fn deliver_announcement(
     let make_msg = |s: &str| SendMessage::new(s, target).in_thread(thread_id.clone());
 
     // Snapshot out of the sync RwLock before awaiting. Use the live
-    // channel instance when available — critical for Matrix E2EE which
+    // channel instance when available — critical for stateful channels which
     // must reuse the authenticated client rather than re-running session
     // restore per delivery.
     let registry_snapshot = CRON_CHANNEL_REGISTRY
@@ -18141,7 +17122,6 @@ fn concurrent_persist_lock_serialization() {
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         },
         multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -18324,7 +17304,6 @@ fn test_channel_ctx_with_backend(
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         },
         multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -18448,7 +17427,6 @@ fn test_channel_ctx_with_backend_channel_and_provider(
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         },
         multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -20737,85 +19715,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn matrix_single_message_streaming_resolves_from_matrix_alias_only() {
-        let mut config = zeroclaw_config::schema::Config::default();
-        config.channels.matrix.insert(
-            "single".to_string(),
-            zeroclaw_config::schema::MatrixConfig {
-                stream_mode: zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-                stream_tool_arguments: vec![
-                    zeroclaw_config::schema::StreamToolArgumentEntry::Defaults {
-                        default_base: zeroclaw_config::schema::StreamToolArgumentBase::None,
-                        argument_chars: Some(240),
-                    },
-                ],
-                ..Default::default()
-            },
-        );
-        config.channels.matrix.insert(
-            "partial".to_string(),
-            zeroclaw_config::schema::MatrixConfig {
-                stream_mode: zeroclaw_config::schema::MatrixStreamMode::Partial,
-                ..Default::default()
-            },
-        );
-
-        let single_msg = ChannelMessage {
-            channel: "matrix".to_string(),
-            channel_alias: Some("single".to_string()),
-            ..Default::default()
-        };
-        let partial_msg = ChannelMessage {
-            channel: "matrix".to_string(),
-            channel_alias: Some("partial".to_string()),
-            ..Default::default()
-        };
-        let unknown_alias_msg = ChannelMessage {
-            channel: "matrix".to_string(),
-            channel_alias: Some("missing".to_string()),
-            ..Default::default()
-        };
-        let slack_msg = ChannelMessage {
-            channel: "slack".to_string(),
-            channel_alias: Some("single".to_string()),
-            ..Default::default()
-        };
-
-        assert!(matrix_single_message_streaming_enabled_for_config(
-            &config,
-            &single_msg
-        ));
-        assert!(!matrix_single_message_streaming_enabled_for_config(
-            &config,
-            &partial_msg
-        ));
-        assert!(!matrix_single_message_streaming_enabled_for_config(
-            &config,
-            &unknown_alias_msg
-        ));
-        assert!(!matrix_single_message_streaming_enabled_for_config(
-            &config, &slack_msg
-        ));
-        let single_policy = config
-            .channels
-            .matrix
-            .get("single")
-            .expect("configured Matrix alias")
-            .stream_tool_arguments
-            .as_slice();
-        assert_eq!(
-            matrix_tool_argument_hint(
-                "delegate",
-                &serde_json::json!({"agent": "ops"}),
-                Some(zeroclaw_api::attribution::ToolProvenance::Native),
-                single_policy
-            ),
-            None,
-            "the configured base=none policy must be resolved only by Matrix rendering"
-        );
-    }
-
-    #[test]
     fn local_capacity_cause_is_not_a_provider_overflow() {
         let error = anyhow::Error::new(zeroclaw_runtime::agent::ContextWindowExceeded {
             estimated_tokens: 65_537,
@@ -20836,25 +19735,16 @@ pub(crate) mod tests {
 
     #[allow(clippy::await_holding_lock)]
     #[tokio::test]
-    async fn matrix_context_window_failure_is_delivered_and_logged_before_provider_dispatch() {
+    async fn context_window_failure_is_delivered_and_logged_before_provider_dispatch() {
         let _writer_guard = zeroclaw_log::__private_test_writer_lock();
         let _hook_guard = zeroclaw_log::__private_test_hook_lock();
         zeroclaw_log::try_install_capture_subscriber();
         let mut rx = zeroclaw_log::subscribe_or_install();
 
         while rx.try_recv().is_ok() {}
-        let channel_impl = Arc::new(DraftRecordingChannel::matrix(
-            zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-        ));
+        let channel_impl = Arc::new(DraftRecordingChannel::new(false, false));
         let provider = Arc::new(PrecheckProbeModelProvider::default());
         let mut config = zeroclaw_config::schema::Config::default();
-        config.channels.matrix.insert(
-            "private".to_string(),
-            zeroclaw_config::schema::MatrixConfig {
-                stream_mode: zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-                ..Default::default()
-            },
-        );
         config.providers.models.custom.insert(
             "capacity".to_string(),
             zeroclaw_config::schema::CustomModelProviderConfig {
@@ -20878,13 +19768,12 @@ pub(crate) mod tests {
             .unwrap()
             .insert("custom.capacity".to_string(), provider.clone());
         let msg = ChannelMessage {
-            id: "matrix-capacity-error".to_string(),
+            id: "capacity-error".to_string(),
             explicitly_addressed: true,
             sender: "capacity-sender".to_string(),
             reply_target: "!private:example.com".to_string(),
             content: "private-context-prompt ".repeat(256),
-            channel: "matrix".to_string(),
-            channel_alias: Some("private".to_string()),
+            channel: "test-channel".to_string(),
             timestamp: 1,
             ..Default::default()
         };
@@ -20922,724 +19811,6 @@ pub(crate) mod tests {
         assert!(attributes.get("history_compacted").is_none());
         assert!(attributes.get("error").is_none());
         assert!(!event.to_string().contains("private-context-prompt"));
-    }
-
-    #[test]
-    fn matrix_tool_argument_policy_keeps_safe_defaults_and_honors_explicit_opt_in() {
-        use zeroclaw_config::schema::{
-            StreamToolArgumentBase as Base, StreamToolArgumentEntry as Entry,
-        };
-
-        let arguments = serde_json::json!({
-            "action": "start",
-            "agent": "sysadmin",
-            "background": true,
-            "task_id": "task-7",
-            "timeout_ms": 30_000,
-            "prompt": "inspect secrets",
-            "metadata": { "room": "private" },
-            "token": "should-never-leak",
-        });
-        assert_eq!(
-            matrix_tool_argument_hint(
-                "delegate",
-                &arguments,
-                Some(zeroclaw_api::attribution::ToolProvenance::Native),
-                &[],
-            )
-            .as_deref(),
-            Some("action=start, agent=sysadmin, background=true, timeout_ms=30000"),
-        );
-
-        let policy = vec![Entry::Tool {
-            tool: "delegate".to_string(),
-            base: Some(Base::None),
-            include: vec![
-                "prompt".to_string(),
-                "metadata".to_string(),
-                "token".to_string(),
-            ],
-            exclude: Vec::new(),
-            argument_chars: Some(0),
-        }];
-        assert_eq!(
-            matrix_tool_argument_hint(
-                "delegate",
-                &arguments,
-                Some(zeroclaw_api::attribution::ToolProvenance::Native),
-                &policy,
-            )
-            .as_deref(),
-            Some("prompt=inspect secrets, metadata={\"room\":\"private\"}, token=[redacted]"),
-        );
-    }
-
-    #[test]
-    fn matrix_tool_argument_policy_keeps_unknown_tools_name_only_by_default() {
-        let arguments = serde_json::json!({"path": "/private", "count": 3});
-        assert_eq!(
-            matrix_tool_argument_hint("mcp-private", &arguments, None, &[],),
-            None
-        );
-    }
-
-    #[test]
-    fn matrix_safe_policy_keeps_extension_and_unresolved_name_collisions_name_only() {
-        use zeroclaw_api::attribution::ToolProvenance;
-        use zeroclaw_config::schema::{
-            StreamToolArgumentBase as Base, StreamToolArgumentEntry as Entry,
-        };
-
-        let arguments = serde_json::json!({"action": "navigate"});
-        assert_eq!(
-            matrix_tool_argument_hint("browser", &arguments, Some(ToolProvenance::Extension), &[],),
-            None,
-            "an extension named like a standard tool stays name-only in safe mode"
-        );
-        assert_eq!(
-            matrix_tool_argument_hint("browser", &arguments, Some(ToolProvenance::Native), &[],)
-                .as_deref(),
-            Some("action=navigate"),
-            "the canonical standard tool keeps its reviewed safe field"
-        );
-        assert_eq!(
-            matrix_tool_argument_hint("browser", &arguments, None, &[]),
-            None,
-            "an unresolved tool named like a standard tool stays name-only"
-        );
-        let explicit_policy = [Entry::Tool {
-            tool: "browser".to_string(),
-            base: Some(Base::None),
-            include: vec!["action".to_string()],
-            exclude: Vec::new(),
-            argument_chars: None,
-        }];
-        assert_eq!(
-            matrix_tool_argument_hint(
-                "browser",
-                &arguments,
-                Some(ToolProvenance::Extension),
-                &explicit_policy,
-            )
-            .as_deref(),
-            Some("action=navigate"),
-            "an operator can explicitly disclose extension fields"
-        );
-    }
-
-    #[test]
-    fn matrix_safe_policy_fields_match_active_standard_tool_schemas() {
-        use zeroclaw_config::builtin_tools::EXTERNAL_TOOL_NAMES;
-        use zeroclaw_config::validation_warnings::TOOL_COMPILED_OUT;
-
-        let temp = TempDir::new().expect("temporary workspace");
-        let mut config = Config {
-            data_dir: temp.path().join("data"),
-            config_path: temp.path().join("config.toml"),
-            ..Config::default()
-        };
-        config.tools.optional = vec!["*".into()];
-
-        // Config owns compile availability; channels has no tools-external feature of its own.
-        // Only named adapters are reported as compiled out, so probe with every one by name.
-        let mut probe = config.clone();
-        probe.tools.optional = EXTERNAL_TOOL_NAMES
-            .iter()
-            .map(|name| (*name).into())
-            .collect();
-        let compiled_out_external = probe
-            .collect_warnings()
-            .iter()
-            .filter(|warning| warning.code == TOOL_COMPILED_OUT && warning.path == "tools.optional")
-            .count();
-        assert!(
-            compiled_out_external == 0 || compiled_out_external == EXTERNAL_TOOL_NAMES.len(),
-            "naming every external adapter must report all of them or none as compiled out"
-        );
-        let mut expected_absent_required_tools: Vec<&str> = MATRIX_REQUIRED_SAFE_TOOL_ARGUMENTS
-            .iter()
-            .flat_map(|(tools, _)| tools.iter().copied())
-            .filter(|tool| compiled_out_external != 0 && EXTERNAL_TOOL_NAMES.contains(tool))
-            .collect();
-        expected_absent_required_tools.sort_unstable();
-
-        let config = Arc::new(config);
-        let security = Arc::new(SecurityPolicy::default());
-        let registry = tools::all_tools(
-            Arc::clone(&config),
-            &security,
-            &zeroclaw_config::schema::RiskProfileConfig::default(),
-            "test-agent",
-            Arc::new(NoopMemory),
-            None,
-            None,
-            &config.browser,
-            &config.http_request,
-            &config.web_fetch,
-            temp.path(),
-            &HashMap::new(),
-            None,
-            config.as_ref(),
-            None,
-            false,
-            None,
-        )
-        .expect("tool registry builds");
-        let schemas: HashMap<String, Arc<serde_json::Value>> = registry
-            .tools
-            .iter()
-            .map(|tool| {
-                let spec = tool.spec();
-                (spec.name, spec.parameters)
-            })
-            .collect();
-        let mut checked_tools = 0;
-        let mut policy_tools = HashSet::new();
-        let mut absent_required_tools = Vec::new();
-
-        for (groups, required) in [
-            (MATRIX_REQUIRED_SAFE_TOOL_ARGUMENTS, true),
-            (MATRIX_OPTIONAL_SAFE_TOOL_ARGUMENTS, false),
-        ] {
-            for (tools, fields) in groups {
-                for tool in *tools {
-                    assert!(
-                        policy_tools.insert(*tool),
-                        "Matrix safe policy lists tool {tool:?} more than once"
-                    );
-                    let Some(schema) = schemas.get(*tool) else {
-                        if required {
-                            absent_required_tools.push(*tool);
-                        }
-                        continue;
-                    };
-                    checked_tools += 1;
-                    let properties = schema
-                        .get("properties")
-                        .and_then(serde_json::Value::as_object)
-                        .unwrap_or_else(|| panic!("{tool} must expose an object parameter schema"));
-                    for field in *fields {
-                        assert!(
-                            properties.contains_key(*field),
-                            "Matrix safe policy references missing field {field:?} for tool {tool:?}"
-                        );
-                    }
-                }
-            }
-        }
-
-        assert!(
-            checked_tools >= 20,
-            "the standard registry unexpectedly exposed only {checked_tools} safe-policy tools"
-        );
-        absent_required_tools.sort_unstable();
-        assert_eq!(
-            absent_required_tools, expected_absent_required_tools,
-            "required Matrix safe policy tool absences must exactly match this build's external adapters"
-        );
-    }
-
-    #[test]
-    fn matrix_safe_policy_names_only_inventoried_tools() {
-        // First-party tools the built-in inventory deliberately leaves out that
-        // the Matrix safe policy still covers.
-        let outside_inventory = BTreeSet::from([
-            // Implemented, but the agent registry does not register them.
-            "sessions_reset",
-            "sessions_delete",
-            // Registered only by the opt-in background skill review.
-            "skills_list",
-            "skill_view",
-            "skill_manage",
-            // Peripheral tools, built by the hardware crate from configured boards.
-            "hardware_board_info",
-            "hardware_memory_map",
-            "hardware_memory_read",
-            // Withheld from the model-visible registry.
-            "vi_verify",
-        ]);
-        let policy_tools: BTreeSet<&str> = MATRIX_REQUIRED_SAFE_TOOL_ARGUMENTS
-            .iter()
-            .chain(MATRIX_OPTIONAL_SAFE_TOOL_ARGUMENTS)
-            .flat_map(|(tools, _)| tools.iter().copied())
-            .collect();
-
-        let uninventoried: Vec<&str> = policy_tools
-            .iter()
-            .copied()
-            .filter(|tool| {
-                !outside_inventory.contains(tool)
-                    && !zeroclaw_tools::inventory::is_builtin_tool_name(tool)
-            })
-            .collect();
-        assert!(
-            uninventoried.is_empty(),
-            "the Matrix safe policy names tools missing from the built-in inventory: {uninventoried:?}"
-        );
-
-        for tool in &outside_inventory {
-            assert!(
-                policy_tools.contains(tool),
-                "`{tool}` is no longer in the Matrix safe policy; drop it from this allowlist"
-            );
-            assert!(
-                !zeroclaw_tools::inventory::is_builtin_tool_name(tool),
-                "`{tool}` is now inventoried; drop it from this allowlist"
-            );
-        }
-    }
-
-    #[test]
-    fn matrix_tool_progress_uses_the_same_subject_for_start_and_completion() {
-        use zeroclaw_api::attribution::ToolProvenance;
-        use zeroclaw_runtime::agent::loop_::StreamDelta;
-
-        let config = Config::default();
-        let arguments = serde_json::json!({"agent": "sysadmin", "prompt": "private"});
-        let start = matrix_tool_progress(
-            &StreamDelta::ToolStart {
-                tool: "delegate".to_string(),
-                arguments: Arc::new(arguments.clone()),
-                tool_provenance: Some(ToolProvenance::Native),
-            },
-            &config,
-            "missing",
-        )
-        .expect("tool start renders");
-        let completion = matrix_tool_progress(
-            &StreamDelta::ToolComplete {
-                tool: "delegate".to_string(),
-                arguments: Arc::new(arguments),
-                tool_provenance: Some(ToolProvenance::Native),
-                secs: 4,
-                success: true,
-                error: None,
-            },
-            &config,
-            "missing",
-        )
-        .expect("tool completion renders");
-
-        assert_eq!(start, "⏳ delegate: agent=sysadmin\n");
-        assert_eq!(completion, "✅ delegate: agent=sysadmin (4s)\n");
-    }
-
-    #[test]
-    fn matrix_tool_progress_recursively_redacts_explicit_composite_arguments() {
-        use zeroclaw_api::attribution::ToolProvenance;
-        use zeroclaw_config::schema::{
-            MatrixConfig, StreamToolArgumentBase as Base, StreamToolArgumentEntry as Entry,
-        };
-        use zeroclaw_runtime::agent::loop_::StreamDelta;
-
-        const CANONICAL_TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
-
-        let mut config = Config::default();
-        config.channels.matrix.insert(
-            "single".to_string(),
-            MatrixConfig {
-                stream_tool_arguments: vec![Entry::Tool {
-                    tool: "delegate".to_string(),
-                    base: Some(Base::None),
-                    include: vec![
-                        "metadata".to_string(),
-                        "cookie".to_string(),
-                        "user-key".to_string(),
-                    ],
-                    exclude: Vec::new(),
-                    argument_chars: Some(0),
-                }],
-                ..Default::default()
-            },
-        );
-        let arguments = serde_json::json!({
-            "cookie": "short-cookie",
-            "user-key": "short-user-key",
-            "metadata": {
-                "password": "short",
-                "private_key": "tiny",
-                "numeric_token": 1234,
-                "credentials": {"value": "nested"},
-                "opaque": CANONICAL_TOKEN
-            }
-        });
-        let start = matrix_tool_progress(
-            &StreamDelta::ToolStart {
-                tool: "delegate".to_string(),
-                arguments: Arc::new(arguments.clone()),
-                tool_provenance: Some(ToolProvenance::Extension),
-            },
-            &config,
-            "single",
-        )
-        .expect("tool start renders");
-        let completion = matrix_tool_progress(
-            &StreamDelta::ToolComplete {
-                tool: "delegate".to_string(),
-                arguments: Arc::new(arguments),
-                tool_provenance: Some(ToolProvenance::Extension),
-                secs: 4,
-                success: true,
-                error: None,
-            },
-            &config,
-            "single",
-        )
-        .expect("tool completion renders");
-
-        for progress in [&start, &completion] {
-            assert!(
-                progress.contains("metadata={")
-                    && progress.contains("\"password\":\"[REDACTED]\"")
-                    && progress.contains("\"private_key\":\"[REDACTED]\"")
-                    && progress.contains("\"numeric_token\":\"[REDACTED]\"")
-                    && progress.contains("\"credentials\":\"[REDACTED]\"")
-                    && progress.contains("cookie=[redacted]")
-                    && progress.contains("user-key=[redacted]"),
-                "nested password must be redacted: {progress}"
-            );
-            assert!(
-                !progress.contains("short"),
-                "nested password must not reach Matrix: {progress}"
-            );
-            assert!(
-                !progress.contains("tiny"),
-                "nested private key must not reach Matrix: {progress}"
-            );
-            assert!(
-                !progress.contains("1234") && !progress.contains("nested"),
-                "credential-shaped values must not reach Matrix: {progress}"
-            );
-            assert!(
-                !progress.contains("short-cookie") && !progress.contains("short-user-key"),
-                "selected top-level credential values must not reach Matrix: {progress}"
-            );
-            assert!(
-                !progress.contains(CANONICAL_TOKEN),
-                "canonical token must not reach Matrix: {progress}"
-            );
-        }
-    }
-
-    #[test]
-    fn matrix_tool_progress_treats_carried_extension_or_missing_provenance_as_untrusted() {
-        use zeroclaw_api::attribution::ToolProvenance;
-        use zeroclaw_runtime::agent::loop_::StreamDelta;
-
-        let config = Config::default();
-        let arguments = serde_json::json!({"action": "navigate"});
-        for tool_provenance in [Some(ToolProvenance::Extension), None] {
-            let start = matrix_tool_progress(
-                &StreamDelta::ToolStart {
-                    tool: "browser".to_string(),
-                    arguments: Arc::new(arguments.clone()),
-                    tool_provenance,
-                },
-                &config,
-                "missing",
-            )
-            .expect("tool start renders");
-            let completion = matrix_tool_progress(
-                &StreamDelta::ToolComplete {
-                    tool: "browser".to_string(),
-                    arguments: Arc::new(arguments.clone()),
-                    tool_provenance,
-                    secs: 4,
-                    success: true,
-                    error: None,
-                },
-                &config,
-                "missing",
-            )
-            .expect("tool completion renders");
-            assert_eq!(
-                start, "⏳ browser\n",
-                "extension and unresolved tools must not reveal native safe arguments"
-            );
-            assert_eq!(
-                completion, "✅ browser (4s)\n",
-                "completion must preserve the same name-only default"
-            );
-        }
-    }
-
-    #[test]
-    fn matrix_tool_progress_scrubs_and_flattens_unresolved_tool_names() {
-        use zeroclaw_runtime::agent::loop_::StreamDelta;
-
-        const CANONICAL_TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
-
-        let config = Config::default();
-        let tool = format!("unknown\r\n{CANONICAL_TOKEN}\t<div>**bold**</div>");
-        let arguments = Arc::new(serde_json::json!({"ignored": "value"}));
-        let start = matrix_tool_progress(
-            &StreamDelta::ToolStart {
-                tool: tool.clone(),
-                arguments: Arc::clone(&arguments),
-                tool_provenance: None,
-            },
-            &config,
-            "missing",
-        )
-        .expect("tool start renders");
-        let completion = matrix_tool_progress(
-            &StreamDelta::ToolComplete {
-                tool,
-                arguments,
-                tool_provenance: None,
-                secs: 4,
-                success: true,
-                error: None,
-            },
-            &config,
-            "missing",
-        )
-        .expect("tool completion renders");
-
-        let start_subject = start
-            .strip_prefix("⏳ ")
-            .and_then(|value| value.strip_suffix('\n'))
-            .expect("start subject is framed");
-        let completion_subject = completion
-            .strip_prefix("✅ ")
-            .and_then(|value| value.strip_suffix(" (4s)\n"))
-            .expect("completion subject is framed");
-
-        assert_eq!(start_subject, completion_subject);
-        assert!(!start_subject.contains(CANONICAL_TOKEN));
-        assert!(!start_subject.chars().any(char::is_control));
-        assert!(start_subject.contains("[REDACTED"));
-        assert!(start_subject.contains("<div>**bold**</div>"));
-        assert!(!start_subject.contains("\\<div") && !start_subject.contains("\\*\\*bold"));
-    }
-
-    #[test]
-    fn matrix_status_progress_scrubs_standalone_secret_patterns() {
-        use zeroclaw_runtime::agent::loop_::StreamDelta;
-
-        let token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
-        let progress = matrix_progress_text(
-            &StreamDelta::Status(format!("Cancelled by hook: {token}")),
-            &Config::default(),
-            "missing",
-        )
-        .expect("status renders");
-
-        assert!(!progress.text.contains(token));
-        assert!(progress.text.contains("[REDACTED"));
-    }
-
-    #[test]
-    fn matrix_tool_progress_scrubs_secret_pattern_assembled_across_components() {
-        use zeroclaw_runtime::agent::loop_::StreamDelta;
-
-        // Neither component alone is a complete PEM span. The final Matrix
-        // egress scrub must therefore see their assembled progress line.
-        let progress = matrix_progress_text(
-            &StreamDelta::ToolComplete {
-                tool: "-----BEGIN PRIVATE KEY-----".to_string(),
-                arguments: Arc::new(serde_json::json!({})),
-                tool_provenance: None,
-                secs: 0,
-                success: false,
-                error: Some("-----END PRIVATE KEY-----".to_string()),
-            },
-            &Config::default(),
-            "missing",
-        )
-        .expect("tool completion renders");
-
-        assert!(!progress.text.contains("-----BEGIN PRIVATE KEY-----"));
-        assert!(!progress.text.contains("-----END PRIVATE KEY-----"));
-        assert!(progress.text.contains("[REDACTED"));
-    }
-
-    #[test]
-    fn matrix_single_message_pending_splits_reasoning_after_tool_progress() {
-        use zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX;
-
-        let mut pending = Vec::new();
-        for idx in 0..10 {
-            let fragment = if idx == 0 {
-                format!("{REASONING_FULL_PREFIX}Thinking (round 2) r{idx}")
-            } else {
-                format!("{REASONING_FULL_PREFIX} r{idx}")
-            };
-            push_matrix_single_message_pending(&mut pending, DraftProgress::reasoning(fragment), 3);
-            push_matrix_single_message_pending(
-                &mut pending,
-                DraftProgress::status(format!("tool-{idx}\n")),
-                3,
-            );
-        }
-
-        assert!(
-            pending.len() <= 3,
-            "bounded pending buffer should honor stream_draft_lines, got {pending:?}"
-        );
-        assert!(
-            pending.iter().all(|line| !line.text.contains("r7 r8")),
-            "reasoning after tool progress must start a new entry, got {pending:?}"
-        );
-        assert!(
-            !pending.iter().any(|line| line.text == "tool-0\n"),
-            "old non-reasoning progress should be trimmed first: {pending:?}"
-        );
-    }
-
-    #[test]
-    fn matrix_single_message_pending_keeps_separator_between_reasoning_entries() {
-        use zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX;
-
-        let mut pending = Vec::new();
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}before tool")),
-            2,
-        );
-        push_matrix_single_message_pending(&mut pending, DraftProgress::status("tool call"), 2);
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}after tool")),
-            2,
-        );
-
-        assert_eq!(
-            pending,
-            vec![
-                DraftProgress::status("tool call"),
-                DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}after tool"))
-            ]
-        );
-    }
-
-    #[test]
-    fn matrix_single_message_pending_keeps_complete_reasoning_until_matrix_event_fitting() {
-        use zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX;
-
-        let mut pending = Vec::new();
-        let max_bytes = format!("{REASONING_FULL_PREFIX}abcd").len();
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}abcd")),
-            3,
-        );
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}efgh")),
-            3,
-        );
-
-        assert_eq!(
-            pending,
-            vec![DraftProgress::reasoning(format!(
-                "{REASONING_FULL_PREFIX}abcdefgh"
-            ))]
-        );
-        assert!(pending.iter().any(|line| line.text.len() > max_bytes));
-    }
-
-    #[test]
-    fn matrix_single_message_pending_limit_counts_visible_lines_not_events() {
-        use zeroclaw_runtime::agent::loop_::REASONING_FULL_PREFIX;
-
-        let mut pending = Vec::new();
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}one\ntwo\nthree")),
-            2,
-        );
-
-        assert_eq!(
-            pending,
-            vec![DraftProgress::reasoning(format!(
-                "{REASONING_FULL_PREFIX}two\nthree"
-            ))]
-        );
-
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::status("tool line\nwith detail\n"),
-            2,
-        );
-
-        assert_eq!(
-            pending,
-            vec![
-                DraftProgress::reasoning(format!("{REASONING_FULL_PREFIX}three")),
-                DraftProgress::status("tool line\nwith detail\n")
-            ]
-        );
-    }
-
-    #[test]
-    fn matrix_single_message_pending_does_not_downgrade_thinking_round() {
-        use zeroclaw_runtime::agent::loop_::thinking_status_text;
-
-        let mut pending = Vec::new();
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::status(thinking_status_text(1)),
-            3,
-        );
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::status(thinking_status_text(0)),
-            3,
-        );
-
-        assert_eq!(
-            pending,
-            vec![DraftProgress::status(thinking_status_text(1))]
-        );
-
-        push_matrix_single_message_pending(&mut pending, DraftProgress::status("tool\n"), 3);
-
-        push_matrix_single_message_pending(
-            &mut pending,
-            DraftProgress::status(thinking_status_text(2)),
-            3,
-        );
-
-        assert_eq!(
-            pending,
-            vec![
-                DraftProgress::status(thinking_status_text(1)),
-                DraftProgress::status("tool\n"),
-                DraftProgress::status(thinking_status_text(2))
-            ]
-        );
-    }
-
-    #[test]
-    fn matrix_single_message_pending_preserves_reasoning_matching_thinking_status() {
-        use zeroclaw_runtime::agent::loop_::{StreamDelta, thinking_status_text};
-
-        let config = Config::default();
-        let status = matrix_progress_text(
-            &StreamDelta::Status(thinking_status_text(0)),
-            &config,
-            "missing",
-        )
-        .expect("thinking status renders");
-        let reasoning = matrix_progress_text(
-            &StreamDelta::Reasoning("Thinking...\n".to_string()),
-            &config,
-            "missing",
-        )
-        .expect("reasoning renders");
-        let mut pending = Vec::new();
-
-        // Equal display text must remain two source-distinct progress entries.
-        push_matrix_single_message_pending(&mut pending, status.clone(), 3);
-        push_matrix_single_message_pending(&mut pending, reasoning.clone(), 3);
-
-        assert_eq!(
-            status.text, reasoning.text,
-            "the regression requires an exact display-text collision"
-        );
-        assert_ne!(status.kind, reasoning.kind);
-        assert_eq!(pending, vec![status, reasoning]);
     }
 
     struct SlowBatchChannel {
@@ -21686,86 +19857,6 @@ pub(crate) mod tests {
             self.batches.lock().await.push(texts.to_vec());
             Ok(())
         }
-    }
-
-    #[tokio::test]
-    async fn matrix_single_message_progress_coalesces_slow_flush() {
-        use zeroclaw_runtime::agent::loop_::{REASONING_FULL_PREFIX, StreamDelta};
-
-        let batches = Arc::new(tokio::sync::Mutex::new(Vec::<Vec<String>>::new()));
-        let channel: Arc<dyn Channel> = Arc::new(SlowBatchChannel {
-            batches: Arc::clone(&batches),
-            delay: Duration::from_millis(150),
-        });
-        let (tx, rx) = tokio::sync::mpsc::channel(64);
-        let updater = zeroclaw_spawn::spawn!(run_matrix_single_message_draft_updater(
-            rx,
-            channel,
-            "room".to_string(),
-            "draft".to_string(),
-            50,
-            5,
-            Arc::new(Config::default()),
-            "test".to_string(),
-        ));
-
-        for idx in 0..20 {
-            tx.send(StreamDelta::Reasoning(format!(" pre{idx}")))
-                .await
-                .unwrap();
-        }
-        tokio::time::sleep(Duration::from_millis(80)).await;
-
-        for idx in 0..80 {
-            tx.send(StreamDelta::Text(format!("answer-{idx}")))
-                .await
-                .unwrap();
-            tx.send(StreamDelta::Reasoning(format!(" post{idx}")))
-                .await
-                .unwrap();
-            tx.send(StreamDelta::Status(format!("tool-{idx}\n")))
-                .await
-                .unwrap();
-        }
-        drop(tx);
-
-        tokio::time::timeout(Duration::from_secs(3), updater)
-            .await
-            .expect("single-message updater should finish")
-            .expect("single-message updater task should not panic");
-
-        let batches = batches.lock().await.clone();
-        assert!(
-            (2..=4).contains(&batches.len()),
-            "slow flush should coalesce many deltas into a few batch edits, got {batches:?}"
-        );
-        assert!(
-            batches.iter().all(|batch| batch.len() <= 5),
-            "batch staging should be bounded by stream_draft_lines, got {batches:?}"
-        );
-        assert!(
-            batches
-                .iter()
-                .flatten()
-                .filter(|line| line.starts_with(REASONING_FULL_PREFIX))
-                .count()
-                > batches.len(),
-            "interleaved tool progress should keep reasoning split into multiple entries, got {batches:?}"
-        );
-        assert!(
-            batches
-                .iter()
-                .flatten()
-                .any(|line| line.starts_with("tool-")),
-            "latest tool progress should remain available as a boundary line, got {batches:?}"
-        );
-        assert!(
-            !batches
-                .iter()
-                .flatten()
-                .any(|line| line.starts_with("answer-")),
-            "single-message progress updater must ignore assistant Text deltas: {batches:?}"
-        );
     }
 
     #[test]
@@ -22678,7 +20769,6 @@ temperature = 0.3
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -23655,7 +21745,6 @@ temperature = 0.3
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -24142,7 +22231,6 @@ api_key = "anthropic-key"
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -24251,7 +22339,6 @@ api_key = "anthropic-key"
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -24378,7 +22465,6 @@ api_key = "anthropic-key"
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -24509,7 +22595,6 @@ api_key = "anthropic-key"
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -25423,13 +23508,6 @@ api_key = "anthropic-key"
                 ..Self::default()
             }
         }
-
-        fn matrix() -> Self {
-            Self {
-                channel_name: "matrix",
-                ..Self::default()
-            }
-        }
     }
 
     impl ::zeroclaw_api::attribution::Attributable for SendMessageRecordingChannel {
@@ -25595,8 +23673,6 @@ api_key = "anthropic-key"
         finalized_messages: tokio::sync::Mutex<Vec<String>>,
         cancelled_drafts: tokio::sync::Mutex<Vec<String>>,
         delivery_events: tokio::sync::Mutex<Vec<&'static str>>,
-        stall_start_typing: bool,
-        stall_stop_typing: bool,
         /// Text handed to `update_draft`, in order, so a test can assert on
         /// what the transport actually received rather than on a sanitizer it
         /// called itself. Progress text lands in `progress_messages`.
@@ -25626,15 +23702,6 @@ api_key = "anthropic-key"
         discarded_turns: tokio::sync::Mutex<Vec<String>>,
     }
 
-    struct ExpiringTypingChannel {
-        expiry: Duration,
-        start_delay: Duration,
-        expires_at: tokio::sync::Mutex<Option<tokio::time::Instant>>,
-        start_calls: AtomicUsize,
-        lapsed_refreshes: AtomicUsize,
-        stop_calls: AtomicUsize,
-    }
-
     impl DraftRecordingChannel {
         fn new(finalize_should_fail: bool, fallback_send_should_fail: bool) -> Self {
             Self {
@@ -25650,8 +23717,6 @@ api_key = "anthropic-key"
                 finalized_messages: tokio::sync::Mutex::new(Vec::new()),
                 cancelled_drafts: tokio::sync::Mutex::new(Vec::new()),
                 delivery_events: tokio::sync::Mutex::new(Vec::new()),
-                stall_start_typing: false,
-                stall_stop_typing: false,
                 draft_updates: tokio::sync::Mutex::new(Vec::new()),
                 cumulative_offset: false,
                 multi_confirmed_prefix: std::sync::Mutex::new(String::new()),
@@ -25671,15 +23736,6 @@ api_key = "anthropic-key"
                 channel_name,
                 supports_multi_message_streaming: true,
                 cumulative_offset: true,
-                ..Self::new(false, false)
-            }
-        }
-
-        fn matrix(stream_mode: zeroclaw_config::schema::MatrixStreamMode) -> Self {
-            Self {
-                channel_name: "matrix",
-                supports_multi_message_streaming: stream_mode
-                    == zeroclaw_config::schema::MatrixStreamMode::MultiMessage,
                 ..Self::new(false, false)
             }
         }
@@ -26007,55 +24063,6 @@ api_key = "anthropic-key"
         }
     }
 
-    impl ::zeroclaw_api::attribution::Attributable for ExpiringTypingChannel {
-        fn role(&self) -> ::zeroclaw_api::attribution::Role {
-            ::zeroclaw_api::attribution::Role::Channel(
-                ::zeroclaw_api::attribution::ChannelKind::Matrix,
-            )
-        }
-
-        fn alias(&self) -> &str {
-            "expiring-typing"
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Channel for ExpiringTypingChannel {
-        fn name(&self) -> &str {
-            "matrix"
-        }
-
-        async fn send(&self, _message: &SendMessage) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn listen(
-            &self,
-            _tx: tokio::sync::mpsc::Sender<zeroclaw_api::channel::ChannelMessage>,
-        ) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn start_typing(&self, _recipient: &str) -> anyhow::Result<()> {
-            self.start_calls.fetch_add(1, Ordering::SeqCst);
-            let now = tokio::time::Instant::now();
-            let mut expires_at = self.expires_at.lock().await;
-            if expires_at.is_some_and(|deadline| deadline <= now) {
-                self.lapsed_refreshes.fetch_add(1, Ordering::SeqCst);
-            }
-            *expires_at = Some(now + self.expiry);
-            drop(expires_at);
-            tokio::time::sleep(self.start_delay).await;
-            Ok(())
-        }
-
-        async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
-            self.stop_calls.fetch_add(1, Ordering::SeqCst);
-            *self.expires_at.lock().await = None;
-            Ok(())
-        }
-    }
-
     #[async_trait::async_trait]
     impl Channel for FailingSendChannel {
         fn name(&self) -> &str {
@@ -26225,17 +24232,11 @@ api_key = "anthropic-key"
 
         async fn start_typing(&self, _recipient: &str) -> anyhow::Result<()> {
             self.delivery_events.lock().await.push("typing-start");
-            if self.stall_start_typing {
-                std::future::pending::<()>().await;
-            }
             Ok(())
         }
 
         async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
             self.delivery_events.lock().await.push("typing-stop");
-            if self.stall_stop_typing {
-                std::future::pending::<()>().await;
-            }
             Ok(())
         }
 
@@ -29909,7 +27910,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -30093,7 +28093,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -30273,7 +28272,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -30479,7 +28477,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -30671,7 +28668,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -30872,7 +28868,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -31447,7 +29442,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -31599,7 +29593,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -31727,7 +29720,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -32035,7 +30027,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -32172,7 +30163,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -32331,7 +30321,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
@@ -32473,7 +30462,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -32600,7 +30588,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -32742,7 +30729,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -32912,7 +30898,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -33117,7 +31102,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -33640,7 +31624,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -33762,7 +31745,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -33894,7 +31876,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -35384,7 +33365,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -35594,7 +33574,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -35765,7 +33744,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -35935,7 +33913,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -36100,7 +34077,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: true,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             ack_reactions: true,
@@ -36552,7 +34528,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -36698,7 +34673,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -36764,218 +34738,13 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[tokio::test]
-    async fn matrix_single_message_typing_stops_before_draft_delivery() {
-        let channel_impl = Arc::new(DraftRecordingChannel::matrix(
-            zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-        ));
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-        let mut config = zeroclaw_config::schema::Config::default();
-        config.channels.matrix.insert(
-            "single".to_string(),
-            zeroclaw_config::schema::MatrixConfig {
-                stream_mode: zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-                ..Default::default()
-            },
-        );
-        let runtime_ctx = test_runtime_ctx_with_config_agent_and_provider_ref(
-            channel,
-            Arc::new(DummyModelProvider),
-            config,
-            zeroclaw_config::schema::AliasedAgentConfig::default(),
-            "test-provider",
-            None,
-        );
-        process_channel_message(
-            runtime_ctx,
-            zeroclaw_api::channel::ChannelMessage {
-                id: "typing-msg".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-typing".to_string(),
-                content: "hello".to_string(),
-                channel: "matrix".into(),
-                channel_alias: Some("single".to_string()),
-                timestamp: 1,
-                ..Default::default()
-            },
-            CancellationToken::new(),
-        )
-        .await;
-
-        let delivery_events = channel_impl.delivery_events.lock().await;
-        let typing_stop = delivery_events
-            .iter()
-            .position(|event| *event == "typing-stop")
-            .expect("single-message cleanup must stop typing");
-        let draft = delivery_events
-            .iter()
-            .position(|event| *event == "draft")
-            .expect("single-message mode must create a draft");
-        assert!(
-            typing_stop < draft,
-            "typing cleanup must complete before draft delivery"
-        );
-    }
-
-    #[tokio::test]
-    async fn matrix_single_message_typing_refreshes_before_notice_expiry() {
-        let channel_impl = Arc::new(ExpiringTypingChannel {
-            expiry: Duration::from_millis(70),
-            start_delay: Duration::from_millis(30),
-            expires_at: tokio::sync::Mutex::new(None),
-            start_calls: AtomicUsize::new(0),
-            lapsed_refreshes: AtomicUsize::new(0),
-            stop_calls: AtomicUsize::new(0),
-        });
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-        let scope = start_matrix_single_message_typing_scope_with_interval(
-            channel,
-            "chat-typing".to_string(),
-            Duration::from_millis(50),
-        );
-
-        tokio::time::sleep(Duration::from_millis(230)).await;
-
-        assert!(
-            channel_impl.start_calls.load(Ordering::SeqCst) >= 4,
-            "typing must be refreshed while pre-delivery work is still running"
-        );
-        assert_eq!(
-            channel_impl.lapsed_refreshes.load(Ordering::SeqCst),
-            0,
-            "refresh scheduling must include the initial typing request latency"
-        );
-        assert!(
-            channel_impl
-                .expires_at
-                .lock()
-                .await
-                .is_some_and(|expires_at| expires_at > tokio::time::Instant::now()),
-            "periodic refresh must keep an expiring typing notice active"
-        );
-
-        stop_matrix_single_message_typing_scope(scope).await;
-        assert_eq!(channel_impl.stop_calls.load(Ordering::SeqCst), 1);
-        assert!(channel_impl.expires_at.lock().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn matrix_single_message_typing_scope_drop_stops_refresh_task() {
-        let channel_impl = Arc::new(ExpiringTypingChannel {
-            expiry: Duration::from_millis(70),
-            start_delay: Duration::ZERO,
-            expires_at: tokio::sync::Mutex::new(None),
-            start_calls: AtomicUsize::new(0),
-            lapsed_refreshes: AtomicUsize::new(0),
-            stop_calls: AtomicUsize::new(0),
-        });
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-        let scope = start_matrix_single_message_typing_scope_with_interval(
-            channel,
-            "chat-typing".to_string(),
-            Duration::from_millis(20),
-        );
-        tokio::time::sleep(Duration::from_millis(35)).await;
-
-        drop(scope);
-        tokio::time::timeout(Duration::from_millis(200), async {
-            while channel_impl.stop_calls.load(Ordering::SeqCst) == 0 {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("dropping the scope must stop typing");
-
-        let starts_after_cleanup = channel_impl.start_calls.load(Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(60)).await;
-        assert_eq!(
-            channel_impl.start_calls.load(Ordering::SeqCst),
-            starts_after_cleanup,
-            "dropping the scope must terminate the refresh task"
-        );
-        assert_eq!(channel_impl.stop_calls.load(Ordering::SeqCst), 1);
-        assert!(channel_impl.expires_at.lock().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn matrix_single_message_stalled_initial_typing_does_not_block_draft_delivery() {
+    async fn multi_message_preserves_draft_before_typing_lifecycle() {
         let channel_impl = Arc::new(DraftRecordingChannel {
-            stall_start_typing: true,
-            ..DraftRecordingChannel::matrix(
-                zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-            )
+            supports_multi_message_streaming: true,
+            ..DraftRecordingChannel::new(false, false)
         });
         let channel: Arc<dyn Channel> = channel_impl.clone();
-        let scope = start_matrix_single_message_typing_scope_with_interval(
-            channel.clone(),
-            "chat-typing".to_string(),
-            Duration::from_secs(1),
-        );
-        wait_for_draft_recording_event(channel_impl.as_ref(), "typing-start").await;
-
-        tokio::time::timeout(
-            Duration::from_millis(200),
-            stop_matrix_single_message_typing_scope(scope),
-        )
-        .await
-        .expect("cancelling a stalled initial typing request must not block delivery");
-        channel
-            .send_draft(&SendMessage::new("draft", "chat-typing"))
-            .await
-            .expect("draft delivery must proceed after stalled initial typing is cancelled");
-
-        assert_eq!(
-            *channel_impl.delivery_events.lock().await,
-            ["typing-start", "typing-stop", "draft"]
-        );
-    }
-
-    #[tokio::test]
-    async fn matrix_single_message_stalled_typing_cleanup_does_not_block_draft_delivery() {
-        let channel_impl = Arc::new(DraftRecordingChannel {
-            stall_stop_typing: true,
-            ..DraftRecordingChannel::matrix(
-                zeroclaw_config::schema::MatrixStreamMode::SingleMessage,
-            )
-        });
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-        let scope = start_matrix_single_message_typing_scope_with_interval(
-            channel.clone(),
-            "chat-typing".to_string(),
-            Duration::from_secs(1),
-        );
-        wait_for_draft_recording_event(channel_impl.as_ref(), "typing-start").await;
-
-        tokio::time::timeout(
-            Duration::from_millis(200),
-            stop_matrix_single_message_typing_scope(scope),
-        )
-        .await
-        .expect("stalled typing cleanup must not block delivery indefinitely");
-        channel
-            .send_draft(&SendMessage::new("draft", "chat-typing"))
-            .await
-            .expect("draft delivery must proceed after typing cleanup times out");
-
-        assert_eq!(
-            *channel_impl.delivery_events.lock().await,
-            ["typing-start", "typing-stop", "draft"]
-        );
-    }
-
-    #[tokio::test]
-    async fn matrix_multi_message_preserves_draft_before_typing_lifecycle() {
-        let channel_impl = Arc::new(DraftRecordingChannel::matrix(
-            zeroclaw_config::schema::MatrixStreamMode::MultiMessage,
-        ));
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-        let mut config = zeroclaw_config::schema::Config::default();
-        config.channels.matrix.insert(
-            "multi".to_string(),
-            zeroclaw_config::schema::MatrixConfig {
-                stream_mode: zeroclaw_config::schema::MatrixStreamMode::MultiMessage,
-                ..Default::default()
-            },
-        );
+        let config = zeroclaw_config::schema::Config::default();
         let runtime_ctx = test_runtime_ctx_with_config_agent_and_provider_ref(
             channel,
             Arc::new(SlowModelProvider {
@@ -36993,8 +34762,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 sender: "alice".to_string(),
                 reply_target: "chat-typing".to_string(),
                 content: "hello".to_string(),
-                channel: "matrix".into(),
-                channel_alias: Some("multi".to_string()),
+                channel: "test-channel".into(),
                 timestamp: 1,
                 ..Default::default()
             },
@@ -37381,7 +35149,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -37520,7 +35287,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -37663,7 +35429,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -37798,7 +35563,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -37933,7 +35697,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -38355,7 +36118,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -39393,121 +37155,6 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[test]
-    fn followup_thread_id_does_not_open_matrix_thread_for_root_message() {
-        let msg = zeroclaw_api::channel::ChannelMessage {
-            id: "$event:server".into(),
-            sender: "@alice:server".into(),
-            reply_target: "!room:server".into(),
-            content: "hello".into(),
-            channel: "matrix".into(),
-            channel_alias: None,
-            timestamp: 1,
-            thread_ts: None,
-            interruption_scope_id: None,
-            attachments: vec![],
-            subject: None,
-
-            ..Default::default()
-        };
-
-        assert_eq!(followup_thread_id(&msg), None);
-    }
-
-    #[test]
-    fn matrix_root_conversation_history_key_omits_event_id() {
-        let first = zeroclaw_api::channel::ChannelMessage {
-            id: "$first:server".into(),
-            sender: "@alice:server".into(),
-            reply_target: "!room:server".into(),
-            content: "send a.txt".into(),
-            channel: "matrix".into(),
-            channel_alias: None,
-            timestamp: 1,
-            thread_ts: None,
-            interruption_scope_id: None,
-            attachments: vec![],
-            subject: None,
-
-            ..Default::default()
-        };
-        let second = zeroclaw_api::channel::ChannelMessage {
-            id: "$second:server".into(),
-            content: "send it again".into(),
-            timestamp: 2,
-            ..first.clone()
-        };
-
-        let key = conversation_history_key(&first);
-        assert_eq!(key, conversation_history_key(&second));
-        assert!(!key.contains("$first:server"));
-        assert!(!key.contains("$second:server"));
-    }
-
-    #[test]
-    fn matrix_self_anchored_root_history_key_omits_event_id() {
-        let first = zeroclaw_api::channel::ChannelMessage {
-            id: "$first:server".into(),
-            sender: "@alice:server".into(),
-            reply_target: "!room:server".into(),
-            content: "call me boss".into(),
-            channel: "matrix".into(),
-            channel_alias: None,
-            timestamp: 1,
-            thread_ts: Some("$first:server".into()),
-            interruption_scope_id: Some("$first:server".into()),
-            attachments: vec![],
-            subject: None,
-
-            ..Default::default()
-        };
-        let second = zeroclaw_api::channel::ChannelMessage {
-            id: "$second:server".into(),
-            content: "hello".into(),
-            timestamp: 2,
-            thread_ts: Some("$second:server".into()),
-            interruption_scope_id: Some("$second:server".into()),
-            ..first.clone()
-        };
-
-        let key = conversation_history_key(&first);
-        assert_eq!(key, conversation_history_key(&second));
-        assert!(!key.contains("$first:server"));
-        assert!(!key.contains("$second:server"));
-    }
-
-    #[test]
-    fn matrix_thread_follow_up_shares_root_session_key() {
-        let root = zeroclaw_api::channel::ChannelMessage {
-            id: "$root:server".into(),
-            sender: "@alice:server".into(),
-            reply_target: "!room:server".into(),
-            content: "open the thread".into(),
-            channel: "matrix".into(),
-            channel_alias: None,
-            timestamp: 1,
-            thread_ts: Some("$root:server".into()),
-            interruption_scope_id: Some("$root:server".into()),
-            attachments: vec![],
-            subject: None,
-
-            ..Default::default()
-        };
-        let follow_up = zeroclaw_api::channel::ChannelMessage {
-            id: "$reply:server".into(),
-            content: "thread reply".into(),
-            timestamp: 2,
-            thread_ts: Some("$root:server".into()),
-            interruption_scope_id: Some("$root:server".into()),
-            ..root.clone()
-        };
-
-        let root_key = conversation_history_key(&root);
-        assert_eq!(root_key, conversation_history_key(&follow_up));
-        assert!(!root_key.contains("$root:server"));
-        assert!(!root_key.contains("$reply:server"));
-    }
-
-    #[test]
     fn reply_target_conversation_scope_omits_sender_from_history_key() {
         let first = zeroclaw_api::channel::ChannelMessage {
             id: "msg-1".into(),
@@ -39887,7 +37534,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -41744,7 +39390,6 @@ BTC is currently around $65,000 based on latest tool output."#
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         };
         ctx
@@ -43235,17 +40880,6 @@ BTC is currently around $65,000 based on latest tool output."#
         }
     }
 
-    fn text_peer_group(
-        channel: &str,
-        members: &[&str],
-    ) -> zeroclaw_config::multi_agent::PeerGroupConfig {
-        use zeroclaw_config::multi_agent::OutputModality;
-        zeroclaw_config::multi_agent::PeerGroupConfig {
-            output_modality: OutputModality::Text,
-            ..peer_group(channel, members, false)
-        }
-    }
-
     /// `mirror` is the default modality, so this is what a `[peer_groups.*]`
     /// entry without an explicit `output_modality` resolves to.
     fn mirror_peer_group(
@@ -43256,29 +40890,6 @@ BTC is currently around $65,000 based on latest tool output."#
         zeroclaw_config::multi_agent::PeerGroupConfig {
             output_modality: OutputModality::Mirror,
             ..peer_group(channel, members, false)
-        }
-    }
-
-    /// A Matrix reply is addressed to `!room:server`, while the peer group
-    /// names `@user:server`. Resolving the modality here — where the inbound
-    /// sender is still in hand — is what makes a user-ID voice group work.
-    fn matrix_msg(sender: &str) -> zeroclaw_api::channel::ChannelMessage {
-        zeroclaw_api::channel::ChannelMessage {
-            sender: sender.into(),
-            reply_target: "!room:server".into(),
-            channel: "matrix".into(),
-            channel_alias: Some("default".into()),
-            content: "hello".into(),
-            ..Default::default()
-        }
-    }
-
-    /// The same message as a voice note: the Matrix inbound handler sets
-    /// `voice_origin` from the event's own MSC3245 flag.
-    fn matrix_voice_msg(sender: &str) -> zeroclaw_api::channel::ChannelMessage {
-        zeroclaw_api::channel::ChannelMessage {
-            voice_origin: true,
-            ..matrix_msg(sender)
         }
     }
 
@@ -43667,503 +41278,24 @@ BTC is currently around $65,000 based on latest tool output."#
         );
     }
 
-    /// A Matrix room message from a sender the mirror group names, as the
-    /// inbound handler forwards it.
-    fn matrix_room_message(
-        sender: &str,
-        voice_origin: bool,
-    ) -> zeroclaw_api::channel::ChannelMessage {
-        zeroclaw_api::channel::ChannelMessage {
-            id: "$event-1:server".to_string(),
-            timestamp: 1,
-            voice_origin,
-            ..matrix_msg(sender)
-        }
-    }
-
-    /// Drives the real dispatch and reply-delivery path with a mirror group
-    /// that names the sender.
-    fn matrix_mirror_delivery_ctx(
-        channel: Arc<dyn Channel>,
-        model_provider: Arc<dyn ModelProvider>,
-        tools: Vec<Box<dyn Tool>>,
-    ) -> Arc<ChannelRuntimeContext> {
-        let mut peer_groups = HashMap::new();
-        peer_groups.insert(
-            "family".to_string(),
-            mirror_peer_group("matrix.default", &["@alice:server"]),
-        );
-        test_runtime_ctx_with_observer_and_tools(
-            channel,
-            model_provider,
-            zeroclaw_config::schema::Config {
-                peer_groups,
-                ..Default::default()
-            },
-            zeroclaw_config::schema::AliasedAgentConfig::default(),
-            "test-provider",
-            None,
-            Arc::new(NoopObserver),
-            tools,
-        )
-    }
-
-    #[tokio::test]
-    async fn matrix_mirror_voice_origin_is_force_voiced_on_delivery() {
-        let channel_impl = Arc::new(SendMessageRecordingChannel::matrix());
-        let ctx = matrix_mirror_delivery_ctx(
-            channel_impl.clone(),
-            Arc::new(DummyModelProvider),
-            Vec::new(),
-        );
-
-        process_channel_message(
-            ctx,
-            matrix_room_message("@alice:server", true),
-            CancellationToken::new(),
-        )
-        .await;
-
-        let sent = channel_impl.sent_messages.lock().await;
-        let reply = delivered_reply(sent.as_slice(), "!room:server");
-        assert!(
-            reply.force_voice,
-            "a mirror member's voice note must be answered with voice, got {reply:?}"
-        );
-        assert!(
-            !reply.suppress_voice,
-            "a voice-origin mirror reply must not be suppressed, got {reply:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn matrix_mirror_text_origin_stays_text_on_delivery() {
-        let channel_impl = Arc::new(SendMessageRecordingChannel::matrix());
-        let ctx = matrix_mirror_delivery_ctx(
-            channel_impl.clone(),
-            Arc::new(DummyModelProvider),
-            Vec::new(),
-        );
-
-        process_channel_message(
-            ctx,
-            matrix_room_message("@alice:server", false),
-            CancellationToken::new(),
-        )
-        .await;
-
-        let sent = channel_impl.sent_messages.lock().await;
-        let reply = delivered_reply(sent.as_slice(), "!room:server");
-        assert!(
-            !reply.force_voice,
-            "a mirror member's text message must not be voiced, got {reply:?}"
-        );
-        assert!(
-            reply.suppress_voice,
-            "a text-origin mirror reply is an explicit suppression, got {reply:?}"
-        );
-    }
-
-    /// Debouncing combines a sender's messages into one turn owned by the
-    /// first of them, so a mixed batch is answered in the first message's
-    /// modality, whatever the later ones were.
-    #[tokio::test]
-    async fn matrix_mirror_debounced_batch_answers_in_the_first_messages_modality() {
-        for (first_voice, second_voice) in [(true, false), (false, true)] {
-            let channel_impl = Arc::new(SendMessageRecordingChannel::matrix());
-            let mut peer_groups = HashMap::new();
-            peer_groups.insert(
-                "family".to_string(),
-                mirror_peer_group("matrix.default", &["@alice:server"]),
-            );
-            let ctx = test_runtime_ctx_with_observer_and_tools(
-                channel_impl.clone(),
-                Arc::new(DummyModelProvider),
-                zeroclaw_config::schema::Config {
-                    peer_groups,
-                    channels: zeroclaw_config::schema::ChannelsConfig {
-                        debounce_ms: 60,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                zeroclaw_config::schema::AliasedAgentConfig::default(),
-                "test-provider",
-                None,
-                Arc::new(NoopObserver),
-                Vec::new(),
-            );
-
-            let first = zeroclaw_api::channel::ChannelMessage {
-                content: "first part".to_string(),
-                ..matrix_room_message("@alice:server", first_voice)
-            };
-            let second = zeroclaw_api::channel::ChannelMessage {
-                id: "$event-2:server".to_string(),
-                content: "second part".to_string(),
-                ..matrix_room_message("@alice:server", second_voice)
-            };
-            let history_key = conversation_history_key(&first);
-
-            let (tx, rx) = tokio::sync::mpsc::channel::<zeroclaw_api::channel::ChannelMessage>(8);
-            let send_task = zeroclaw_spawn::spawn!(async move {
-                tx.send(first).await.unwrap();
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                tx.send(second).await.unwrap();
-            });
-
-            run_message_dispatch_loop(rx, AgentRouter::single(Arc::clone(&ctx)), 4).await;
-            send_task.await.unwrap();
-
-            let sent = channel_impl.sent_messages.lock().await;
-            assert_eq!(
-                sent.len(),
-                1,
-                "both messages must be answered as one combined turn: {sent:?}"
-            );
-            let reply = delivered_reply(sent.as_slice(), "!room:server");
-            assert_eq!(
-                (reply.force_voice, reply.suppress_voice),
-                (first_voice, !first_voice),
-                "a batch opened by a {} message must be answered in that modality, got {reply:?}",
-                if first_voice { "voice" } else { "text" }
-            );
-            drop(sent);
-
-            let mut histories = ctx
-                .conversation_histories
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let turns = histories
-                .get(&history_key)
-                .expect("the combined turn must create history");
-            assert!(
-                turns[0].content.contains("first part") && turns[0].content.contains("second part"),
-                "the batch must dispatch as one combined turn: {}",
-                turns[0].content
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn matrix_explicit_text_override_beats_a_mirror_voice_origin() {
-        let channel_impl = Arc::new(SendMessageRecordingChannel::matrix());
-        let send_via = tools::SendViaTool::new(
-            Arc::new(zeroclaw_config::policy::SecurityPolicy::default()),
-            Arc::new(parking_lot::RwLock::new(
-                HashMap::<String, Arc<dyn Channel>>::new(),
-            )),
-            Arc::new(HashMap::<String, zeroclaw_config::multi_agent::PeerGroupConfig>::new),
-        );
-        let ctx = matrix_mirror_delivery_ctx(
-            channel_impl.clone(),
-            Arc::new(SendViaTextRoutingProvider),
-            vec![Box::new(send_via)],
-        );
-
-        process_channel_message(
-            ctx,
-            matrix_room_message("@alice:server", true),
-            CancellationToken::new(),
-        )
-        .await;
-
-        let sent = channel_impl.sent_messages.lock().await;
-        let reply = delivered_reply(sent.as_slice(), "!room:server");
-        assert!(
-            reply.suppress_voice,
-            "the explicit text override must win over the voice-origin mirror verdict, got {reply:?}"
-        );
-        assert!(
-            !reply.force_voice,
-            "the explicit text override must not force voice, got {reply:?}"
-        );
-    }
-
     #[test]
-    fn matrix_voice_group_member_gets_a_voiced_reply_by_user_id() {
+    fn voice_group_matching_ignores_case_and_a_leading_at() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut groups = std::collections::HashMap::new();
         groups.insert(
             "family".into(),
-            voice_peer_group("matrix.default", &["@alice:server"]),
+            voice_peer_group("telegram.default", &["Alice"]),
         );
         let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
 
         assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
-            Some(true)
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@mallory:server")),
-            Some(false),
-            "a sender outside the group is an authoritative negative, not 'no opinion'"
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("!room:server")),
-            Some(false),
-            "the room id is not a peer identity and must never match"
-        );
-    }
-
-    /// Composes the two halves of the fix the way the reply-delivery arm does,
-    /// so the chain from a real sender to the overrides that reach the channel
-    /// is asserted somewhere, not only link by link. Without this, the negative
-    /// case is covered by two tests that meet at a value neither of them
-    /// derives: `sender_prefers_voice` is asserted to return `Some(false)`, and
-    /// `voice_override_from_sender_verdict` is asserted on a hand-written
-    /// `Some(false)`. Both could stay green while the call site composed them
-    /// wrongly.
-    #[test]
-    fn a_non_member_matrix_sender_composes_to_an_explicit_suppression() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "family".into(),
-            voice_peer_group("matrix.default", &["@alice:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        // Bob shares a room with voice-peer Alice, but is not in the group.
-        assert_eq!(
-            voice_override_from_sender_verdict(sender_prefers_voice(
-                &ctx,
-                &matrix_msg("@bob:server")
-            )),
-            (Some(true), false),
-            "a non-member sender must reach the channel as an explicit suppression, \
-             or `should_voice` falls back to room membership and voices the reply"
-        );
-        assert_eq!(
-            voice_override_from_sender_verdict(sender_prefers_voice(
-                &ctx,
-                &matrix_msg("@alice:server")
-            )),
-            (None, true),
-            "a member still voices, with membership fallback left intact"
-        );
-        // No voice groups configured for the channel: still no opinion, so the
-        // proactive/room-membership path keeps working.
-        let tmp2 = tempfile::TempDir::new().unwrap();
-        let ctx2 =
-            channel_runtime_context_with_peer_groups(tmp2.path(), std::collections::HashMap::new());
-        assert_eq!(
-            voice_override_from_sender_verdict(sender_prefers_voice(
-                &ctx2,
-                &matrix_msg("@bob:server")
-            )),
-            (None, false),
-            "no configured groups must stay 'no opinion', not a suppression"
-        );
-    }
-
-    /// The mirror counterpart of the composition above: a mirror member's
-    /// voice note reaches the channel as `force_voice`, and their text message
-    /// as an explicit suppression.
-    #[test]
-    fn a_mirror_matrix_sender_composes_to_the_message_origin() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "family".into(),
-            mirror_peer_group("matrix.default", &["@alice:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            voice_override_from_sender_verdict(sender_prefers_voice(
-                &ctx,
-                &matrix_voice_msg("@alice:server")
-            )),
-            (None, true),
-            "a mirror member's voice note forces voice with membership fallback intact"
-        );
-        assert_eq!(
-            voice_override_from_sender_verdict(sender_prefers_voice(
-                &ctx,
-                &matrix_msg("@alice:server")
-            )),
-            (Some(true), false),
-            "a mirror member's text message must reach the channel as an explicit \
-             suppression, or `should_voice` falls back to room membership"
-        );
-    }
-
-    #[test]
-    fn matrix_voice_group_wildcard_voices_every_sender() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert("open".into(), voice_peer_group("matrix.default", &["*"]));
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@anyone:server")),
+            sender_prefers_voice(&ctx, &telegram_msg("@alice")),
             Some(true)
         );
     }
 
-    #[test]
-    fn matrix_voice_group_matching_ignores_case_and_a_leading_at() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "family".into(),
-            voice_peer_group("matrix.default", &["Alice:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
-            Some(true)
-        );
-    }
-
-    /// A `mirror` member's verdict is the inbound event's own voice flag, so
-    /// a voice note is answered with voice and a text message with text.
-    #[test]
-    fn matrix_mirror_group_member_mirrors_the_message_origin() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "family".into(),
-            mirror_peer_group("matrix.default", &["@alice:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_voice_msg("@alice:server")),
-            Some(true),
-            "a mirror member's voice note is answered with voice"
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
-            Some(false),
-            "a mirror member's text message is answered with text, as an explicit \
-             suppression so room membership cannot voice it"
-        );
-    }
-
-    /// `voice` and `text` groups are fixed modalities: the message's origin
-    /// does not move them.
-    #[test]
-    fn matrix_voice_and_text_groups_ignore_the_message_origin() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "always_voice".into(),
-            voice_peer_group("matrix.default", &["@alice:server"]),
-        );
-        groups.insert(
-            "always_text".into(),
-            text_peer_group("matrix.default", &["@bob:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
-            Some(true),
-            "a voice member's text message is still voiced"
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_voice_msg("@bob:server")),
-            Some(false),
-            "a text member's voice note is still answered in text"
-        );
-    }
-
-    /// The verdict is bound to the one message it was computed for: a
-    /// member's voice note does not voice a non-member's reply in the same
-    /// room, nor the member's own next text message.
-    #[test]
-    fn matrix_mirror_verdicts_do_not_leak_between_senders_or_messages() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "family".into(),
-            mirror_peer_group("matrix.default", &["@alice:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_voice_msg("@alice:server")),
-            Some(true)
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@bob:server")),
-            None,
-            "a non-member in the same room keeps 'no opinion' when the channel \
-             has no voice group"
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
-            Some(false),
-            "the member's next text message is answered in text"
-        );
-
-        // With a voice group also configured, the non-member gets the
-        // authoritative negative that every non-member on the channel gets.
-        let tmp2 = tempfile::TempDir::new().unwrap();
-        let mut groups2 = std::collections::HashMap::new();
-        groups2.insert(
-            "family".into(),
-            mirror_peer_group("matrix.default", &["@alice:server"]),
-        );
-        groups2.insert(
-            "always_voice".into(),
-            voice_peer_group("matrix.default", &["@carol:server"]),
-        );
-        let ctx2 = channel_runtime_context_with_peer_groups(tmp2.path(), groups2);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx2, &matrix_voice_msg("@alice:server")),
-            Some(true)
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx2, &matrix_msg("@bob:server")),
-            Some(false),
-            "a non-member is an authoritative negative once a voice group exists"
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx2, &matrix_msg("@alice:server")),
-            Some(false)
-        );
-    }
-
-    /// A sender named by an explicit `voice` or `text` group and by a `mirror`
-    /// group gets the explicit modality: `voice` first, then `text`, then
-    /// `mirror`, whatever the message's origin.
-    #[test]
-    fn explicit_modalities_beat_a_mirror_membership() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut groups = std::collections::HashMap::new();
-        groups.insert(
-            "family".into(),
-            mirror_peer_group("matrix.default", &["@alice:server", "@bob:server"]),
-        );
-        groups.insert(
-            "always_voice".into(),
-            voice_peer_group("matrix.default", &["@alice:server"]),
-        );
-        groups.insert(
-            "always_text".into(),
-            text_peer_group("matrix.default", &["@bob:server"]),
-        );
-        let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
-
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
-            Some(true),
-            "voice membership voices a text message despite the mirror membership"
-        );
-        assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_voice_msg("@bob:server")),
-            Some(false),
-            "text membership keeps a voice note in text despite the mirror membership"
-        );
-    }
-
-    /// Mirror resolution is Matrix-only: another channel's mirror group is
-    /// left to that channel's own input-driven modality.
+    /// A mirror group is not resolved here: the channel's own input-driven
+    /// modality stays in charge.
     #[test]
     fn mirror_groups_on_other_channels_are_not_answered_here() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -44190,7 +41322,7 @@ BTC is currently around $65,000 based on latest tool output."#
             channel_runtime_context_with_peer_groups(tmp.path(), std::collections::HashMap::new());
 
         assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
+            sender_prefers_voice(&ctx, &telegram_msg("@alice")),
             None,
             "no voice-peer groups configured at all is 'no opinion', not a negative verdict"
         );
@@ -44201,15 +41333,15 @@ BTC is currently around $65,000 based on latest tool output."#
         let tmp = tempfile::TempDir::new().unwrap();
         let mut groups = std::collections::HashMap::new();
         groups.insert(
-            "telegram_voice".into(),
-            voice_peer_group("telegram.default", &["@alice:server"]),
+            "discord_voice".into(),
+            voice_peer_group("discord.default", &["@alice"]),
         );
         let ctx = channel_runtime_context_with_peer_groups(tmp.path(), groups);
 
         assert_eq!(
-            sender_prefers_voice(&ctx, &matrix_msg("@alice:server")),
+            sender_prefers_voice(&ctx, &telegram_msg("@alice")),
             None,
-            "matrix has no voice peers configured for it, so this is 'no opinion'"
+            "telegram has no voice peers configured for it, so this is 'no opinion'"
         );
     }
 
@@ -44946,7 +42078,6 @@ BTC is currently around $65,000 based on latest tool output."#
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         };
         (Arc::new(ctx), provider_impl, channel_impl)
@@ -46591,7 +43722,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -46779,7 +43909,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -47355,7 +44484,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -47853,7 +44981,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -48031,7 +45158,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -48138,9 +45264,7 @@ BTC is currently around $65,000 based on latest tool output."#
     #[test]
     fn build_channel_system_prompt_guides_large_artifacts_only_for_document_channels() {
         let base = "Base prompt with literal marker syntax: [DOCUMENT:example.txt]";
-        for channel_name in [
-            "matrix", "discord", "lark", "feishu", "telegram", "qq", "wechat",
-        ] {
+        for channel_name in ["discord", "lark", "feishu", "telegram", "qq", "wechat"] {
             let prompt = build_channel_system_prompt(base, channel_name, None);
             assert!(
                 prompt.contains(base),
@@ -48178,36 +45302,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 "{channel_name} must not advertise document delivery from base-prompt marker text"
             );
         }
-    }
-
-    #[test]
-    fn channel_delivery_instructions_for_matrix_match_marker_contract() {
-        let block = channel_delivery_instructions("matrix")
-            .expect("matrix channel must have a delivery-instructions block");
-        assert!(
-            block.contains("When responding on Matrix:"),
-            "matrix block must identify itself"
-        );
-        assert!(
-            block.contains("[IMAGE:<path-or-url>]"),
-            "matrix block must describe local path or URL marker syntax"
-        );
-        assert!(
-            block.contains("workspace-relative or absolute"),
-            "matrix block must match the validator's local path contract"
-        );
-        assert!(
-            block.contains("Copy paths from inbound messages or file tools exactly"),
-            "matrix block must prevent rewriting inbound or tool-returned paths"
-        );
-        assert!(
-            block.contains("http:// or https:// URLs"),
-            "matrix block must describe supported remote marker targets"
-        );
-        assert!(
-            !block.contains("Never use relative paths"),
-            "matrix block must not contradict the workspace-relative marker contract"
-        );
     }
 
     #[test]
@@ -51960,7 +49054,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -52097,7 +49190,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -52274,7 +49366,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -52593,7 +49684,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -52758,7 +49848,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -52915,7 +50004,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -53092,7 +50180,6 @@ This is an example JSON object for profile settings."#;
                 slack: false,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
@@ -53709,7 +50796,6 @@ This is an example JSON object for profile settings."#;
             slack: false,
             discord: false,
             mattermost: true,
-            matrix: false,
             whatsapp: false,
         };
         assert!(cfg.enabled_for_channel("mattermost"));
@@ -53722,7 +50808,6 @@ This is an example JSON object for profile settings."#;
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         };
         assert!(!cfg.enabled_for_channel("mattermost"));
@@ -53735,7 +50820,6 @@ This is an example JSON object for profile settings."#;
             slack: false,
             discord: true,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         };
         assert!(cfg.enabled_for_channel("discord"));
@@ -53748,7 +50832,6 @@ This is an example JSON object for profile settings."#;
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: true,
         };
         assert!(cfg.enabled_for_channel("whatsapp"));
@@ -53818,7 +50901,6 @@ This is an example JSON object for profile settings."#;
             slack: false,
             discord: false,
             mattermost: false,
-            matrix: false,
             whatsapp: false,
         };
         assert!(!cfg.enabled_for_channel("discord"));
@@ -54272,7 +51354,6 @@ This is an example JSON object for profile settings."#;
                 slack: true,
                 discord: false,
                 mattermost: false,
-                matrix: false,
                 whatsapp: false,
             },
             multimodal: zeroclaw_config::schema::MultimodalConfig::default(),
