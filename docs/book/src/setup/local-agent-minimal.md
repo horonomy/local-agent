@@ -34,7 +34,7 @@ remain available so a non-minimal config can be repaired.
 
 ## Provider approval and egress
 
-`zeroclaw agent` contacts only a provider you configured:
+For inference requests, `zeroclaw agent` contacts only a provider you configured:
 
 - The agent runs only as a configured `[agents.<alias>]`, and its `model_provider` must
   resolve to `[providers.models.<family>.<alias>]`. An unresolved reference, or none, makes
@@ -48,7 +48,7 @@ remain available so a non-minimal config can be repaired.
   (`minimal_profile_artifact.sh tree` asserts it is absent, with a positive control from
   the default graph). That is the only metrics or telemetry crate the check looks for.
 
-Evidence, none of which touches the host network:
+Evidence, none of which reaches a public network (the component tests use unsandboxed loopback recorders):
 
 ```sh
 cargo test --locked -p zeroclaw --no-default-features --features local-agent-minimal \
@@ -69,7 +69,8 @@ the recorders and the error text. The system resolver stays reachable under this
 so a hostname lookup can still happen; no connection to a non-loopback address can succeed.
 
 Not covered here: the model catalog lookups (the `openai` family's `list_models()` always
-fetches models.dev, and `models refresh --all` is not probed), update checks, the tool
+fetches models.dev, and `models refresh --all` is not probed), `auth login`, `auth paste-redirect` and
+`auth refresh` (public OAuth endpoints, ungated), update checks, the tool
 sandbox's own DNS allowance, LLM-invoked network tools such as `web_fetch`
 (approval-gated, not automatic), the `model_switch` catalog fallback and the open-skills
 environment override. Those are tracked as open decisions for HORO-2385.
