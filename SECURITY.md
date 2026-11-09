@@ -28,7 +28,7 @@ covers upstream releases only; do not use it to report a Local Agent issue.
 
 ### What to Include
 
-When a channel exists, a report should have:
+A report should include:
 
 - Description of the vulnerability
 - Steps to reproduce
