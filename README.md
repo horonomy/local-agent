@@ -67,11 +67,12 @@ design. The exact list and behavior is in the
 - **OS:** exercised on macOS (`aarch64-apple-darwin`) only. The golden-journey
   runner is POSIX-only and the egress probe uses macOS `sandbox-exec`. Linux and
   Windows are **not verified** for this profile.
-- **Providers:** adapters for Anthropic, OpenAI (including the Codex
-  subscription flow), OpenRouter, Ollama and OpenAI-compatible endpoints are
-  compiled in; `zeroclaw providers list` shows what your binary supports. Which
-  of them were exercised end to end for MVP 1.0 is **not established**: the
-  verified journeys use a synthetic local provider.
+- **Providers:** `zeroclaw quickstart` offers Anthropic, OpenAI, OpenRouter and
+  Ollama, and OpenAI-compatible endpoints can be configured. `zeroclaw providers
+  list` lists the provider aliases you have configured, not what the binary
+  supports. Which providers were exercised end to end for MVP 1.0 is **not
+  established**: the verified journeys use a synthetic local provider, and
+  provider sign-in flows (OAuth) are not covered by the egress evidence.
 
 ## Install and first run
 
@@ -123,8 +124,7 @@ Details are in the
 - Distribution license review is not complete (see [UPSTREAM.md](UPSTREAM.md)).
   The inherited [SECURITY.md](SECURITY.md) describes upstream's reporting
   channels; no Local Agent vulnerability-reporting channel is established yet.
-- The last recorded runtime test run had two relay fixture setup failures, and
-  the journey evidence is one synthetic-provider run on macOS, not release
+- The journey evidence is one synthetic-provider run on macOS, not release
   validation.
 
 ## Provenance and attribution
