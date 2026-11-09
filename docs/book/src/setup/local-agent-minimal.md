@@ -85,8 +85,11 @@ environment override. Those are tracked as open decisions for HORO-2385.
   (`call_local`, `ensure_node_id`, `request_new_paircode` and friends) stay compiled in.
   `scripts/ci/minimal_profile_artifact.sh binary` still asserts the listener entry points
   are absent from an unstripped build, with positive controls, as a second line of
-  defence against a gate being lost. The dependencies those listeners use are not yet
-  removed from the profile's graph; that is separate work.
+  defence against a gate being lost. `tokio-tungstenite` and `tungstenite`, which only
+  those listeners and the gateway used, are no longer in this profile's dependency graph
+  (`scripts/ci/minimal_profile_artifact.sh tree` asserts they are absent and that the
+  default graph still has them). Other dependencies the listeners use, such as `rustls`,
+  remain because the client helpers need them.
 - Provider OAuth sign-in (for example the Gemini and OpenAI flows) uses a short-lived,
   user-initiated loopback callback listener. It is not gated, and `listener_probe.py`
   does not exercise it.
