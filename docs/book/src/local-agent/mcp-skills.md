@@ -2,7 +2,7 @@
 
 ## MCP
 
-Local Agent is an MCP client for servers it spawns over stdio. Access is granted per agent and nothing is granted by default.
+Local Agent is an MCP client. This page documents servers it spawns over stdio; other transports exist in the code but are not covered here. Access is granted per agent and nothing is granted by default.
 
 - A server is defined under `mcp.servers` (its `name`, `command` and `args` for stdio).
 - A bundle `[mcp_bundles.<alias>]` lists the servers it grants in `servers`, with an optional `exclude` list. Deny wins: a name in any referenced bundle's `exclude` is removed.
