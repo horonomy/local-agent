@@ -64,11 +64,6 @@ fn registry() -> Vec<Surface> {
             render: tools_ftl::render_file,
         },
         Surface {
-            name: "readme-unix-fast",
-            file: "README.md",
-            render: docs::render_readme_unix_fast_zone,
-        },
-        Surface {
             name: "linux-unix-fast",
             file: "docs/book/src/setup/linux.md",
             render: docs::render_unix_fast_command_zone,
