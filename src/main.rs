@@ -9013,6 +9013,40 @@ fn minimal_profile_repair_command(command: &Commands) -> bool {
     )
 }
 
+/// The provider a command's `--model-provider` argument asks to contact, for every
+/// command that connects to one. Commands without such an argument return None.
+#[cfg(feature = "local-agent-minimal")]
+fn minimal_profile_cli_provider(command: &Commands) -> Option<&str> {
+    match command {
+        Commands::Agent { model_provider, .. } => model_provider.as_deref(),
+        Commands::Models {
+            model_command:
+                ModelCommands::Refresh { model_provider, .. }
+                | ModelCommands::List { model_provider, .. },
+        } => model_provider.as_deref(),
+        Commands::Doctor {
+            doctor_command:
+                Some(
+                    DoctorCommands::Models { model_provider, .. }
+                    | DoctorCommands::UpdateContextWindows { model_provider, .. },
+                ),
+        } => model_provider.as_deref(),
+        _ => None,
+    }
+}
+
+/// A CLI provider override is approved only when it names a configured
+/// `<family>.<alias>`; anything else (a bare family, a URL) would select an
+/// endpoint the config never approved.
+#[cfg(feature = "local-agent-minimal")]
+fn minimal_profile_provider_override_approved(config: &Config, requested: &str) -> bool {
+    config
+        .providers
+        .models
+        .iter_entries()
+        .any(|(family, alias, _)| requested == format!("{family}.{alias}"))
+}
+
 /// Config sections that would enable an inbound or remote surface the minimal
 /// profile cannot serve. Refusing is deliberate: silently ignoring them would
 /// leave the operator believing a surface is active.
@@ -9908,6 +9942,18 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
 
     // All other commands need config loaded first
     let mut config = Box::pin(Config::load_or_init()).await?;
+    #[cfg(feature = "local-agent-minimal")]
+    if let Some(requested) = minimal_profile_cli_provider(&cli.command)
+        && !minimal_profile_provider_override_approved(&config, requested)
+    {
+        // i18n-exempt: profile refusal must not depend on the runtime catalogue.
+        // The value is not echoed: an override URL can carry a credential.
+        bail!(
+            "`--model-provider` must name a provider configured under \
+             `[providers.models.<family>.<alias>]` in the local-agent-minimal profile; \
+             the supplied value is not one."
+        );
+    }
     #[cfg(feature = "local-agent-minimal")]
     if !minimal_profile_repair_command(&cli.command) {
         let violations = minimal_profile_config_violations(&config);

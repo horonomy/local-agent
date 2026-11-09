@@ -17,23 +17,33 @@ set -euo pipefail
 MIN=(--no-default-features --features local-agent-minimal)
 fail=0
 
+# The full graph does not print the root crate's own feature nodes, so the graph
+# inverted at zeroclaw-runtime is added: that is where daemon-listeners and the
+# metrics exporter show up when the root enables them.
 tree_features() { # $1.. = extra cargo args
-  cargo tree --locked -p zeroclaw -e no-dev,features --prefix none "$@" 2>/dev/null | sort -u
+  {
+    cargo tree --locked -p zeroclaw -e no-dev,features --prefix none "$@"
+    cargo tree --locked -p zeroclaw -e no-dev,features -i zeroclaw-runtime --prefix none "$@"
+  } 2>/dev/null | sort -u
 }
 
-absent_markers='zeroclaw-gateway|zerorelay|zeroclaw-runtime feature "daemon-listeners"|zeroclaw-channels feature "(channel-|whatsapp-web|voice-wake)'
+absent_markers='zeroclaw-gateway|zerorelay|zeroclaw-runtime feature "daemon-listeners"|zeroclaw-channels feature "(channel-|whatsapp-web|voice-wake)|zeroclaw-runtime feature "observability-prometheus"|^prometheus v'
 
 check_tree() {
   local minimal default
   minimal=$(tree_features "${MIN[@]}")
   default=$(tree_features)
   # Positive control: the default graph must contain the markers.
-  for marker in 'zeroclaw-gateway' 'zeroclaw-runtime feature "daemon-listeners"' 'zeroclaw-channels feature "channel-'; do
+  for marker in 'zeroclaw-gateway' 'zeroclaw-runtime feature "daemon-listeners"' 'zeroclaw-channels feature "channel-' 'zeroclaw-runtime feature "observability-prometheus"'; do
     if ! grep -qF -- "$marker" <<<"$default"; then
       echo "FAIL control: default graph lacks '$marker'; the check cannot prove anything" >&2
       exit 2
     fi
   done
+  if ! grep -qE -- '^prometheus v' <<<"$default"; then
+    echo "FAIL control: default graph lacks the prometheus crate; the exporter check cannot prove anything" >&2
+    exit 2
+  fi
   if [[ -z "$minimal" ]] || ! grep -q '^zeroclaw-runtime' <<<"$minimal"; then
     echo "FAIL control: minimal graph is empty or lacks zeroclaw-runtime" >&2
     exit 2
@@ -43,7 +53,7 @@ check_tree() {
     echo "$hits" >&2
     fail=1
   else
-    echo "PASS tree: no gateway, relay app, daemon-listeners or channel feature in the minimal closure"
+    echo "PASS tree: no gateway, relay app, daemon-listeners, channel feature or metrics exporter in the minimal closure"
   fi
 }
 
