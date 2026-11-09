@@ -18029,7 +18029,7 @@ pub struct WhatsAppConfig {
     /// JID (`123456789012345@g.us`) or the JID user part - the segment before
     /// `@` (`123456789012345`) - compared exactly, not as a string prefix.
     /// Direct messages bypass this filter regardless of list contents.
-    /// Modeled on the Matrix channel's `allowed_rooms`; it gates group
+    /// Modeled on the shape of other channels' allow-lists; it gates group
     /// identity, which `dm_policy`/`group_policy` (chat type) and the
     /// sender allowlist (sender) do not.
     #[tab(Advanced)]
@@ -35643,7 +35643,7 @@ stream_mode = "single_message"
         assert!(parsed.guild_ids.is_empty());
     }
 
-    // ── iMessage / Matrix config ────────────────────────────
+    // ── iMessage config ────────────────────────────
 
     // iMessage `allowed_contacts` was lifted out of `IMessageConfig` in V3;
     // inbound peer authorization lives in `Config::peer_groups`. The
