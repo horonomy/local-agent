@@ -173,6 +173,10 @@ This is the only official ZeroClaw repository:
 
 Any other repository, organization, domain, or package claiming to be "ZeroClaw" or implying affiliation with ZeroClaw Labs is **unauthorized and not affiliated with this project**.
 
+## Support Development
+
+This project is free and open source. If it is useful to you and you would like to, you can voluntarily support its development on [Ko-fi](https://ko-fi.com/chisanan232). Horonom is not yet an incorporated company: contributions go to the individual maintainer's personal Ko-fi account, not to a registered company. Support is optional, is not a charitable donation, and does not come with priority support or other benefits.
+
 ## License
 
 Dual-licensed: [MIT](LICENSE-MIT) OR [Apache 2.0](LICENSE-APACHE). You may choose either. Contributors automatically grant rights under both — see [CLA](docs/book/src/contributing/cla.md). The **ZeroClaw** name and logo are trademarks of ZeroClaw Labs.
