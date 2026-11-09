@@ -6191,7 +6191,7 @@ fn truncate_at_unclosed_protocol_fence(s: &str, known_tool_names: &HashSet<Strin
 /// Reconcile the canonical final response into the cumulative visible-stream
 /// byte coordinate system used by MultiMessage finalizers.
 ///
-/// Discord and Matrix MultiMessage finalizers flush `final[sent_so_far..]`,
+/// Discord MultiMessage finalizers flush `final[sent_so_far..]`,
 /// where `sent_so_far` is the channel's confirmed-delivery byte offset into
 /// the cumulative visible text that `update_draft` received (`streamed_text`).
 /// The text handed to `finalize_draft` must therefore begin with exactly the
