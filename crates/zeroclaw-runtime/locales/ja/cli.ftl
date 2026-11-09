@@ -1127,7 +1127,6 @@ channel-runtime-progress-waiting-on-model = モデルの応答を待っていま
 channel-runtime-progress-running-tool = ツールを実行中
 channel-runtime-progress-compacting-context = コンテキストを圧縮中
 channel-runtime-progress-finalizing-response = 応答を最終処理中
-channel-runtime-matrix-progress-item-too-large = ⚠️ この行は 1 件の Matrix メッセージに収まらないほど大きすぎます。⚠️
 channel-runtime-new-session = 会話履歴を消去しました。新しく開始します。
 channel-runtime-stop-sent = 停止シグナルを送信しました。
 channel-runtime-stop-no-task = この送信者スコープに実行中のタスクはありません。

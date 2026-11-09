@@ -67,15 +67,6 @@ lettre = { version = "0.11.22", default-features = false, features = [
 ], optional = true }
 pulldown-cmark = "0.13"
 mail-parser = { version = "0.11.2", optional = true }
-matrix-sdk = { version = "0.19", optional = true, default-features = false, features = [
-  # 0.19 moved the TLS provider out of `reqwest/rustls` into its own feature
-  # and made it a default; with default-features = false we have to name it or
-  # every Client build panics with "No rustls crypto provider is configured".
-  "rustls-aws-lc-rs",
-  "e2e-encryption",
-  "markdown",
-  "sqlite",
-] }
 mime_guess = { version = "2", optional = true }
 nostr-sdk = { version = "0.44", default-features = false, features = [
   "nip04",
@@ -284,7 +275,6 @@ channel-webhook = ["dep:axum"]
 channel-whatsapp-cloud = []
 channel-voice-call = ["dep:axum"]
 channel-acp-server = ["dep:zeroclaw-tools"]
-channel-matrix = ["dep:matrix-sdk", "dep:mime_guess", "dep:zeroclaw-tools"]
 voice-wake = ["dep:cpal"]
 
 [target.'cfg(unix)'.dependencies]
@@ -306,15 +296,6 @@ image = { version = "0.25", default-features = false, features = [
   "png",
   "webp",
 ] }
-matrix-sdk = { version = "0.19", default-features = false, features = [
-  "rustls-aws-lc-rs",
-  "testing",
-  "e2e-encryption",
-  "markdown",
-  "sqlite",
-] }
-matrix-sdk-base = { version = "0.19", default-features = false, features = ["e2e-encryption"] }
-matrix-sdk-test = "0.19"
 rcgen = "0.13"
 rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
 tempfile = "3.26"

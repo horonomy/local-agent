@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn all_renders_kitchen_sink() {
         let b = render_features(&root(), &Selection::All, "        ").unwrap();
-        assert!(b.contains("hardware") && b.contains("channel-matrix"));
+        assert!(b.contains("hardware") && b.contains("channel-nostr"));
     }
 
     #[test]

@@ -2,7 +2,6 @@
     test,
     feature = "channel-discord",
     feature = "channel-lark",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram"
@@ -18,7 +17,6 @@ use std::{collections::HashMap, sync::Arc};
     test,
     feature = "channel-discord",
     feature = "channel-lark",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram"
@@ -32,7 +30,6 @@ pub(crate) struct PendingApprovalGuard<V: Send + 'static> {
     test,
     feature = "channel-discord",
     feature = "channel-lark",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram"
@@ -64,7 +61,6 @@ impl<V: Send + 'static> PendingApprovalGuard<V> {
     test,
     feature = "channel-discord",
     feature = "channel-lark",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram"
@@ -676,7 +672,6 @@ pub(crate) fn build_yesno_approval_prompt(
     feature = "channel-slack",
     feature = "channel-whatsapp-cloud",
     feature = "whatsapp-web",
-    feature = "channel-matrix",
     feature = "channel-telegram",
     feature = "channel-lark",
     test
@@ -700,39 +695,8 @@ pub(crate) fn approval_position_line(position: Option<(u32, u32)>) -> String {
     }
 }
 
-/// Localized text-reply approval prompt using approve/deny/always reply
-/// keywords: Matrix's own reply parser (distinct from
-/// [`parse_approval_reply`]) expects this shape.
-#[cfg(any(feature = "channel-matrix", test))]
-pub(crate) fn build_approve_deny_approval_prompt(
-    token: &str,
-    tool_name: &str,
-    arguments_summary: &str,
-    position: Option<(u32, u32)>,
-) -> String {
-    let position_line = approval_position_line(position);
-    let heading = zeroclaw_runtime::i18n::get_required_cli_string("channel-approval-heading-shout");
-    let tool_label = zeroclaw_runtime::i18n::get_required_cli_string("channel-approval-tool-label");
-    let args_label = zeroclaw_runtime::i18n::get_required_cli_string("channel-approval-args-label");
-    let approve_command = format!("{token} {APPROVAL_REPLY_APPROVE}");
-    let deny_command = format!("{token} {APPROVAL_REPLY_DENY}");
-    let always_command = format!("{token} {APPROVAL_REPLY_ALWAYS}");
-    let reply = zeroclaw_runtime::i18n::get_required_cli_string_with_args(
-        "channel-approval-reply-instruction-approve-deny",
-        &[
-            ("approve_command", approve_command.as_str()),
-            ("deny_command", deny_command.as_str()),
-            ("always_command", always_command.as_str()),
-        ],
-    );
-    format!(
-        "{heading} [{token}]\n{position_line}{tool_label}: {tool_name}\n{args_label}: {arguments_summary}\n\n{reply}"
-    )
-}
-
 #[cfg(any(
     feature = "channel-discord",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram",
@@ -746,7 +710,6 @@ pub(crate) struct PendingApproval {
 
 #[cfg(any(
     feature = "channel-discord",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram",
@@ -762,14 +725,13 @@ pub(crate) enum PendingApprovalResolution {
 
 #[cfg(any(
     feature = "channel-discord",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram",
     test
 ))]
 impl PendingApprovalResolution {
-    #[cfg(any(feature = "channel-matrix", feature = "channel-slack", test))]
+    #[cfg(any(feature = "channel-slack", test))]
     pub(crate) fn suppresses_message(self) -> bool {
         !matches!(self, Self::NotFound)
     }
@@ -777,7 +739,6 @@ impl PendingApprovalResolution {
 
 #[cfg(any(
     feature = "channel-discord",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     test
@@ -802,7 +763,6 @@ pub(crate) async fn resolve_pending_approval(
 
 #[cfg(any(
     feature = "channel-discord",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram",
@@ -1572,23 +1532,6 @@ mod tests {
     }
 
     #[test]
-    fn approve_deny_approval_prompt_matches_matrix_own_parser_keywords() {
-        // Same desync guard as above, for Matrix's `approve`/`deny`/`always`
-        // reply shape (Matrix uses its own parser, not
-        // `parse_approval_reply`, but the keyword contract is identical).
-        let token = "AB12CD34";
-        let prompt = super::build_approve_deny_approval_prompt(token, "shell", "ls -la", None);
-        assert!(prompt.contains(token));
-        for word in ["approve", "deny", "always"] {
-            let reply = format!("{token} {word}");
-            assert!(
-                prompt.contains(&reply),
-                "prompt should show the exact reply {reply:?}; got {prompt:?}"
-            );
-        }
-    }
-
-    #[test]
     fn literal_approval_keys_in_listed_adapter_sources_resolve() {
         // Heuristic smoke guard for literal Fluent keys in the current
         // adapter list. It complements, but does not replace, compile-time
@@ -1601,7 +1544,6 @@ mod tests {
             include_str!("discord/mod.rs"),
             include_str!("discord/approval.rs"),
             include_str!("slack.rs"),
-            include_str!("matrix.rs"),
             include_str!("signal.rs"),
             include_str!("whatsapp.rs"),
             include_str!("whatsapp_web.rs"),
