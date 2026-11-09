@@ -10,6 +10,8 @@ relates-to:
 
 # ZEGA AI (External Prototype)
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 [ZEGA AI](https://github.com/siabang35/zega.ai) is an external fintech
 platform that connects to a ZeroClaw v0.8.x gateway daemon through a
 TypeScript bridge package (`@zega/zeroclaw-bridge`). The bridge is an

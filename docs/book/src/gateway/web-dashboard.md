@@ -1,5 +1,7 @@
 # Web dashboard (`gateway.web_dist_dir`)
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 When ZeroClaw is built with the `embedded-web` feature, the compiled-in dashboard assets take precedence over `gateway.web_dist_dir` and the filesystem locations described below. Filesystem resolution and API-only fallback apply when embedded assets are unavailable.
 
 The gateway daemon ships its HTTP API in the binary, but the web dashboard

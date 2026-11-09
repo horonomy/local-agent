@@ -1,5 +1,7 @@
 # AMQP
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The `amqp` channel consumes messages from an AMQP 0-9-1 broker (RabbitMQ and compatible). Each delivery can drive the agent loop, start a SOP run, or both, selected per alias by the `dispatch` field.
 
 > **This is a SOP event source.** For trigger syntax, routing-key matching, and the SOP side of the wiring, see [SOP Fan-In: AMQP](../sop/fan-in/amqp.md). This page covers the broker connection and the dispatch mode.

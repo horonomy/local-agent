@@ -1,15 +1,14 @@
 [book]
-title = "ZeroClaw Docs"
-description = "Documentation for the ZeroClaw personal AI assistant."
-authors = ["ZeroClaw Labs"]
+title = "Local Agent Docs"
+description = "Documentation for Local Agent, a local-first personal AI agent derived from ZeroClaw."
+authors = ["Local Agent contributors"]
 language = "en"
 src = "src"
 
 [output.html]
 default-theme = "default-dark"
 preferred-dark-theme = "default-dark"
-git-repository-url = "https://github.com/zeroclaw-labs/zeroclaw"
-edit-url-template = "https://github.com/zeroclaw-labs/zeroclaw/edit/master/docs/book/{path}"
+git-repository-url = "https://github.com/horonomy/local-agent"
 site-url = "/"
 additional-js = [
   "theme/version-selector.js",

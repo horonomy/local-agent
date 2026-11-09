@@ -1,5 +1,7 @@
 # RPC Socket Transport
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The daemon exposes a JSON-RPC 2.0 interface over a local IPC stream, a Unix
 domain socket on Unix and a named pipe on Windows. This is the primary
 transport for local clients like zerocode. The HTTP/WS gateway remains for

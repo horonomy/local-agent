@@ -1,5 +1,7 @@
 # Git
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 Converse with the agent through a git forge's issue and pull-request comments, and surface repository events, including PR lifecycle, review comments, CI outcomes, and releases, through a per-event routing table. The channel is built around a **provider seam**: a `provider` field selects the forge. GitHub, Gitea, and Forgejo are wired providers; additional forges drop in as sibling providers without changing the generic channel.
 
 > **New to ZeroClaw?** Start with the [Quickstart](../getting-started/quickstart.md) to get a running agent, then skim [Concepts](../getting-started/concepts.md) for the terms (agent, peer group, autonomy, SOP) this page assumes.
