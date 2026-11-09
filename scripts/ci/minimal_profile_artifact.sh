@@ -9,9 +9,10 @@
 #       Symbols of an UNSTRIPPED minimal binary. Positive control: core agent
 #       symbols must be present, and so must client helpers from the relay,
 #       enrollment and local-RPC modules whose listener entry points are asserted
-#       absent. That code is still compiled into the runtime crate; its listener
-#       entry points are called only from the gated daemon, so the linker drops
-#       them, while the client helpers stay because other commands call them.
+#       absent. Those entry points are compiled out by the runtime
+#       `daemon-listeners` feature (HORO-2383); this check is the second line of
+#       defence against a gate being lost, while the client helpers stay because
+#       other commands call them.
 set -euo pipefail
 
 MIN=(--no-default-features --features local-agent-minimal)
@@ -72,10 +73,10 @@ check_binary() {
   else
     echo "PASS binary: no gateway, WSS or channel-adapter symbols"
   fi
-  # The relay bridge, enrollment server and local RPC listener are still compiled
-  # into the runtime crate, but nothing reachable from the minimal binary calls
-  # them, so the linker drops them. Controls first: sibling client helpers from the
-  # same modules must be linked, otherwise a pattern typo would pass this check.
+  # The relay bridge, enrollment server and local RPC listener are compiled out by
+  # `daemon-listeners`; this symbol check backs up that gate. Controls first: sibling
+  # client helpers from the same modules must be linked, otherwise a pattern typo
+  # would pass this check.
   for control in 'zeroclaw_runtime::relay::ensure_node_id' 'zeroclaw_runtime::enroll::paircode_admin::' 'zeroclaw_runtime::rpc::local::'; do
     if ! grep -qF -- "$control" <<<"$syms"; then
       echo "FAIL control: expected client symbol '$control' is not linked" >&2
