@@ -106,7 +106,7 @@ any more, so the visible `bitmaps` unsoundness warning
 
 Live, deny-only:
 
-- **`anymap2` (`RUSTSEC-2026-0319`)**: unmaintained; `matrix-sdk 0.19.1` still depends on it, with no replacement SDK release available. The advisory recommends `anymap3`. Only `deny.toml` needs an exception because the configured `cargo audit` invocation treats this maintenance advisory as an allowed warning. Remove the exception once the resolved dependency graph no longer includes an affected `anymap2`. Tracking #11429.
+- **`anymap2` (`RUSTSEC-2026-0319`)**: resolved. It was only reachable through the bundled Matrix adapter, which MVP 1.0 removed (HORO-2527), so `deny.toml` no longer carries the exception. Tracking #11429 is superseded.
 
 ### Audit-only inventory (scope, not severity)
 
@@ -197,7 +197,7 @@ unaffected by the advisory):
   `RUSTSEC-2026-0247`, `RUSTSEC-2026-0292`, and the separate visible
   `RUSTSEC-2025-0167` warning are all gone, and the waiver text is out of
   both tool files and this document.
-- **#11429**: *Remove the `anymap2` maintenance exception after Matrix migrates.* The RUSTSEC-2026-0319 exception is present only in `deny.toml`. Keep this issue open until the Matrix dependency update removes the affected crate from the resolved graph, then remove the exception and update this inventory.
+- **#11429**: *Remove the `anymap2` maintenance exception after Matrix migrates.* Superseded: the bundled Matrix adapter was removed (HORO-2527), the affected crate is out of the resolved graph, and the RUSTSEC-2026-0319 exception is gone from `deny.toml`.
 - **#8059**: *Policy cleanup: deny.toml ignored-advisory tracking,
   multiple-versions, wildcards.* piiiico's RFC on adding per-entry
   rationale to `deny.toml` ignore blocks. This doc is the

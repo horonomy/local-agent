@@ -30,7 +30,6 @@ Real-time messaging where the agent can hold a conversation, get notified of new
 
 | Channel | Feature flag | Dedicated guide |
 |---|---|---|
-| Matrix | `channel-matrix` | [Matrix](./matrix.md) |
 | Telegram | `channel-telegram` | [Telegram](./telegram.md) |
 | Discord | `channel-discord` | [Discord](./discord.md) |
 | Slack | `channel-slack` | [Slack](./slack.md) |
