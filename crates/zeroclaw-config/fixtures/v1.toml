@@ -284,20 +284,6 @@ send_method = "POST"
 enabled = false
 allowed_contacts = ["+15551234567"]
 
-[channels_config.matrix]
-enabled = true
-homeserver = "https://matrix.example.org"
-access_token = "matrix-v1-access-token"
-user_id = "@zeroclaw:matrix.example.org"
-device_id = "ZEROCLAW_FIXTURE"
-room_id = "!fixture-room:matrix.example.org"
-allowed_users = ["@operator:matrix.example.org"]
-allowed_rooms = []
-interrupt_on_new_message = false
-stream_mode = "off"
-draft_update_interval_ms = 2000
-multi_message_delay_ms = 500
-
 [channels_config.signal]
 enabled = false
 http_url = "http://127.0.0.1:8686"

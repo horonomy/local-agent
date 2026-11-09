@@ -178,8 +178,7 @@ allowed_users = ["@alice:example.invalid"]
         ),
     ];
 
-    for (case, raw_config, expected_path, placeholder, expected_message, retired_post_path) in
-        cases
+    for (case, raw_config, expected_path, placeholder, expected_message, retired_post_path) in cases
     {
         let config_dir = tempfile::tempdir().unwrap();
         std::fs::write(config_dir.path().join("config.toml"), raw_config).unwrap();

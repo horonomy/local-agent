@@ -73,7 +73,6 @@ pub const V3_CHANNEL_TYPES: &[&str] = &[
     "mattermost",
     "webhook",
     "imessage",
-    "matrix",
     "signal",
     "whatsapp",
     "linq",
@@ -1932,9 +1931,10 @@ fn fold_channel_peer_auth_into_peer_groups(
     peer_groups: &mut toml::Table,
 ) {
     let Some(field_name) = (match channel_type {
-        "telegram" | "discord" | "slack" | "mattermost" | "matrix" | "nextcloud_talk" | "irc"
-        | "lark" | "line" | "feishu" | "dingtalk" | "wecom" | "wechat" | "qq" | "twitter"
-        | "mochat" => Some("allowed_users"),
+        "telegram" | "discord" | "slack" | "mattermost" | "nextcloud_talk" | "irc" | "lark"
+        | "line" | "feishu" | "dingtalk" | "wecom" | "wechat" | "qq" | "twitter" | "mochat" => {
+            Some("allowed_users")
+        }
         "imessage" => Some("allowed_contacts"),
         "signal" => Some("allowed_from"),
         "whatsapp" => Some("allowed_numbers"),
