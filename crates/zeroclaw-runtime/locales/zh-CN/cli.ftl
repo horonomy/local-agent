@@ -945,6 +945,7 @@ cli-plugin-list-entry-failed = {$name} v{$version} — {$description}（无法�
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description}（没有可加载的组件）
 cli-config-section-degraded = 警告：{$path} 中的配置部分 `{$section}` 格式不正确，本次运行已重置为默认值。该部分中的值不会生效。请运行 `zeroclaw config migrate` 查看解析错误，然后修复文件。
 cli-config-section-retired-wati = 警告：已弃用的 WATI 频道配置部分 `{$section}` 将被忽略，因为 WATI 支持已移除。请使用 Cloud API 或 WhatsApp Web 迁移到 `[channels.whatsapp.<alias>]`，然后撤销未使用的 WATI API 令牌。
+cli-config-section-retired-matrix = 警告：已弃用的 Matrix 频道配置部分 `{$section}` 将被忽略，因为内置的 Matrix 频道已移除。请撤销 Matrix 访问令牌和设备，并手动删除 `<config_dir>/state/matrix/<alias>/`。
 cli-config-section-retired-node-transport = 警告：已弃用的 `[node_transport]` 配置将被忽略，因为旧版 HMAC 节点传输已移除。请从 config.toml 中删除该部分。
 cli-plugin-removed = 已移除插件“{$name}”。
 cli-plugin-removed-grant-kept = 其配置条目“{$key}”及其出站授权（{$grants}）会被保留：之后以“{$name}”安装的软件包将继承它。删除名为“{$key}”的 [[plugins.entries]] 行即可撤销该授权。

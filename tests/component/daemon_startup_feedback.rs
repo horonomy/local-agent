@@ -105,7 +105,7 @@ fn http_status(port: u16, request: &[u8]) -> Option<u16> {
 }
 
 #[test]
-fn daemon_surfaces_retired_wati_config_without_leaking_tokens() {
+fn daemon_surfaces_retired_channel_config_without_leaking_tokens() {
     let cases = [
         (
             "current",
@@ -122,6 +122,8 @@ allowed_numbers = ["1234567890"]
 "#,
             "channels.wati",
             "WATI_CURRENT_PLACEHOLDER_MUST_NOT_APPEAR",
+            "retired WATI channel config section",
+            Some("/wati"),
         ),
         (
             "legacy",
@@ -136,10 +138,49 @@ allowed_numbers = ["1234567890"]
 "#,
             "channels_config.wati",
             "WATI_LEGACY_PLACEHOLDER_MUST_NOT_APPEAR",
+            "retired WATI channel config section",
+            Some("/wati"),
+        ),
+        (
+            "matrix-current",
+            r#"schema_version = 3
+
+[gateway]
+require_pairing = false
+
+[channels.matrix.exact_head_smoke]
+enabled = true
+homeserver = "https://matrix.example.invalid"
+access_token = "MATRIX_CURRENT_PLACEHOLDER_MUST_NOT_APPEAR"
+allowed_rooms = ["!room:example.invalid"]
+"#,
+            "channels.matrix",
+            "MATRIX_CURRENT_PLACEHOLDER_MUST_NOT_APPEAR",
+            "retired Matrix channel config section",
+            None,
+        ),
+        (
+            "matrix-legacy",
+            r#"[gateway]
+require_pairing = false
+
+[channels_config.matrix]
+enabled = true
+homeserver = "https://matrix.example.invalid"
+access_token = "MATRIX_LEGACY_PLACEHOLDER_MUST_NOT_APPEAR"
+room_id = "!room:example.invalid"
+allowed_users = ["@alice:example.invalid"]
+"#,
+            "channels_config.matrix",
+            "MATRIX_LEGACY_PLACEHOLDER_MUST_NOT_APPEAR",
+            "retired Matrix channel config section",
+            None,
         ),
     ];
 
-    for (case, raw_config, expected_path, placeholder) in cases {
+    for (case, raw_config, expected_path, placeholder, expected_message, retired_post_path) in
+        cases
+    {
         let config_dir = tempfile::tempdir().unwrap();
         std::fs::write(config_dir.path().join("config.toml"), raw_config).unwrap();
         let port = std::net::TcpListener::bind(("127.0.0.1", 0))
@@ -199,14 +240,16 @@ allowed_numbers = ["1234567890"]
             );
         }
 
-        let post_status = cfg!(feature = "gateway").then(|| {
-            let body = r#"{"text":"hello","waId":"1234567890","fromMe":false}"#;
-            let request = format!(
-                "POST /wati HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            http_status(port, request.as_bytes())
-        });
+        let post_status = retired_post_path
+            .filter(|_| cfg!(feature = "gateway"))
+            .map(|path| {
+                let body = r#"{"text":"hello","waId":"1234567890","fromMe":false}"#;
+                let request = format!(
+                    "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                http_status(port, request.as_bytes())
+            });
 
         let _ = child.kill();
         let output = child.wait_with_output().unwrap();
@@ -217,17 +260,16 @@ allowed_numbers = ["1234567890"]
             assert_eq!(health_status, Some(200), "{case}: daemon health");
             assert!(
                 matches!(post_status, Some(404 | 405)),
-                "{case}: retired POST /wati must be unavailable, got {post_status:?}"
+                "{case}: retired POST {retired_post_path:?} must be unavailable, got {post_status:?}"
             );
         }
         assert!(
-            stderr.contains("retired WATI channel config section")
-                && stderr.contains(expected_path),
+            stderr.contains(expected_message) && stderr.contains(expected_path),
             "{case}: stderr must name retired path {expected_path}: {stderr}"
         );
         assert!(
             !stdout.contains(placeholder) && !stderr.contains(placeholder),
-            "{case}: placeholder WATI token leaked to process output"
+            "{case}: placeholder token leaked to process output"
         );
     }
 }

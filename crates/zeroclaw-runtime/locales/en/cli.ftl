@@ -1112,6 +1112,7 @@ cli-plugin-list-entry-loads = {$name} v{$version} — {$description} [loads]
 cli-plugin-list-entry-failed = {$name} v{$version} — {$description} [does not load: {$error}]
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description} [no component to load]
 cli-config-section-retired-wati = warning: retired WATI channel config section `{$section}` is ignored because WATI support was removed. Migrate to `[channels.whatsapp.<alias>]` using the Cloud API or WhatsApp Web, then revoke the unused WATI API token.
+cli-config-section-retired-matrix = warning: retired Matrix channel config section `{$section}` is ignored because the bundled Matrix channel was removed. Revoke the Matrix access token and device, and delete `<config_dir>/state/matrix/<alias>/` by hand.
 cli-config-section-retired-node-transport = warning: retired `[node_transport]` config is ignored because the legacy HMAC node transport was removed. Delete the section from config.toml.
 cli-plugin-removed = Plugin '{$name}' removed.
 cli-plugin-removed-grant-kept = Its config entry '{$key}' is kept, with its egress grant ({$grants}): a package installed later as '{$name}' inherits it. Delete the [[plugins.entries]] row named '{$key}' to drop the grant.

@@ -944,6 +944,7 @@ cli-plugin-list-entry-failed = {$name} v{$version} — {$description}（読み�
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description}（読み込むコンポーネントなし）
 cli-config-section-degraded = 警告: {$path} の設定セクション `{$section}` は不正なため、この実行ではデフォルト値にリセットされました。そのセクションの値は有効ではありません。`zeroclaw config migrate` を実行して解析エラーを確認し、ファイルを修復してください。
 cli-config-section-retired-wati = 警告: 廃止された WATI チャネル設定セクション `{$section}` は、WATI のサポートが削除されたため無視されます。Cloud API または WhatsApp Web を使用して `[channels.whatsapp.<alias>]` に移行し、未使用の WATI API トークンを失効させてください。
+cli-config-section-retired-matrix = 警告: 廃止された Matrix チャネル設定セクション `{$section}` は、同梱の Matrix チャネルが削除されたため無視されます。Matrix のアクセストークンとデバイスを失効させ、`<config_dir>/state/matrix/<alias>/` を手動で削除してください。
 cli-config-section-retired-node-transport = 警告: 廃止された `[node_transport]` 設定は、レガシー HMAC ノードトランスポートが削除されたため無視されます。config.toml からこのセクションを削除してください。
 cli-plugin-removed = プラグイン '{$name}' を削除しました。
 cli-plugin-removed-grant-kept = 設定エントリ '{$key}' は送信許可 ({$grants}) とともに残ります。後で '{$name}' としてインストールされるパッケージはこれを引き継ぎます。許可を取り消すには '{$key}' という名前の [[plugins.entries]] 行を削除してください。

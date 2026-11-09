@@ -62,6 +62,47 @@ impl ApplicationCapabilities {
     }
 }
 
+/// A channel type whose bundled adapter was removed. A leftover
+/// `[channels.<key>]` section is skipped (never fatal) and surfaced through
+/// [`Config::retired_channel_config_sections`]; references to it from agents,
+/// peer groups or proxy selectors fail validation with the retirement hint.
+pub struct RetiredChannelType {
+    /// Section key under `[channels]` / `[channels_config]`.
+    pub key: &'static str,
+    pub display_name: &'static str,
+    /// Operator action for the load-time log line. Never interpolates values.
+    pub guidance: &'static str,
+}
+
+pub const RETIRED_CHANNEL_TYPES: &[RetiredChannelType] = &[
+    RetiredChannelType {
+        key: "wati",
+        display_name: "WATI",
+        guidance: "Migrate to `[channels.whatsapp.<alias>]` using the Cloud API or WhatsApp \
+                   Web, then revoke the unused WATI API token.",
+    },
+    RetiredChannelType {
+        key: "matrix",
+        display_name: "Matrix",
+        guidance: "Revoke the Matrix access token and device, and delete \
+                   `<config_dir>/state/matrix/<alias>/` by hand.",
+    },
+];
+
+/// Retirement hint for a `<type>` channel reference, or an empty string.
+pub(crate) fn retired_channel_hint(channel_type: &str) -> String {
+    RETIRED_CHANNEL_TYPES
+        .iter()
+        .find(|retired| retired.key == channel_type)
+        .map(|retired| {
+            format!(
+                "; the {} channel was removed from this build, delete this reference",
+                retired.display_name
+            )
+        })
+        .unwrap_or_default()
+}
+
 const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "model_provider.anthropic",
     "model_provider.compatible",
@@ -190,11 +231,12 @@ pub struct Config {
     /// section is impossible to miss.
     #[serde(skip)]
     pub degraded_sections: Vec<String>,
-    /// Retired WATI config section roots detected before migration and typed
-    /// deserialization erase them. Never serialized; the CLI surfaces each
-    /// path on stderr so an operator cannot miss the retired channel.
+    /// Retired channel config section roots (see [`RETIRED_CHANNEL_TYPES`])
+    /// detected before migration and typed deserialization erase them. Never
+    /// serialized; holds paths only, never values. The CLI surfaces each path
+    /// on stderr so an operator cannot miss the retired channel.
     #[serde(skip)]
-    pub retired_wati_config_sections: Vec<String>,
+    pub retired_channel_config_sections: Vec<String>,
     /// Whether a retired `[node_transport]` section was present before
     /// migration and typed deserialization erased it. Never serialized; the
     /// CLI surfaces upgrade guidance without retaining the retired secret.
@@ -11160,7 +11202,11 @@ impl ProxyConfig {
         for selector in self.normalized_services() {
             if !is_supported_proxy_service_selector(&selector) {
                 anyhow::bail!(
-                    "Unsupported proxy service selector '{selector}'. Use tool `proxy_config` action `list_services` for valid values"
+                    "Unsupported proxy service selector '{selector}'. Use tool `proxy_config` action `list_services` for valid values{}",
+                    selector
+                        .strip_prefix("channel.")
+                        .map(retired_channel_hint)
+                        .unwrap_or_default()
                 );
             }
         }
@@ -21202,7 +21248,7 @@ impl Default for Config {
             dirty_paths: std::collections::HashSet::new(),
             degraded_security: Vec::new(),
             degraded_sections: Vec::new(),
-            retired_wati_config_sections: Vec::new(),
+            retired_channel_config_sections: Vec::new(),
             retired_node_transport_config: false,
             loaded_from: None,
             schema_version: crate::migration::CURRENT_SCHEMA_VERSION,
@@ -22784,24 +22830,29 @@ impl Config {
             .collect()
     }
 
-    /// Return retired WATI section roots before migration and typed
-    /// deserialization erase them. V1 used `[channels_config.wati]`; V2/V3
-    /// channel aliases use `[channels.wati.<alias>]`.
-    fn retired_wati_config_sections(raw_toml: &str) -> Vec<String> {
+    /// Return retired channel section roots before migration and typed
+    /// deserialization erase them. V1 used `[channels_config.<type>]`; V2/V3
+    /// channel aliases use `[channels.<type>.<alias>]`. Paths only: no value
+    /// from the retired section is read out.
+    fn retired_channel_config_sections(raw_toml: &str) -> Vec<String> {
         let raw: toml::Table = match raw_toml.parse() {
             Ok(t) => t,
             Err(_) => return Vec::new(),
         };
 
-        ["channels", "channels_config"]
-            .into_iter()
-            .filter(|root| {
-                raw.get(*root)
+        let mut sections = Vec::new();
+        for retired in RETIRED_CHANNEL_TYPES {
+            for root in ["channels", "channels_config"] {
+                if raw
+                    .get(root)
                     .and_then(toml::Value::as_table)
-                    .is_some_and(|channels| channels.contains_key("wati"))
-            })
-            .map(|root| format!("{root}.wati"))
-            .collect()
+                    .is_some_and(|channels| channels.contains_key(retired.key))
+                {
+                    sections.push(format!("{root}.{}", retired.key));
+                }
+            }
+        }
+        sections
     }
 
     /// Detect the retired top-level transport section without retaining any
@@ -23061,20 +23112,26 @@ impl Config {
                 .await
                 .context("Failed to read config file")?;
 
-            let retired_wati_config_sections = Self::retired_wati_config_sections(&contents);
-            for path in &retired_wati_config_sections {
+            let retired_channel_config_sections =
+                Self::retired_channel_config_sections(&contents);
+            for path in &retired_channel_config_sections {
+                let retired = RETIRED_CHANNEL_TYPES
+                    .iter()
+                    .find(|retired| path.rsplit('.').next() == Some(retired.key));
+                let (key, display_name, guidance) = retired
+                    .map(|r| (r.key, r.display_name, r.guidance))
+                    .unwrap_or(("", "", ""));
                 ::zeroclaw_log::record!(
                     WARN,
                     ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
                         .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
                         .with_attrs(::serde_json::json!({
-                            "channel": "wati",
+                            "channel": key,
                             "retired_config": path,
                         })),
                     &format!(
-                        "Retired WATI channel config section `{path}` is ignored because WATI \
-                         support was removed. Migrate to `[channels.whatsapp.<alias>]` using \
-                         the Cloud API or WhatsApp Web, then revoke the unused WATI API token."
+                        "Retired {display_name} channel config section `{path}` is ignored \
+                         because {display_name} support was removed. {guidance}"
                     )
                 );
             }
@@ -23127,7 +23184,7 @@ impl Config {
             let mut config: Config = salvage.config;
             config.degraded_security = salvage.dropped_security;
             config.degraded_sections = salvage.dropped;
-            config.retired_wati_config_sections = retired_wati_config_sections;
+            config.retired_channel_config_sections = retired_channel_config_sections;
             config.retired_node_transport_config = retired_node_transport_config;
             if let Some(from_version) = stale_version {
                 ::zeroclaw_log::record!(
@@ -24270,7 +24327,8 @@ impl Config {
             warnings.push(crate::validation_warnings::ValidationWarning::new(
                 "peer_group_channel_dangling",
                 format!(
-                    "peer_groups.{group_name}.channel = {group_channel:?} but {reason}{suggestion}"
+                    "peer_groups.{group_name}.channel = {group_channel:?} but {reason}{suggestion}{}",
+                    retired_channel_hint(&channel_type)
                 ),
                 format!("peer_groups.{group_name}.channel"),
             ));
@@ -25707,7 +25765,8 @@ impl Config {
                             validation_bail!(
                                 DanglingReference,
                                 format!("agents.{alias}.channels[{i}]"),
-                                "agents.{alias}.channels[{i}] = {trimmed:?} but channels.{ty}.{inner} is not configured",
+                                "agents.{alias}.channels[{i}] = {trimmed:?} but channels.{ty}.{inner} is not configured{}",
+                                retired_channel_hint(ty),
                             );
                         }
                     }
@@ -26002,7 +26061,8 @@ impl Config {
                         validation_bail!(
                             DanglingReference,
                             format!("peer_groups.{group_name}.channel"),
-                            "peer_groups.{group_name}.channel = {group_channel:?} but no [channels.{channel_type}.*] block is configured",
+                            "peer_groups.{group_name}.channel = {group_channel:?} but no [channels.{channel_type}.*] block is configured{}",
+                            retired_channel_hint(&channel_type),
                         );
                     }
                 }
@@ -26017,14 +26077,16 @@ impl Config {
                         validation_bail!(
                             DanglingReference,
                             format!("peer_groups.{group_name}.channel"),
-                            "peer_groups.{group_name}.channel = {group_channel:?} but no [channels.{channel_type}.*] block is configured",
+                            "peer_groups.{group_name}.channel = {group_channel:?} but no [channels.{channel_type}.*] block is configured{}",
+                            retired_channel_hint(&channel_type),
                         );
                     }
                     if !exists {
                         validation_bail!(
                             DanglingReference,
                             format!("peer_groups.{group_name}.channel"),
-                            "peer_groups.{group_name}.channel = {group_channel:?} but [channels.{channel_type}.{alias}] is not configured",
+                            "peer_groups.{group_name}.channel = {group_channel:?} but [channels.{channel_type}.{alias}] is not configured{}",
+                            retired_channel_hint(&channel_type),
                         );
                     }
                 }
@@ -33698,7 +33760,7 @@ auto_save = true
             eval: crate::scattered_types::EvalHarnessConfig::default(),
             degraded_security: Vec::new(),
             degraded_sections: Vec::new(),
-            retired_wati_config_sections: Vec::new(),
+            retired_channel_config_sections: Vec::new(),
             retired_node_transport_config: false,
             loaded_from: None,
             schema_version: crate::migration::CURRENT_SCHEMA_VERSION,
@@ -35259,7 +35321,7 @@ default_temperature = 0.7
             eval: crate::scattered_types::EvalHarnessConfig::default(),
             degraded_security: Vec::new(),
             degraded_sections: Vec::new(),
-            retired_wati_config_sections: Vec::new(),
+            retired_channel_config_sections: Vec::new(),
             retired_node_transport_config: false,
             loaded_from: None,
             schema_version: crate::migration::CURRENT_SCHEMA_VERSION,
@@ -38685,7 +38747,7 @@ default_model = "persisted-profile"
 
     #[test]
     #[allow(clippy::large_futures)]
-    async fn load_or_init_warns_for_current_and_legacy_wati_config() {
+    async fn load_or_init_warns_for_current_and_legacy_retired_channel_config() {
         let _env_guard = env_override_lock().await;
         let temp_home =
             std::env::temp_dir().join(format!("zeroclaw_test_home_{}", uuid::Uuid::new_v4()));
@@ -38714,6 +38776,29 @@ api_token = "legacy-placeholder-token"
                 "channels_config.wati",
                 "legacy-placeholder-token",
             ),
+            (
+                "matrix-current",
+                r#"schema_version = 3
+
+[channels.matrix.production]
+enabled = true
+homeserver = "https://matrix.example.invalid"
+access_token = "matrix-current-placeholder-token"
+"#,
+                "channels.matrix",
+                "matrix-current-placeholder-token",
+            ),
+            (
+                "matrix-legacy",
+                r#"[channels_config.matrix]
+enabled = true
+homeserver = "https://matrix.example.invalid"
+access_token = "matrix-legacy-placeholder-token"
+room_id = "!room:example.invalid"
+"#,
+                "channels_config.matrix",
+                "matrix-legacy-placeholder-token",
+            ),
         ];
 
         for (case, raw, expected_path, secret_value) in cases {
@@ -38730,17 +38815,17 @@ api_token = "legacy-placeholder-token"
                 config
                     .channels_by_alias()
                     .iter()
-                    .all(|entry| entry.channel_type != "wati"),
-                "retired WATI config must not re-enable a live channel"
+                    .all(|entry| entry.channel_type != "wati" && entry.channel_type != "matrix"),
+                "retired channel config must not re-enable a live channel"
             );
             assert_eq!(
-                config.retired_wati_config_sections,
+                config.retired_channel_config_sections,
                 vec![expected_path.to_string()],
                 "load-time diagnostics must preserve the retired section path"
             );
             assert!(
-                logs.contains("Retired WATI channel config section"),
-                "missing WATI retirement warning for {case}: {logs}"
+                logs.contains("channel config section"),
+                "missing retirement warning for {case}: {logs}"
             );
             assert!(
                 logs.contains(expected_path),
@@ -38748,7 +38833,7 @@ api_token = "legacy-placeholder-token"
             );
             assert!(
                 !logs.contains(secret_value),
-                "warning must never copy retired WATI credentials into logs: {logs}"
+                "warning must never copy retired channel credentials into logs: {logs}"
             );
         }
 
@@ -46259,26 +46344,34 @@ api_key = "op://zeroclaw/provider/openai-api-key"
     }
 
     #[test]
-    async fn retired_wati_config_sections_cover_current_and_legacy_shapes() {
+    async fn retired_channel_config_sections_cover_current_and_legacy_shapes() {
+        for key in ["wati", "matrix"] {
+            assert_eq!(
+                Config::retired_channel_config_sections(&format!(
+                    "schema_version = 3\n[channels.{key}.production]\nenabled = true\n"
+                )),
+                vec![format!("channels.{key}")]
+            );
+            assert_eq!(
+                Config::retired_channel_config_sections(&format!(
+                    "[channels_config.{key}]\nenabled = true\napi_token = \"placeholder\"\n"
+                )),
+                vec![format!("channels_config.{key}")]
+            );
+        }
         assert_eq!(
-            Config::retired_wati_config_sections(
-                "schema_version = 3\n[channels.wati.production]\nenabled = true\n",
+            Config::retired_channel_config_sections(
+                "[channels.wati.a]\nenabled = false\n[channels.matrix.b]\nenabled = false\n",
             ),
-            vec!["channels.wati".to_string()]
-        );
-        assert_eq!(
-            Config::retired_wati_config_sections(
-                "[channels_config.wati]\nenabled = true\napi_token = \"placeholder\"\n",
-            ),
-            vec!["channels_config.wati".to_string()]
+            vec!["channels.wati".to_string(), "channels.matrix".to_string()]
         );
         assert!(
-            Config::retired_wati_config_sections(
+            Config::retired_channel_config_sections(
                 "schema_version = 3\n[channels.whatsapp.production]\nenabled = true\n",
             )
             .is_empty()
         );
-        assert!(Config::retired_wati_config_sections("not toml {{{").is_empty());
+        assert!(Config::retired_channel_config_sections("not toml {{{").is_empty());
     }
 
     #[test]
