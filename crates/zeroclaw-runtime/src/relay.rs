@@ -14,23 +14,38 @@
 //! bridge promptly.
 
 use anyhow::{Context, Result};
+#[cfg(feature = "daemon-listeners")]
 use base64::Engine as _;
+#[cfg(feature = "daemon-listeners")]
 use base64::engine::general_purpose::STANDARD as B64;
+#[cfg(feature = "daemon-listeners")]
 use futures_util::{SinkExt, StreamExt};
-use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::signature::Ed25519KeyPair;
+#[cfg(feature = "daemon-listeners")]
+use ring::signature::KeyPair;
+#[cfg(feature = "daemon-listeners")]
 use std::collections::HashMap;
+#[cfg(feature = "daemon-listeners")]
 use std::sync::Arc;
+#[cfg(feature = "daemon-listeners")]
 use std::time::Duration;
+#[cfg(feature = "daemon-listeners")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(feature = "daemon-listeners")]
 use tokio::net::TcpStream;
+#[cfg(feature = "daemon-listeners")]
 use tokio::sync::{Mutex, mpsc, oneshot};
+#[cfg(feature = "daemon-listeners")]
 // Every deadline in this module is a runtime deadline, so the runtime clock is
 // the one that must measure it (and the one a paused-clock test drives).
 use tokio::time::Instant;
+#[cfg(feature = "daemon-listeners")]
 use tokio_rustls::TlsConnector;
 // The runtime depends on tokio-rustls (not rustls directly); use its re-export.
 use tokio_rustls::rustls;
+#[cfg(feature = "daemon-listeners")]
 use tokio_util::sync::CancellationToken;
+#[cfg(feature = "daemon-listeners")]
 use zeroclaw_relay_proto::{
     ConnWindow, Control, INITIAL_WINDOW, MAX_CONTROL_FRAME, MAX_DATA_PAYLOAD, PEER_HINT_ENROLL,
     SUBPROTOCOL, TokenBucket, decode_data, encode_data,
@@ -39,6 +54,7 @@ use zeroclaw_relay_proto::{
 /// node-id (such as `relay claim`) and must not save one the relay refuses.
 pub use zeroclaw_relay_proto::{MAX_NODE_ID_LEN, is_valid_node_id};
 
+#[cfg(feature = "daemon-listeners")]
 /// What the demux loop routes to a per-conn `bridge_conn` task: inbound inner
 /// bytes, plus the credit-window control frames (forwarded by the relay) that
 /// govern how fast this conn may send.
@@ -51,6 +67,7 @@ enum ConnMsg {
     Ack(u32),
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The link-side handle for one bridged connection: the inbound queue its
 /// bridge task reads, and the token that retires that task.
 ///
@@ -64,23 +81,31 @@ struct ConnHandle {
     cancel: CancellationToken,
 }
 
+#[cfg(feature = "daemon-listeners")]
 impl Drop for ConnHandle {
     fn drop(&mut self) {
         self.cancel.cancel();
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Live bridged connections for one relay link, keyed by `conn_id`.
 type ConnMap = Arc<Mutex<HashMap<u64, ConnHandle>>>;
 
+#[cfg(feature = "daemon-listeners")]
 const BACKOFF_INITIAL: Duration = Duration::from_millis(500);
+#[cfg(feature = "daemon-listeners")]
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
+#[cfg(feature = "daemon-listeners")]
 /// A session up at least this long resets the backoff (transient drop).
 const ESTABLISHED: Duration = Duration::from_secs(5);
+#[cfg(feature = "daemon-listeners")]
 /// WS keepalive cadence (below common NAT idle windows).
 const KEEPALIVE: Duration = Duration::from_secs(20);
+#[cfg(feature = "daemon-listeners")]
 /// Declare the link dead if nothing has been heard for this long.
 const DEAD_AFTER: Duration = Duration::from_secs(60);
+#[cfg(feature = "daemon-listeners")]
 /// ONE absolute budget for the entire outbound setup: TCP connect, outer TLS,
 /// the WebSocket upgrade, and the signed Hello/Challenge/Register/Registered
 /// exchange. A fresh timeout per phase would let an unresponsive relay spend the
@@ -90,6 +115,7 @@ const DEAD_AFTER: Duration = Duration::from_secs(60);
 /// so a candidate rotation link cannot still be setting up after the window in
 /// which it may still replace the published route.
 const SETUP_DEADLINE: Duration = Duration::from_secs(30);
+#[cfg(feature = "daemon-listeners")]
 /// Absolute budget for ONE per-`Open` dial of a local loopback listener.
 ///
 /// The target is a listener on this same host, so the only thing this connect
@@ -100,6 +126,7 @@ const SETUP_DEADLINE: Duration = Duration::from_secs(30);
 /// 15s per-`Open` pair timeout, so the bridge always abandons the dial before
 /// the relay abandons the route it is holding open for it.
 const LOCAL_DIAL_DEADLINE: Duration = Duration::from_secs(10);
+#[cfg(feature = "daemon-listeners")]
 /// Bound on a loopback write that makes NO progress at all.
 ///
 /// A local consumer that is merely slow is legitimate backpressure - the client
@@ -109,22 +136,27 @@ const LOCAL_DIAL_DEADLINE: Duration = Duration::from_secs(10);
 /// the daemon's own WSS listener applies to a peer that stops reading, so a
 /// loopback consumer the daemon still considers alive is never retired here.
 const LOCAL_WRITE_STALL: Duration = Duration::from_secs(30);
+#[cfg(feature = "daemon-listeners")]
 /// Bound on one outbound frame write once the link is established. The
 /// tungstenite sink reports no partial progress, so from here a relay that has
 /// stopped reading is indistinguishable from one that is merely slow; the bound
 /// is therefore the same silence budget the keepalive watchdog applies, which no
 /// healthy link reaches for a single frame of at most `MAX_WS_MESSAGE`.
 const WRITE_STALL: Duration = DEAD_AFTER;
+#[cfg(feature = "daemon-listeners")]
 /// During a node-id rotation, keep the OLD id's link alive this long after the
 /// NEW id registers, so clients mid-session on the old id are not cut off.
 const ROTATION_GRACE: Duration = Duration::from_secs(600);
+#[cfg(feature = "daemon-listeners")]
 /// A candidate rotation link must register promptly before it may replace the
 /// currently published route. The existing route remains live on timeout.
 const ROTATION_READY_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(feature = "daemon-listeners")]
 /// How often the supervisor polls for an on-demand rotation trigger / checks the
 /// scheduled-rotation deadline.
 const ROTATE_POLL: Duration = Duration::from_secs(15);
 
+#[cfg(feature = "daemon-listeners")]
 /// Everything the bridge needs to register with, and verify, a relay.
 #[derive(Clone)]
 pub struct RelayBridgeConfig {
@@ -179,6 +211,7 @@ pub struct RelayBridgeConfig {
     pub rotation_allowed: bool,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Load (or create + persist) the daemon's Ed25519 relay-registration key.
 ///
 /// Stored as raw PKCS#8 DER at `<data_dir>/relay/registration.key` (dir 0700,
@@ -329,6 +362,7 @@ pub fn rotate_trigger_path(data_dir: &std::path::Path) -> std::path::PathBuf {
     data_dir.join("relay").join("rotate-now")
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The relay outer-leaf pin store (`<data_dir>/relay/relay_pin`). Once recorded
 /// (explicitly or by TOFU) the bridge pins the relay's outer cert, AND enrollment
 /// delivers this value to clients so they pin the same leaf (R-E contract).
@@ -336,6 +370,7 @@ pub fn relay_pin_path(data_dir: &std::path::Path) -> std::path::PathBuf {
     data_dir.join("relay").join("relay_pin")
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Persist the relay outer-leaf pin (sha256 hex) atomically at `0600`.
 pub fn persist_relay_pin(data_dir: &std::path::Path, pin: &str) -> Result<()> {
     let dir = data_dir.join("relay");
@@ -369,6 +404,7 @@ pub fn request_node_id_rotation(data_dir: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Run the relay bridge until `cancel` fires.
 ///
 /// When node-id rotation is permitted (auto-mint mode) this is a supervisor: it
@@ -479,6 +515,7 @@ pub async fn run_relay_bridge(cfg: RelayBridgeConfig, cancel: CancellationToken)
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RotationRegistration {
     Registered,
@@ -486,6 +523,7 @@ enum RotationRegistration {
     Unavailable,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Wait until a candidate link receives the relay's authenticated `Registered`
 /// reply. The old route must remain authoritative until then.
 async fn wait_for_new_link_registration(
@@ -501,6 +539,7 @@ async fn wait_for_new_link_registration(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Wait for the next rotation, returning the freshly minted id; `None` on cancel.
 /// Fires on an on-demand trigger file or, when `node_id_rotation_days > 0`, on the
 /// scheduled cadence.
@@ -528,6 +567,7 @@ async fn wait_for_rotation(cfg: &RelayBridgeConfig, cancel: &CancellationToken) 
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// One relay link for `cfg.node_id`: reconnect with capped backoff until `cancel`.
 async fn serve_link(
     cfg: RelayBridgeConfig,
@@ -570,6 +610,7 @@ async fn serve_link(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 async fn serve_once(
     cfg: &RelayBridgeConfig,
     cancel: &CancellationToken,
@@ -617,6 +658,7 @@ pub fn relay_server_name(host: &str) -> Result<rustls::pki_types::ServerName<'st
     Ok(name)
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The entire outbound setup for one link: TCP connect, outer TLS, the relay
 /// WebSocket upgrade, and the signed `Hello` -> `Challenge` -> `Register` ->
 /// `Registered` exchange. Kept as ONE future so the caller can impose a single
@@ -714,6 +756,7 @@ async fn connect_and_register(
     Ok(ws)
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Serve one registered link until it is cancelled or declared dead.
 async fn serve_established(
     cfg: &RelayBridgeConfig,
@@ -880,6 +923,7 @@ async fn serve_established(
     result
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The single outbound write path to the relay, with the liveness bound that
 /// stops a wedged link from becoming a permanent one.
 ///
@@ -923,6 +967,7 @@ async fn relay_writer<S>(
     let _ = tokio::time::timeout(WRITE_STALL, sink.close()).await;
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Keepalive watchdog: ping below the NAT idle window, and declare the link dead
 /// once nothing has been heard for [`DEAD_AFTER`].
 ///
@@ -960,6 +1005,7 @@ async fn keepalive_watchdog(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn open_route_target<'a>(
     cfg: &'a RelayBridgeConfig,
     peer_hint: Option<&str>,
@@ -974,15 +1020,18 @@ fn open_route_target<'a>(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Drop guard that removes a registered bridge source port from the shared set
 /// when the bridged connection ends, however it ends.
 struct PortGuard(crate::enroll::BridgePortSet, u16);
+#[cfg(feature = "daemon-listeners")]
 impl Drop for PortGuard {
     fn drop(&mut self) {
         self.0.lock().expect("bridge port set lock").remove(&self.1);
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Bind the outbound loopback source socket and, when `bridge_ports` is set,
 /// register its OS-assigned ephemeral source port in the set BEFORE the caller
 /// connects. Binding first lets us learn and publish the source port while
@@ -1027,6 +1076,7 @@ fn bind_and_register(
     Ok((socket, remote, guard))
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Await `op` unless this conn is retired first. `None` means the route closed
 /// (or the link died) while the operation was still parked.
 ///
@@ -1044,6 +1094,7 @@ async fn unless_cancelled<F: std::future::Future>(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Write one inbound payload to the loopback stream, interruptible by a route
 /// close and bounded by lack of PROGRESS rather than by total time.
 ///
@@ -1070,6 +1121,7 @@ where
     true
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Bridge one logical connection: dial the selected loopback listener, accept the
 /// `Open`, and shuttle bytes both ways until either side ends.
 async fn bridge_conn(
@@ -1208,6 +1260,7 @@ async fn bridge_conn(
     conns.lock().await.remove(&conn_id);
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Route one relay frame to a logical conn's bridge task WITHOUT blocking the
 /// shared relay-link reader (mirror of the zerorelay-side delivery rule).
 /// Sender cloned under the lock, guard dropped, delivery non-blocking.
@@ -1252,6 +1305,7 @@ async fn deliver_conn_msg(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Best-effort notification to the relay from the SHARED link reader.
 ///
 /// Nothing on the reader path may AWAIT `to_relay`. The queue is bounded and its
@@ -1272,10 +1326,12 @@ fn notify_relay(
     let _ = to_relay.try_send(frame);
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn tungstenite_text(frame: &Control) -> tokio_tungstenite::tungstenite::Message {
     tokio_tungstenite::tungstenite::Message::text(frame.to_json())
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Read the next control frame, transparently answering pings.
 async fn next_control<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> Option<Control>
 where
@@ -1296,6 +1352,7 @@ where
     None
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn parse_control_text(text: &str) -> Option<Control> {
     if text.len() > MAX_CONTROL_FRAME {
         return None;
@@ -1304,6 +1361,7 @@ fn parse_control_text(text: &str) -> Option<Control> {
     Control::from_json(text).ok()
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Build the client TLS config used to verify the relay's OUTER certificate, plus
 /// the pin verifier handle when one is used (so the caller can persist a
 /// TOFU-observed pin after the handshake). Precedence: insecure (test) > a CA
@@ -1377,10 +1435,12 @@ fn relay_client_config(
     Ok((Arc::new(config), verifier))
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Skip-verify server verifier for the relay's outer cert (test only).
 #[derive(Debug)]
 struct NoVerify;
 
+#[cfg(feature = "daemon-listeners")]
 impl rustls::client::danger::ServerCertVerifier for NoVerify {
     fn verify_server_cert(
         &self,
@@ -1418,6 +1478,7 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 mod registration_challenge_tests {
     use super::*;
@@ -1474,6 +1535,7 @@ mod registration_challenge_tests {
 mod node_id_tests {
     use super::*;
 
+    #[cfg(feature = "daemon-listeners")]
     fn route_test_config() -> RelayBridgeConfig {
         RelayBridgeConfig {
             relay_addr: "127.0.0.1:8443".into(),
@@ -1498,6 +1560,7 @@ mod node_id_tests {
         }
     }
 
+    #[cfg(feature = "daemon-listeners")]
     #[test]
     fn open_route_defaults_to_wss() {
         let cfg = route_test_config();
@@ -1511,6 +1574,7 @@ mod node_id_tests {
         );
     }
 
+    #[cfg(feature = "daemon-listeners")]
     #[test]
     fn open_route_selects_enrollment_when_available() {
         let cfg = route_test_config();
@@ -1520,6 +1584,7 @@ mod node_id_tests {
         );
     }
 
+    #[cfg(feature = "daemon-listeners")]
     #[test]
     fn open_route_rejects_enrollment_when_disabled() {
         let mut cfg = route_test_config();
@@ -1530,6 +1595,7 @@ mod node_id_tests {
         );
     }
 
+    #[cfg(feature = "daemon-listeners")]
     #[test]
     fn relay_ca_path_takes_precedence_over_tofu_state() {
         let dir = tempfile::tempdir().unwrap();
@@ -1595,6 +1661,7 @@ mod node_id_tests {
         assert!(!path.exists());
     }
 
+    #[cfg(feature = "daemon-listeners")]
     #[tokio::test]
     async fn rotation_keeps_the_published_id_when_new_registration_is_refused() {
         let dir = tempfile::tempdir().unwrap();
@@ -1611,6 +1678,7 @@ mod node_id_tests {
         assert_eq!(ensure_node_id(dir.path(), "").unwrap(), old_id);
     }
 
+    #[cfg(feature = "daemon-listeners")]
     #[tokio::test]
     async fn rotation_publishes_only_after_new_registration_is_confirmed() {
         let cancel = CancellationToken::new();
@@ -1624,6 +1692,7 @@ mod node_id_tests {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 mod control_frame_tests {
     use super::*;
@@ -1642,6 +1711,7 @@ mod control_frame_tests {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 // Test code, not daemon-path: bare `tokio::spawn` is fine here (the
 // `zeroclaw_spawn::spawn!` attribution rule is for production daemon tasks).
@@ -1842,6 +1912,7 @@ mod link_liveness_tests {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 // Test code, not daemon-path: bare `tokio::spawn` is fine here (the
 // `zeroclaw_spawn::spawn!` attribution rule is for production daemon tasks).
@@ -2047,6 +2118,7 @@ mod conn_cancellation_tests {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 // Test code, not daemon-path: bare `tokio::spawn` is fine here (the
 // `zeroclaw_spawn::spawn!` attribution rule is for production daemon tasks).
@@ -2187,6 +2259,7 @@ mod local_dial_tests {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 // Test code, not daemon-path: bare `tokio::spawn` is fine here (the
 // `zeroclaw_spawn::spawn!` attribution rule is for production daemon tasks).

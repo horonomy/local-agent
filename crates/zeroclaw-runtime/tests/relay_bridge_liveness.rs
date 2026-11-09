@@ -8,6 +8,7 @@
 //! registration and then never reading again (established). Both must end in a
 //! bounded time, and daemon cancellation must return promptly from any phase of
 //! the setup rather than waiting on a peer that has stopped speaking.
+#![cfg(feature = "daemon-listeners")]
 #![allow(clippy::disallowed_methods)]
 
 use std::net::SocketAddr;
