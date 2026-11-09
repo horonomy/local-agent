@@ -79,6 +79,10 @@ hermes = "supported"
 openclaw = "supported"
 hermes = "supported"
 
+[channels.matrix]
+openclaw = "supported"
+hermes = "supported"
+
 [channels.signal]
 openclaw = "supported"
 hermes = "supported"
