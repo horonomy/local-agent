@@ -8,8 +8,7 @@ body:
     attributes:
       value: |
         Use this for help with setup, configuration, or expected usage. Use the bug template for reproducible defects.
-        Discord is better for quick back-and-forth. If the answer becomes a bug, feature request,
-        docs gap, or workaround, capture the outcome in GitHub.
+        If the answer becomes a bug, feature request, docs gap, or workaround, capture the outcome in GitHub.
         Do not include secrets, tokens, private URLs, personal data, or unredacted logs.
 
   - type: dropdown
