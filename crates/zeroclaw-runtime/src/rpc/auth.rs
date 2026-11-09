@@ -356,7 +356,7 @@ impl RpcInboundAuth {
 
     /// Test-only: park the next authentication where provider verification
     /// awaits. Returns `(arrived, release)`.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "daemon-listeners"))]
     pub(crate) fn pause_next_authentication(
         &self,
     ) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {

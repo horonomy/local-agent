@@ -1,58 +1,80 @@
 //! Local IPC transport for the RPC layer.
 
+#[cfg(feature = "daemon-listeners")]
 use super::context::RpcContext;
+#[cfg(feature = "daemon-listeners")]
 use super::dispatch::{LocalRpcSessionChannelFactory, RpcAccessPolicy, RpcDispatcher};
+#[cfg(feature = "daemon-listeners")]
 use super::transport::RpcTransport;
+#[cfg(feature = "daemon-listeners")]
 use anyhow::{Context, Result};
+#[cfg(feature = "daemon-listeners")]
 use async_trait::async_trait;
+#[cfg(feature = "daemon-listeners")]
 use std::io::ErrorKind;
 use std::path::PathBuf;
+#[cfg(feature = "daemon-listeners")]
 use std::sync::Arc;
+#[cfg(feature = "daemon-listeners")]
 use std::sync::atomic::AtomicUsize;
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "daemon-listeners"))]
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(feature = "daemon-listeners")]
+use tokio::io::{AsyncReadExt, AsyncWrite};
+#[cfg(feature = "daemon-listeners")]
 use tokio::sync::mpsc;
+#[cfg(feature = "daemon-listeners")]
 use tokio_util::sync::CancellationToken;
 use zeroclaw_config::schema::Config;
 
+#[cfg(feature = "daemon-listeners")]
 use platform::LocalStream;
 
+#[cfg(feature = "daemon-listeners")]
 const MAX_FRAME_BYTES: u64 = 8 * 1024 * 1024;
 
+#[cfg(feature = "daemon-listeners")]
 /// Best-effort deadline for half-closing a local stream after daemon
 /// cancellation. Windows named-pipe shutdown can wait on a non-reading peer.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+#[cfg(feature = "daemon-listeners")]
 /// Deadline for writing one frame to a local peer. A peer that stops reading
 /// for this long is disconnected, the same bound the WSS plane applies with
 /// its `PEER_WRITE_TIMEOUT`, so one stalled client cannot park the producers
 /// that feed its queue indefinitely.
 const LOCAL_PEER_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[cfg(feature = "daemon-listeners")]
 /// Deadline for a new connection to complete `initialize`, counted from
 /// accept. A client that connects and never initializes would otherwise hold
 /// one of the `rpc.max_local_connections` slots for as long as it stays open.
 const LOCAL_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[cfg(feature = "daemon-listeners")]
 /// Deadline for receiving one frame, counted from its first byte. The wait
 /// between frames is not bounded, so an initialized client may sit idle; a
 /// frame that is started and never finished is, however slowly its bytes
 /// arrive.
 const LOCAL_FRAME_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[cfg(feature = "daemon-listeners")]
 /// How long the reader waits for a terminal error frame to reach the peer
 /// before it closes the connection anyway.
 const TERMINAL_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 
+#[cfg(feature = "daemon-listeners")]
 /// Deadline for telling a refused client why it was refused.
 const REFUSAL_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
 
+#[cfg(feature = "daemon-listeners")]
 /// Refusal notices in flight at once. Past this, further refused clients are
 /// closed without the notice, so a flood cannot grow unbounded work.
 const MAX_PENDING_REFUSALS: usize = 16;
 
+#[cfg(feature = "daemon-listeners")]
 /// Limits the local listener applies to every connection it accepts.
 #[derive(Debug, Clone, Copy)]
 pub struct LocalListenerLimits {
@@ -66,6 +88,7 @@ pub struct LocalListenerLimits {
     pub frame_read_timeout: Duration,
 }
 
+#[cfg(feature = "daemon-listeners")]
 impl LocalListenerLimits {
     pub fn from_config(config: &Config) -> Self {
         Self {
@@ -82,6 +105,7 @@ impl LocalListenerLimits {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// A last frame for the peer, written ahead of the ordinary queue. The writer
 /// stops after it, so the peer reads the frame and then end of stream.
 struct TerminalFrame {
@@ -89,6 +113,7 @@ struct TerminalFrame {
     written: tokio::sync::oneshot::Sender<()>,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Serialize a JSON-RPC error response with a null id, for failures that are
 /// not attributable to a request the peer sent.
 fn unattributed_error_line(code: i32, message: String, data: serde_json::Value) -> String {
@@ -109,6 +134,7 @@ fn unattributed_error_line(code: i32, message: String, data: serde_json::Value) 
     line
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn frame_too_large_line() -> String {
     unattributed_error_line(
         zeroclaw_api::jsonrpc::error_codes::INVALID_REQUEST,
@@ -117,6 +143,7 @@ fn frame_too_large_line() -> String {
     )
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn frame_timeout_line(timeout: Duration) -> String {
     unattributed_error_line(
         zeroclaw_api::jsonrpc::error_codes::INVALID_REQUEST,
@@ -128,6 +155,7 @@ fn frame_timeout_line(timeout: Duration) -> String {
     )
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn connection_limit_line(limit: usize) -> String {
     unattributed_error_line(
         zeroclaw_api::jsonrpc::error_codes::CONNECTION_LIMIT_REACHED,
@@ -139,17 +167,21 @@ fn connection_limit_line(limit: usize) -> String {
     )
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Backoff after a transient `accept()` error so the serve loop does not
 /// hot-spin while the condition (e.g. fd exhaustion) clears.
 const ACCEPT_ERROR_BACKOFF_MS: u64 = 50;
 
+#[cfg(feature = "daemon-listeners")]
 /// File-descriptor exhaustion errno values, stable across the Unix targets
 /// we support (Linux, macOS, BSD).
 #[cfg(unix)]
 const EMFILE: i32 = 24; // too many open files (this process)
+#[cfg(feature = "daemon-listeners")]
 #[cfg(unix)]
 const ENFILE: i32 = 23; // too many open files (system-wide)
 
+#[cfg(feature = "daemon-listeners")]
 fn is_recoverable_accept_error(e: &std::io::Error) -> bool {
     if matches!(
         e.kind(),
@@ -164,11 +196,25 @@ fn is_recoverable_accept_error(e: &std::io::Error) -> bool {
     false
 }
 
+#[cfg(unix)]
+fn default_endpoint(data_dir: &std::path::Path) -> PathBuf {
+    data_dir.join("daemon.sock")
+}
+
+#[cfg(windows)]
+fn default_endpoint(data_dir: &std::path::Path) -> PathBuf {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    data_dir.hash(&mut hasher);
+    PathBuf::from(format!(r"\\.\pipe\zeroclaw-{:x}", hasher.finish()))
+}
+
 pub fn socket_path(config: &Config) -> PathBuf {
     if let Ok(p) = std::env::var("ZEROCLAW_SOCKET") {
         return PathBuf::from(p);
     }
-    platform::default_endpoint(&config.data_dir)
+    default_endpoint(&config.data_dir)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -206,7 +252,7 @@ async fn connect_client(
         }
     }
     Err(std::io::Error::new(
-        ErrorKind::TimedOut,
+        std::io::ErrorKind::TimedOut,
         format!("named pipe {name} remained busy"),
     ))
 }
@@ -311,9 +357,11 @@ pub async fn call_local(
 
 // ── Transport ────────────────────────────────────────────────────
 
+#[cfg(feature = "daemon-listeners")]
 /// Platform-neutral half-read type produced by `tokio::io::split`.
 type LocalReadHalf = tokio::io::ReadHalf<LocalStream>;
 
+#[cfg(feature = "daemon-listeners")]
 pub struct LocalTransport {
     reader: BufReader<LocalReadHalf>,
     writer_tx: mpsc::Sender<String>,
@@ -327,6 +375,7 @@ pub struct LocalTransport {
     frame_read_timeout: Duration,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Timing bounds for one connection's writer task.
 #[derive(Debug, Clone, Copy)]
 struct WriterTimeouts {
@@ -336,11 +385,13 @@ struct WriterTimeouts {
     shutdown: Duration,
 }
 
+#[cfg(feature = "daemon-listeners")]
 enum WriteOutcome {
     Written,
     Stopped,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Write one frame under the per-frame deadline. A peer that does not drain
 /// the frame in time, or whose stream fails the write, is disconnected by
 /// cancelling the connection token, which also ends the dispatcher reading
@@ -394,6 +445,7 @@ where
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 async fn run_writer<W>(
     mut writer: W,
     mut writer_rx: mpsc::Receiver<String>,
@@ -437,6 +489,7 @@ async fn run_writer<W>(
     let _ = tokio::time::timeout(timeouts.shutdown, writer.shutdown()).await;
 }
 
+#[cfg(feature = "daemon-listeners")]
 impl LocalTransport {
     pub fn new(
         stream: LocalStream,
@@ -509,6 +562,7 @@ impl LocalTransport {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[async_trait]
 impl RpcTransport for LocalTransport {
     fn writer(&self) -> mpsc::Sender<String> {
@@ -588,6 +642,7 @@ impl RpcTransport for LocalTransport {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Run the local IPC RPC listener as a daemon subsystem.
 /// `client_count` is incremented on connect, decremented on disconnect.
 /// The daemon uses it for `--ephemeral` shutdown logic.
@@ -602,6 +657,7 @@ pub async fn run_local_listener(
     run_local_listener_with_factory(ctx, cancel, client_count, readiness, None).await
 }
 
+#[cfg(feature = "daemon-listeners")]
 pub async fn run_local_listener_with_factory(
     ctx: Arc<RpcContext>,
     cancel: CancellationToken,
@@ -621,6 +677,7 @@ pub async fn run_local_listener_with_factory(
     .await
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// [`run_local_listener`] with explicit limits.
 pub async fn run_local_listener_with_limits(
     ctx: Arc<RpcContext>,
@@ -633,6 +690,7 @@ pub async fn run_local_listener_with_limits(
         .await
 }
 
+#[cfg(feature = "daemon-listeners")]
 async fn run_local_listener_with_factory_and_limits(
     ctx: Arc<RpcContext>,
     cancel: CancellationToken,
@@ -844,6 +902,7 @@ async fn run_local_listener_with_factory_and_limits(
 
 // ── Platform shims ───────────────────────────────────────────────
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(unix)]
 mod platform {
     use anyhow::{Context, Result};
@@ -1062,10 +1121,6 @@ mod platform {
         }
     }
 
-    pub fn default_endpoint(data_dir: &Path) -> PathBuf {
-        data_dir.join("daemon.sock")
-    }
-
     /// Creates the endpoint directory and tightens it to owner-only access.
     ///
     /// The chmod is best-effort on purpose: a directory this process just
@@ -1218,6 +1273,7 @@ mod platform {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(windows)]
 mod platform {
     use anyhow::{Context, Result};
@@ -1230,14 +1286,6 @@ mod platform {
     pub type LocalListener = NamedPipeServer;
     pub type LocalStream = NamedPipeServer;
     pub struct EndpointGuard;
-
-    pub fn default_endpoint(data_dir: &Path) -> PathBuf {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        data_dir.hash(&mut hasher);
-        PathBuf::from(format!(r"\\.\pipe\zeroclaw-{:x}", hasher.finish()))
-    }
 
     pub async fn prepare_parent(_path: &Path) -> Result<()> {
         // Named pipes live in the kernel object namespace, not the
@@ -1290,6 +1338,7 @@ mod platform {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1604,21 +1653,6 @@ mod tests {
 
         cancel.cancel();
         handle.await.unwrap().unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn call_local_classifies_absent_endpoint_as_unavailable() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = Config {
-            data_dir: tmp.path().to_path_buf(),
-            ..Config::default()
-        };
-
-        let error = call_local(&config, "agents/list", serde_json::json!({}))
-            .await
-            .expect_err("absent endpoint must not look like a protocol failure");
-        assert!(matches!(error, LocalRpcCallError::Unavailable { .. }));
     }
 
     #[cfg(unix)]
@@ -3854,6 +3888,7 @@ mod tests {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 mod accept_error_tests {
     use super::is_recoverable_accept_error;
@@ -3879,5 +3914,26 @@ mod accept_error_tests {
         assert!(!is_recoverable_accept_error(&Error::from(
             ErrorKind::InvalidInput
         )));
+    }
+}
+
+// The client half is compiled without `daemon-listeners`, so its tests must
+// not depend on the listener tests above.
+#[cfg(all(test, unix))]
+mod client_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn call_local_classifies_absent_endpoint_as_unavailable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config {
+            data_dir: tmp.path().to_path_buf(),
+            ..Config::default()
+        };
+
+        let error = call_local(&config, "agents/list", serde_json::json!({}))
+            .await
+            .expect_err("absent endpoint must not look like a protocol failure");
+        assert!(matches!(error, LocalRpcCallError::Unavailable { .. }));
     }
 }
