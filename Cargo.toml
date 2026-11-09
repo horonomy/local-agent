@@ -306,7 +306,6 @@ agent-core = [
     "dep:rusqlite",
     "dep:which",
     "dep:crossterm",
-    "dep:tokio-tungstenite",
     "dep:rustls",
     "dep:base64",
     "dep:ring",
@@ -394,6 +393,8 @@ tool-opencode-cli = ["zeroclaw-runtime/tool-opencode-cli"]
 gateway = [
     "dep:zeroclaw-gateway",
     "dep:axum", "dep:tower",
+    # `zeroclaw self-test` probes the gateway's /ws/chat with it.
+    "dep:tokio-tungstenite",
 ]
 schema-export = ["dep:schemars", "zeroclaw-config/schema-export"]
 acp-bridge = ["dep:tokio-tungstenite"]

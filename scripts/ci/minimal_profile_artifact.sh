@@ -28,7 +28,7 @@ tree_features() { # $1.. = extra cargo args
   } 2>/dev/null | sort -u
 }
 
-absent_markers='zeroclaw-gateway|zerorelay|zeroclaw-runtime feature "daemon-listeners"|zeroclaw-channels feature "(channel-|whatsapp-web|voice-wake)|zeroclaw-runtime feature "observability-prometheus"|^prometheus v'
+absent_markers='zeroclaw-gateway|zerorelay|zeroclaw-runtime feature "daemon-listeners"|zeroclaw-channels feature "(channel-|whatsapp-web|voice-wake)|zeroclaw-runtime feature "observability-prometheus"|^prometheus v|^tokio-tungstenite v|^tungstenite v'
 
 check_tree() {
   local minimal default
@@ -45,6 +45,10 @@ check_tree() {
     echo "FAIL control: default graph lacks the prometheus crate; the exporter check cannot prove anything" >&2
     exit 2
   fi
+  if ! grep -qE -- '^(tokio-)?tungstenite v' <<<"$default"; then
+    echo "FAIL control: default graph lacks tungstenite; the WebSocket check cannot prove anything" >&2
+    exit 2
+  fi
   if [[ -z "$minimal" ]] || ! grep -q '^zeroclaw-runtime' <<<"$minimal"; then
     echo "FAIL control: minimal graph is empty or lacks zeroclaw-runtime" >&2
     exit 2
@@ -54,7 +58,7 @@ check_tree() {
     echo "$hits" >&2
     fail=1
   else
-    echo "PASS tree: no gateway, relay app, daemon-listeners, channel feature or metrics exporter in the minimal closure"
+    echo "PASS tree: no gateway, relay app, daemon-listeners, channel feature, metrics exporter or WebSocket library in the minimal closure"
   fi
 }
 

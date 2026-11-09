@@ -100,6 +100,7 @@ permission to bypass execution, review or release controls.
 | HORO-2379 | Content/provenance export review support and policy | Developer workflow only |
 | HORO-2380 | Architecture and upstream synchronization decision | Documentation only |
 | HORO-2383 | Gate the relay bridge, enrollment server and local RPC listener in `zeroclaw-runtime` behind the existing `daemon-listeners` feature so the minimal profile compiles none of that listener source; revert the merge to roll back | None in standard builds; the minimal profile no longer contains those listeners |
+| HORO-2383 (C1) | Make `tokio-tungstenite` optional in `zeroclaw-runtime` (enabled by `daemon-listeners`), remove it from `zeroclaw-tools` (unused), enable it in the root crate only through `gateway` and `acp-bridge`, and rewrite `relay_server_name` without tungstenite's `Uri` (same accept/reject set, checked against the old implementation on about 1.08 million inputs); measured delta in the minimal profile graph is 10 packages (`tokio-tungstenite`, `tungstenite`, `sha1`, `webpki-roots`, `rand` 0.9, `rand_chacha` 0.9, `rand_core` 0.9, `getrandom` 0.3, `ppv-lite86`, `zerocopy`); binary bytes not measured here; revert the merge to roll back | None in standard builds (default dependency graph identical before and after) |
 
 Rows describe ticket scope, not completion or merged state. Exact local commit,
 review, PR, validation and blocker status belong in the local engineering ledger.
