@@ -17,25 +17,26 @@ there, report it as described below.
 
 ## Reporting a Vulnerability
 
-**Please do NOT open a public GitHub issue for security vulnerabilities.**
+**Please do NOT open a public GitHub issue, pull request or RFC for security vulnerabilities, and do not post vulnerability details anywhere public.**
 
-Instead, please report them responsibly:
+A Local Agent security-reporting channel has not been established yet; this is a
+pending founder decision. Until one is published here, there is no supported
+private channel and no response-time commitment. If you hold a vulnerability
+report, withhold the details and open a public issue that says only that you have
+a security report to deliver, with no technical detail, so a maintainer can reply
+with a private route once one exists.
 
-1. **Email**: Send details to the maintainers via GitHub private vulnerability reporting
-2. **GitHub**: Use [GitHub Security Advisories](https://github.com/zeroclaw-labs/zeroclaw/security/advisories/new)
+Local Agent is derived from ZeroClaw. The upstream project's security policy
+covers upstream releases only; do not use it to report a Local Agent issue.
 
 ### What to Include
+
+When a channel exists, a report should have:
 
 - Description of the vulnerability
 - Steps to reproduce
 - Impact assessment
 - Suggested fix (if any)
-
-### Response Timeline
-
-- **Acknowledgment**: Within 48 hours
-- **Assessment**: Within 1 week
-- **Fix**: Within 2 weeks for critical issues
 
 ## Security Architecture
 
