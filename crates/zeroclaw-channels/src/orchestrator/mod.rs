@@ -14550,7 +14550,7 @@ fn live_external_peer_resolver(
 
 fn collect_configured_channels(
     config_arc: &zeroclaw_config::live::LiveConfigHandle,
-    matrix_skip_context: &str,
+    skip_context: &str,
     tool_specs: &[(String, String)],
     sop_engine: Option<Arc<std::sync::Mutex<zeroclaw_runtime::sop::SopEngine>>>,
     sop_audit: Option<Arc<zeroclaw_runtime::sop::SopAuditLogger>>,
@@ -14563,7 +14563,7 @@ fn collect_configured_channels(
     collect_configured_channels_with_authority(
         config_arc,
         &authority,
-        matrix_skip_context,
+        skip_context,
         tool_specs,
         sop_engine,
         sop_audit,
@@ -14574,14 +14574,14 @@ fn collect_configured_channels(
 fn collect_configured_channels_with_authority(
     config_arc: &zeroclaw_config::live::LiveConfigHandle,
     authority: &zeroclaw_runtime::LiveConfigAuthority,
-    matrix_skip_context: &str,
+    skip_context: &str,
     tool_specs: &[(String, String)],
     sop_engine: Option<Arc<std::sync::Mutex<zeroclaw_runtime::sop::SopEngine>>>,
     sop_audit: Option<Arc<zeroclaw_runtime::sop::SopAuditLogger>>,
     sop_driver_sink: Option<zeroclaw_runtime::sop::SopDriverSink>,
 ) -> Vec<ConfiguredChannel> {
     let _ = authority;
-    let _ = matrix_skip_context;
+    let _ = skip_context;
     let _ = tool_specs;
     #[cfg(not(feature = "channel-amqp"))]
     let _ = (&sop_engine, &sop_audit, &sop_driver_sink);
@@ -14904,7 +14904,7 @@ fn collect_configured_channels_with_authority(
                 .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
             &format!(
                 "The bundled Matrix channel was removed from this build; skipping Matrix {}. Revoke the Matrix access token and device, and delete the Matrix state directory next to the config file by hand.",
-                matrix_skip_context
+                skip_context
             )
         );
     }
@@ -15794,7 +15794,7 @@ fn collect_configured_channels_with_authority(
                         .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
                         .with_attrs(::serde_json::json!({"error": format!("{err:#}")})),
                     format!(
-                        "WeCom WebSocket channel configuration is invalid; skipping WeCom WebSocket {matrix_skip_context}"
+                        "WeCom WebSocket channel configuration is invalid; skipping WeCom WebSocket {skip_context}"
                     ),
                 );
             }
@@ -15808,7 +15808,7 @@ fn collect_configured_channels_with_authority(
             ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
                 .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
             format!(
-                "WeCom WebSocket channel is configured but this build was compiled without `channel-wecom-ws`; skipping WeCom WebSocket {matrix_skip_context}."
+                "WeCom WebSocket channel is configured but this build was compiled without `channel-wecom-ws`; skipping WeCom WebSocket {skip_context}."
             ),
         );
     }
@@ -15849,7 +15849,7 @@ fn collect_configured_channels_with_authority(
                 });
             }
             Err(err) => {
-                ::zeroclaw_log::record!(WARN, ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note).with_outcome(::zeroclaw_log::EventOutcome::Unknown).with_attrs(::serde_json::json!({"matrix_skip_context": matrix_skip_context, "err": err.to_string()})), "WeChat channel configuration is invalid; skipping WeChat");
+                ::zeroclaw_log::record!(WARN, ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note).with_outcome(::zeroclaw_log::EventOutcome::Unknown).with_attrs(::serde_json::json!({"skip_context": skip_context, "err": err.to_string()})), "WeChat channel configuration is invalid; skipping WeChat");
             }
         }
     }
@@ -15861,7 +15861,7 @@ fn collect_configured_channels_with_authority(
                 WARN,
                 ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
                     .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
-                    .with_attrs(::serde_json::json!({"matrix_skip_context": matrix_skip_context})),
+                    .with_attrs(::serde_json::json!({"skip_context": skip_context})),
                 "WeChat channel is configured but this build was compiled without `channel-wechat`; skipping WeChat ."
             );
         }
