@@ -83,8 +83,6 @@ pub use zeroclaw_api::channel::{
 // Local channel types (in misc, not zeroclaw-channels)
 pub use crate::cli::CliChannel;
 pub use crate::link_enricher;
-#[cfg(feature = "channel-matrix")]
-pub use crate::matrix::MatrixChannel;
 #[cfg(feature = "channel-telegram")]
 pub use crate::telegram::TelegramChannel;
 #[cfg(feature = "whatsapp-web")]
@@ -6399,7 +6397,7 @@ fn confirmed_canonical_prefix(sent_prefix: &str, delivered_response: &str) -> us
 /// offset unchanged. The result always lies on a UTF-8 char boundary of
 /// `frame`: it is either `confirmed_prefix.len()` (a byte-verified prefix of
 /// `frame`) or ends immediately after an ASCII `\n\n`.
-#[cfg(any(test, feature = "channel-discord", feature = "channel-matrix"))]
+#[cfg(any(test, feature = "channel-discord"))]
 pub(crate) fn remap_confirmed_offset(confirmed_prefix: &str, frame: &str) -> usize {
     if frame.as_bytes().starts_with(confirmed_prefix.as_bytes()) {
         return confirmed_prefix.len();
@@ -13120,7 +13118,6 @@ fn maybe_restart_managed_daemon_service() -> Result<bool> {
     test,
     feature = "channel-discord",
     feature = "channel-lark",
-    feature = "channel-matrix",
     feature = "channel-signal",
     feature = "channel-slack",
     feature = "channel-telegram",
@@ -13163,7 +13160,7 @@ impl std::fmt::Display for UnknownChannelId {
         write!(
             f,
             "Unknown channel '{channel_id}'. Supported: telegram, discord, slack, mattermost, \
-            signal, matrix, whatsapp, qq, lark, feishu, dingtalk, wecom, wecom_ws, nextcloud_talk, \
+            signal, whatsapp, qq, lark, feishu, dingtalk, wecom, wecom_ws, nextcloud_talk, \
             linq, email, gmail_push, git, irc, twitter, mochat, imessage, line, voice-call"
         )
     }
@@ -13398,68 +13395,6 @@ fn build_channel_by_id(
         #[cfg(not(feature = "channel-signal"))]
         "signal" => {
             anyhow::bail!("Signal channel requires the `channel-signal` feature");
-        }
-        "matrix" => {
-            #[cfg(feature = "channel-matrix")]
-            {
-                let mx = config
-                    .channels
-                    .matrix
-                    .get("default")
-                    .context("Matrix channel is not configured")?;
-                let alias = "default".to_string();
-                let state_dir = matrix_state_dir(&config.config_path, &alias);
-                let peer_resolver: Arc<dyn Fn() -> Vec<String> + Send + Sync> = {
-                    let cfg_arc = config_arc.clone();
-                    let alias = alias.clone();
-                    Arc::new(move || cfg_arc.read().channel_external_peers("matrix", &alias))
-                };
-                let ack = mx.ack_reactions.unwrap_or(config.channels.ack_reactions);
-                let workspace_dir = one_shot_channel_workspace_dir(&config, "matrix", &alias);
-                let transcription_config_arc = config_arc.clone();
-                let transcription_channel_key = format!("matrix.{alias}");
-                let tts_config_arc = config_arc.clone();
-                let tts_channel_key = format!("matrix.{alias}");
-                let voice_peer_resolver: Arc<dyn Fn() -> Vec<String> + Send + Sync> = {
-                    let cfg_arc = config_arc.clone();
-                    let alias = alias.clone();
-                    Arc::new(move || cfg_arc.read().channel_voice_peers("matrix", &alias))
-                };
-                Ok(Arc::new(
-                    MatrixChannel::new(mx.clone(), alias, peer_resolver, state_dir)?
-                        .with_transcription_manager_factory(move || {
-                            let config = transcription_config_arc.read();
-                            if !config.transcription.enabled {
-                                return None;
-                            }
-                            let provider = resolve_agent_transcription_provider(
-                                &config,
-                                &transcription_channel_key,
-                            );
-                            Some(crate::matrix::build_transcription_manager(
-                                &config, &provider,
-                            ))
-                        })
-                        .with_tts_manager_factory(move || {
-                            let config = tts_config_arc.read();
-                            if !config.tts.enabled {
-                                return None;
-                            }
-                            let owner = resolve_agent_tts_owner(&config, &tts_channel_key);
-                            Some(crate::tts::TtsManager::from_config_for_agent(
-                                &config,
-                                owner.as_deref(),
-                            ))
-                        })
-                        .with_voice_peer_resolver(voice_peer_resolver)
-                        .with_workspace_dir(workspace_dir)
-                        .with_ack_reactions(ack),
-                ))
-            }
-            #[cfg(not(feature = "channel-matrix"))]
-            {
-                anyhow::bail!("Matrix channel requires the `channel-matrix` feature");
-            }
         }
         "whatsapp" | "whatsapp-web" | "whatsapp_web" => {
             #[cfg(feature = "whatsapp-web")]
@@ -14500,7 +14435,6 @@ pub fn register_channels_for_tools(
     feature = "channel-line",
     feature = "channel-qq",
     feature = "voice-wake",
-    feature = "channel-matrix",
     feature = "whatsapp-web"
 ))]
 fn resolve_agent_transcription_provider(config: &Config, channel_key: &str) -> String {
@@ -14605,37 +14539,6 @@ fn build_configured_discord_channel(
     configure_discord_transcription(channel, config, &channel_key)
 }
 
-/// Resolve the enabled agent that owns `channel_key`, for binding that agent's
-/// `tts_provider`. Shares [`build_owner_by_channel_key`] with message dispatch
-/// and with [`resolve_agent_transcription_provider`], so synthesis can never
-/// select a different owner than the one the router delivers to: with two
-/// enabled agents bound to the same channel, sorted last-writer-wins picks one
-/// answer for both.
-///
-/// Returns `None` when no enabled agent owns the channel, which
-/// [`crate::tts::TtsManager::from_config_for_agent`] treats as "fall back to
-/// the runtime-active agent" — collapsing that to an empty string would
-/// silently drop the fallback.
-#[cfg(feature = "channel-matrix")]
-fn resolve_agent_tts_owner(config: &Config, channel_key: &str) -> Option<String> {
-    let enabled_agents = enabled_agent_aliases(config);
-    build_owner_by_channel_key(config, &enabled_agents, &[channel_key.to_string()])
-        .get(channel_key)
-        .cloned()
-}
-
-/// Per-alias Matrix state directory. Each `[channels.matrix.<alias>]` block
-/// must own its own session/crypto store so two bots under one daemon don't
-/// restore each other's `session.json` and run as the wrong account. The
-/// alias component is what keeps them distinct.
-#[cfg(feature = "channel-matrix")]
-fn matrix_state_dir(config_path: &std::path::Path, alias: &str) -> std::path::PathBuf {
-    config_path
-        .parent()
-        .map(|p| p.join("state").join("matrix").join(alias))
-        .unwrap_or_else(|| std::path::PathBuf::from(".zeroclaw/state/matrix").join(alias))
-}
-
 #[cfg(any(feature = "channel-bluesky", feature = "channel-reddit"))]
 fn live_external_peer_resolver(
     config: zeroclaw_config::live::LiveConfigHandle,
@@ -14643,69 +14546,6 @@ fn live_external_peer_resolver(
     alias: String,
 ) -> Arc<dyn Fn() -> Vec<String> + Send + Sync> {
     Arc::new(move || config.read().channel_external_peers(channel_type, &alias))
-}
-
-/// Build the Matrix channel for `[channels.matrix.<alias>]` with every
-/// live-config resolver installed, mirroring
-/// [`build_configured_discord_channel`].
-///
-/// Extracted from [`collect_configured_channels`] so the *configured*
-/// construction path stays reachable: the loop wraps the result in
-/// `PacedChannel` and type-erases it to `Arc<dyn Channel>` immediately, so a
-/// test can otherwise never observe the resolvers this function installs.
-///
-/// Fallible because [`MatrixChannel::new`] validates `homeserver` and the
-/// credential pair; the caller logs and skips the alias on `Err`.
-#[cfg(feature = "channel-matrix")]
-pub(crate) fn build_configured_matrix_channel(
-    config_arc: &zeroclaw_config::live::LiveConfigHandle,
-    config: &Config,
-    alias: &str,
-    mx: &zeroclaw_config::schema::MatrixConfig,
-) -> Result<MatrixChannel> {
-    let state_dir = matrix_state_dir(&config.config_path, alias);
-    let peer_resolver: Arc<dyn Fn() -> Vec<String> + Send + Sync> = {
-        let cfg_arc = config_arc.clone();
-        let alias = alias.to_string();
-        Arc::new(move || cfg_arc.read().channel_external_peers("matrix", &alias))
-    };
-    let ack = mx.ack_reactions.unwrap_or(config.channels.ack_reactions);
-    let transcription_config_arc = config_arc.clone();
-    let transcription_channel_key = format!("matrix.{alias}");
-    let tts_config_arc = config_arc.clone();
-    let tts_channel_key = format!("matrix.{alias}");
-    let voice_peer_resolver: Arc<dyn Fn() -> Vec<String> + Send + Sync> = {
-        let cfg_arc = config_arc.clone();
-        let alias = alias.to_string();
-        Arc::new(move || cfg_arc.read().channel_voice_peers("matrix", &alias))
-    };
-    let channel = MatrixChannel::new(mx.clone(), alias.to_string(), peer_resolver, state_dir)?;
-    Ok(channel
-        .with_transcription_manager_factory(move || {
-            let config = transcription_config_arc.read();
-            if !config.transcription.enabled {
-                return None;
-            }
-            let provider =
-                resolve_agent_transcription_provider(&config, &transcription_channel_key);
-            Some(crate::matrix::build_transcription_manager(
-                &config, &provider,
-            ))
-        })
-        .with_tts_manager_factory(move || {
-            let config = tts_config_arc.read();
-            if !config.tts.enabled {
-                return None;
-            }
-            let owner = resolve_agent_tts_owner(&config, &tts_channel_key);
-            Some(crate::tts::TtsManager::from_config_for_agent(
-                &config,
-                owner.as_deref(),
-            ))
-        })
-        .with_voice_peer_resolver(voice_peer_resolver)
-        .with_workspace_dir(config.channel_workspace_dir(&format!("matrix.{alias}")))
-        .with_ack_reactions(ack))
 }
 
 fn collect_configured_channels(
@@ -15057,42 +14897,13 @@ fn collect_configured_channels_with_authority(
         );
     }
 
-    #[cfg(feature = "channel-matrix")]
-    for (alias, mx) in &config.channels.matrix {
-        if !active_channel_aliases.contains(&format!("matrix.{alias}")) {
-            continue;
-        }
-        if !mx.enabled {
-            continue;
-        }
-        match build_configured_matrix_channel(config_arc, &config, alias, mx) {
-            Ok(channel) => {
-                channels.push(ConfiguredChannel {
-                    display_name: "Matrix",
-                    alias: Some(alias.clone()),
-                    channel: crate::paced_channel::PacedChannel::wrap(Arc::new(channel), mx),
-                });
-            }
-            Err(e) => {
-                ::zeroclaw_log::record!(
-                    ERROR,
-                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Fail)
-                        .with_outcome(::zeroclaw_log::EventOutcome::Failure)
-                        .with_attrs(::serde_json::json!({"error": format!("{}", e)})),
-                    "Matrix channel construction failed"
-                );
-            }
-        }
-    }
-
-    #[cfg(not(feature = "channel-matrix"))]
     if !config.channels.matrix.is_empty() {
         ::zeroclaw_log::record!(
             WARN,
             ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
                 .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
             &format!(
-                "Matrix channel is configured but this build was compiled without `channel-matrix`; skipping Matrix {}.",
+                "The bundled Matrix channel was removed from this build; skipping Matrix {}. Revoke the Matrix access token and device, and delete the Matrix state directory next to the config file by hand.",
                 matrix_skip_context
             )
         );
@@ -26769,23 +26580,6 @@ api_key = "anthropic-key"
             security: Arc::new(SecurityPolicy::default()),
             sop_driver_sink: None,
         })
-    }
-
-    #[cfg(feature = "channel-matrix")]
-    pub(crate) async fn process_message_with_dummy_provider(
-        channel: Arc<dyn Channel>,
-        msg: zeroclaw_api::channel::ChannelMessage,
-        prompt_config: zeroclaw_config::schema::Config,
-    ) {
-        let runtime_ctx = test_runtime_ctx_with_config_agent_and_provider_ref(
-            channel,
-            Arc::new(DummyModelProvider),
-            prompt_config,
-            zeroclaw_config::schema::AliasedAgentConfig::default(),
-            "test-provider",
-            None,
-        );
-        process_channel_message(runtime_ctx, msg, CancellationToken::new()).await;
     }
 
     fn test_runtime_ctx_with_observer(
@@ -48863,30 +48657,6 @@ This is an example JSON object for profile settings."#;
         assert_eq!(state, ChannelHealthState::Timeout);
     }
 
-    #[cfg(feature = "channel-matrix")]
-    #[test]
-    fn matrix_state_dir_is_distinct_per_alias() {
-        // Regression: two [channels.matrix.<alias>] blocks previously resolved
-        // to the same <config>/state/matrix dir, so the second listener to
-        // start restored the first's session.json and ran as the wrong Matrix
-        // account. The alias component must keep them separate.
-        let config_path = std::path::Path::new("/home/u/.zeroclaw/config.toml");
-        let clamps = matrix_state_dir(config_path, "clamps");
-        let bender = matrix_state_dir(config_path, "bender");
-        assert_ne!(
-            clamps, bender,
-            "distinct matrix aliases must not share a state dir"
-        );
-        assert_eq!(
-            clamps,
-            std::path::Path::new("/home/u/.zeroclaw/state/matrix/clamps")
-        );
-        assert_eq!(
-            bender,
-            std::path::Path::new("/home/u/.zeroclaw/state/matrix/bender")
-        );
-    }
-
     #[test]
     fn compiled_channel_families_have_listener_registration_or_explicit_runtime_ownership() {
         let source = include_str!("mod.rs");
@@ -50125,100 +49895,6 @@ This is an example JSON object for profile settings."#;
             "local_whisper.office",
             "Voice Wake must select that same fallback owner's provider"
         );
-    }
-
-    /// `Config::agent_for_channel` takes the first match out of a `HashMap`,
-    /// so with two agents bound to one Matrix alias it can name a different
-    /// owner than dispatch does — silencing voice, or speaking through the
-    /// wrong agent's provider. Synthesis must go through the same sorted,
-    /// last-writer-wins decision the router uses.
-    #[cfg(feature = "channel-matrix")]
-    #[test]
-    fn matrix_tts_owner_is_the_same_canonical_co_owner_as_dispatch() {
-        let mut config = Config::default();
-        config.agents.clear();
-        config.agents.insert(
-            "zeta".to_string(),
-            zeroclaw_config::schema::AliasedAgentConfig {
-                enabled: true,
-                channels: vec!["matrix.default".into()],
-                tts_provider: "openai.loud".into(),
-                ..Default::default()
-            },
-        );
-        config.agents.insert(
-            "alpha".to_string(),
-            zeroclaw_config::schema::AliasedAgentConfig {
-                enabled: true,
-                channels: vec!["matrix.default".into()],
-                tts_provider: "elevenlabs.quiet".into(),
-                ..Default::default()
-            },
-        );
-
-        let enabled_agents = enabled_agent_aliases(&config);
-        let owners =
-            build_owner_by_channel_key(&config, &enabled_agents, &["matrix.default".to_string()]);
-        let dispatch_owner = owners.get("matrix.default").map(String::as_str);
-
-        assert_eq!(dispatch_owner, Some("zeta"));
-        assert_eq!(
-            resolve_agent_tts_owner(&config, "matrix.default").as_deref(),
-            dispatch_owner,
-            "synthesis must bind the same owning agent the router delivers to"
-        );
-    }
-
-    /// With no agent declaring any binding, the router falls back to a
-    /// deterministic owner. TTS has to land on that same one.
-    #[cfg(feature = "channel-matrix")]
-    #[test]
-    fn matrix_tts_owner_is_the_same_legacy_fallback_owner_as_dispatch() {
-        let mut config = Config::default();
-        config.agents.clear();
-        config.agents.insert(
-            "legacy".to_string(),
-            zeroclaw_config::schema::AliasedAgentConfig {
-                enabled: true,
-                channels: vec![],
-                tts_provider: "openai.office".into(),
-                ..Default::default()
-            },
-        );
-
-        let enabled_agents = enabled_agent_aliases(&config);
-        let collected_channel_keys = vec!["matrix.default".to_string()];
-        let owners = build_owner_by_channel_key(&config, &enabled_agents, &collected_channel_keys);
-
-        assert_eq!(
-            owners.get("matrix.default").map(String::as_str),
-            Some("legacy")
-        );
-        assert_eq!(
-            resolve_agent_tts_owner(&config, "matrix.default").as_deref(),
-            Some("legacy")
-        );
-    }
-
-    /// An unowned channel yields `None`, not an empty alias:
-    /// `TtsManager::from_config_for_agent` reads `None` as "fall back to the
-    /// runtime-active agent", and collapsing it to `""` would drop that.
-    #[cfg(feature = "channel-matrix")]
-    #[test]
-    fn matrix_tts_owner_is_none_when_no_enabled_agent_owns_the_channel() {
-        let mut config = Config::default();
-        config.agents.clear();
-        config.agents.insert(
-            "off".to_string(),
-            zeroclaw_config::schema::AliasedAgentConfig {
-                enabled: false,
-                channels: vec!["matrix.default".into()],
-                tts_provider: "openai.loud".into(),
-                ..Default::default()
-            },
-        );
-
-        assert_eq!(resolve_agent_tts_owner(&config, "matrix.default"), None);
     }
 
     #[cfg(feature = "voice-wake")]

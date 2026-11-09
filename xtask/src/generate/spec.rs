@@ -1581,7 +1581,6 @@ mod tests {
         let mut expected = resolve_feature_list(&root(), &Selection::Full).unwrap();
         expected.extend(
             [
-                "channel-matrix",
                 "channel-lark",
                 "channel-git",
                 "whatsapp-web",
@@ -1723,10 +1722,13 @@ mod tests {
             .unwrap();
         let extras = dist_extra_features(&pkg).unwrap();
         assert!(
-            extras.contains(&"channel-matrix".to_string()),
+            extras.contains(&"channel-lark".to_string()),
             "distribution extras come from Cargo.toml registry"
         );
-        assert!(extras.contains(&"channel-lark".to_string()));
+        assert!(
+            !extras.contains(&"channel-matrix".to_string()),
+            "the bundled Matrix channel is removed from the distribution"
+        );
         assert!(extras.contains(&"channel-git".to_string()));
         assert!(extras.contains(&"whatsapp-web".to_string()));
     }

@@ -37,25 +37,6 @@ pub(crate) fn mime_for_audio(extension: &str) -> Option<&'static str> {
     }
 }
 
-/// Canonical MIME → accepted-extension mapping, the inverse of
-/// `mime_for_audio`. `None` when the MIME does not map to a format
-/// `resolve_audio_format` accepts. Codec parameters (e.g.
-/// "audio/ogg; codecs=opus") are stripped before matching.
-#[cfg(any(feature = "channel-matrix", test))]
-pub(crate) fn extension_for_audio_mime(mime: &str) -> Option<&'static str> {
-    let mime = mime.split(';').next().unwrap_or(mime).trim();
-    match mime.to_ascii_lowercase().as_str() {
-        "audio/flac" => Some("flac"),
-        "audio/mpeg" | "audio/mp3" => Some("mp3"),
-        "audio/mp4" | "audio/x-m4a" => Some("m4a"),
-        "audio/ogg" => Some("ogg"),
-        "audio/opus" => Some("opus"),
-        "audio/wav" => Some("wav"),
-        "audio/webm" => Some("webm"),
-        _ => None,
-    }
-}
-
 /// Normalize audio filename for Whisper-compatible APIs.
 /// Groq validates the filename extension — `.oga` (Opus-in-Ogg) is not in
 /// its accepted list, so we rewrite it to `.ogg`.
@@ -1268,7 +1249,6 @@ impl TranscriptionManager {
     feature = "channel-lark",
     feature = "channel-line",
     feature = "channel-qq",
-    feature = "channel-matrix",
     feature = "voice-wake"
 ))]
 fn bind_channel_provider(
@@ -1318,7 +1298,6 @@ fn bind_channel_provider(
     feature = "channel-lark",
     feature = "channel-line",
     feature = "channel-qq",
-    feature = "channel-matrix",
     feature = "voice-wake"
 ))]
 pub(crate) fn build_channel_transcription_manager(
@@ -1347,7 +1326,6 @@ pub(crate) fn build_channel_transcription_manager(
     feature = "channel-lark",
     feature = "channel-line",
     feature = "channel-qq",
-    feature = "channel-matrix",
     feature = "voice-wake"
 ))]
 pub(crate) fn manager_from_snapshot(
@@ -1551,59 +1529,6 @@ mod tests {
         assert_eq!(mime_for_audio("pdf"), None);
         assert_eq!(mime_for_audio("aac"), None);
         assert_eq!(mime_for_audio(""), None);
-    }
-
-    #[test]
-    fn extension_for_audio_mime_maps_accepted_mimes() {
-        assert_eq!(extension_for_audio_mime("audio/flac"), Some("flac"));
-        assert_eq!(extension_for_audio_mime("audio/mpeg"), Some("mp3"));
-        assert_eq!(extension_for_audio_mime("audio/mp3"), Some("mp3"));
-        assert_eq!(extension_for_audio_mime("audio/mp4"), Some("m4a"));
-        assert_eq!(extension_for_audio_mime("audio/x-m4a"), Some("m4a"));
-        assert_eq!(extension_for_audio_mime("audio/ogg"), Some("ogg"));
-        assert_eq!(extension_for_audio_mime("audio/opus"), Some("opus"));
-        assert_eq!(extension_for_audio_mime("audio/wav"), Some("wav"));
-        assert_eq!(extension_for_audio_mime("audio/webm"), Some("webm"));
-    }
-
-    #[test]
-    fn extension_for_audio_mime_strips_codec_params() {
-        assert_eq!(
-            extension_for_audio_mime("audio/ogg; codecs=opus"),
-            Some("ogg")
-        );
-        assert_eq!(
-            extension_for_audio_mime(" audio/wav ; rate=16000"),
-            Some("wav")
-        );
-    }
-
-    #[test]
-    fn extension_for_audio_mime_rejects_unknown() {
-        assert_eq!(extension_for_audio_mime("audio/aac"), None);
-        assert_eq!(extension_for_audio_mime("image/png"), None);
-        assert_eq!(extension_for_audio_mime(""), None);
-    }
-
-    #[test]
-    fn extension_for_audio_mime_output_is_always_accepted() {
-        for mime in [
-            "audio/flac",
-            "audio/mpeg",
-            "audio/mp3",
-            "audio/mp4",
-            "audio/x-m4a",
-            "audio/ogg",
-            "audio/opus",
-            "audio/wav",
-            "audio/webm",
-        ] {
-            let ext = extension_for_audio_mime(mime).unwrap();
-            assert!(
-                mime_for_audio(ext).is_some(),
-                "{mime} maps to {ext}, which mime_for_audio rejects"
-            );
-        }
     }
 
     #[test]
@@ -2916,7 +2841,6 @@ mod tests {
         feature = "channel-lark",
         feature = "channel-line",
         feature = "channel-qq",
-        feature = "channel-matrix",
         feature = "voice-wake"
     )
 ))]

@@ -2805,6 +2805,17 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    // RUSTSEC-2026-0459: SQLite before 3.54.0 can return uninitialized page-cache
+    // memory when a database is opened with a -wal file of a different page size.
+    #[test]
+    fn bundled_sqlite_includes_wal_page_size_fix() {
+        assert!(
+            rusqlite::version_number() >= 3_054_000,
+            "bundled SQLite {} predates the RUSTSEC-2026-0459 fix (3.54.0)",
+            rusqlite::version()
+        );
+    }
+
     fn temp_sqlite() -> (TempDir, SqliteMemory) {
         let tmp = TempDir::new().unwrap();
         let mem = SqliteMemory::new("test", tmp.path()).unwrap();

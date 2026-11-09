@@ -171,7 +171,7 @@ ring = { version = "0.17", optional = true }
 async-trait = "0.1"
 
 # Memory / persistence (migration.rs, behind agent-runtime)
-rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"], optional = true }
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"], optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 
 # Interactive CLI prompts (memory CLI uses dialoguer unconditionally)
@@ -246,7 +246,6 @@ non_row_features = [
 # The release workflow executes a plugin from every archive that carries the
 # host before it publishes anything of its own.
 dist_extra_features = [
-    "channel-matrix",
     "channel-lark",
     "channel-git",
     "whatsapp-web",
@@ -404,7 +403,6 @@ channel-email = ["zeroclaw-channels/channel-email", "zeroclaw-gateway?/channel-e
 channel-telegram = ["zeroclaw-channels/channel-telegram"]
 channel-lark = ["zeroclaw-channels/channel-lark"]
 channel-nostr = ["zeroclaw-channels/channel-nostr"]
-channel-matrix = ["zeroclaw-channels/channel-matrix"]
 channel-discord = ["zeroclaw-channels/channel-discord"]
 channel-slack = ["zeroclaw-channels/channel-slack"]
 channel-signal = ["zeroclaw-channels/channel-signal"]
@@ -515,7 +513,7 @@ plugins-wasm-pulley       = ["plugins-wasm", "zeroclaw-plugins/plugins-wasm-pull
 ci-all = [
     "agent-runtime",
     "channels-full",
-    "channel-nostr", "channel-matrix", "whatsapp-web", "channel-wechat",
+    "channel-nostr", "whatsapp-web", "channel-wechat",
     "observability-prometheus", "observability-otel",
     "hardware", "peripheral-rpi",
     "sandbox-landlock", "sandbox-bubblewrap",

@@ -8,19 +8,19 @@ Every command, config key, tool name, status value, and audit key below maps to 
 
 ## 1. The Build
 
-stagehand needs the AMQP and Matrix channels compiled in. Both are feature-gated and off by default.
+stagehand needs the AMQP channel compiled in (feature-gated, off by default) and a chat channel for the announcement step. The Matrix channel was removed from the bundled build; announce through another bundled channel or an enterprise-owned adapter built from source.
 
 <div class="os-tabs-src">
 
 #### sh
 
 ```sh
-cargo build --release --features channel-amqp,channel-matrix
+cargo build --release --features channel-amqp
 ```
 
 </div>
 
-The result is a `zeroclaw` binary that loads the `amqp` and `matrix` channel types. A binary built without `channel-amqp` rejects an `amqp` channel block at startup and logs a warning instead of loading it.
+The result is a `zeroclaw` binary that loads the `amqp` channel type. A binary built without `channel-amqp` rejects an `amqp` channel block at startup and logs a warning instead of loading it.
 
 ## 2. The Artifacts
 
@@ -28,17 +28,17 @@ Three things live under the ZeroClaw install root:
 
 | Artifact | Location | Role |
 |---|---|---|
-| ZeroClaw config | `~/.zeroclaw/` | The agent, the AMQP + Matrix channels, and the `sop` settings. |
+| ZeroClaw config | `~/.zeroclaw/` | The agent, the AMQP and announcement channels, and the `sop` settings. |
 | `sops/stagex-update/` | `<install>/shared/sops/stagex-update/` | The pipeline: `SOP.toml` (metadata) + `SOP.md` (the eight steps). |
 | `skills/stagex-update/` | `<install>/shared/skills/stagex-update/` | The glue that fires the SOP on a release event. |
 
-The config wires the agent to two channels (`amqp.anitya`, `matrix.announce`), runs it at full autonomy so it commits, pushes, and opens the PR without a gate, and points `[sop]` at `shared/sops` in `deterministic` execution mode. The agent never merges; a maintainer adopts the branch and merges via signed commit.
+The config wires the agent to two channels (`amqp.anitya` and an announcement channel), runs it at full autonomy so it commits, pushes, and opens the PR without a gate, and points `[sop]` at `shared/sops` in `deterministic` execution mode. The agent never merges; a maintainer adopts the branch and merges via signed commit.
 
 ### The AMQP channel
 
 The `amqp.anitya` channel consumes Fedora Messaging's public feed. It binds the Anitya version-update routing key on the `amq.topic` exchange and connects over `amqps://` with client mutual TLS; Fedora's broker requires a client certificate, so the channel presents the configured `client_cert` and `client_key`. The channel validates its configuration at load: `amqp_url` must use `amqp://` or `amqps://`, an `amqps://` URL requires `ca_cert`, `client_cert` and `client_key` must be supplied together, the exchange must be non-empty, and at least one routing key must be bound.
 
-Each delivery's JSON body is mapped into the agent's inbound message by `content_template`, whose `{dotted.path}` placeholders resolve against the body, turning a release delivery into *"New release: bzip2 1.0.9 (was 1.0.8). Bump the StageX package for bzip2."* The `thread_id_field` dotted path correlates replies back to the originating event. Delivery is at-least-once by default (`durable_ack = true`): the channel acknowledges a release only after it is durably handed to the agent loop, so a crash before the run starts redelivers the event rather than dropping it silently. That matters for an unattended side-effecting pipeline; a lost release would leave a package quietly behind. Credentials and certificates are supplied at deploy time and never committed: the Codeberg push token is an environment variable the agent's shell reads, the Matrix access token is set on the running instance, and the Fedora CA and client certificates are placed on the host.
+Each delivery's JSON body is mapped into the agent's inbound message by `content_template`, whose `{dotted.path}` placeholders resolve against the body, turning a release delivery into *"New release: bzip2 1.0.9 (was 1.0.8). Bump the StageX package for bzip2."* The `thread_id_field` dotted path correlates replies back to the originating event. Delivery is at-least-once by default (`durable_ack = true`): the channel acknowledges a release only after it is durably handed to the agent loop, so a crash before the run starts redelivers the event rather than dropping it silently. That matters for an unattended side-effecting pipeline; a lost release would leave a package quietly behind. Credentials and certificates are supplied at deploy time and never committed: the Codeberg push token is an environment variable the agent's shell reads, the announcement channel's token is set on the running instance, and the Fedora CA and client certificates are placed on the host.
 
 ## 3. Validation
 
@@ -60,7 +60,7 @@ Validation surfaces warnings for an empty name or description, no triggers, no s
 
 ## 4. Deployment
 
-The bot runs as a long-lived daemon so it stays connected to the broker and the Matrix room.
+The bot runs as a long-lived daemon so it stays connected to the broker and the announcement channel.
 
 <div class="os-tabs-src">
 
@@ -117,7 +117,7 @@ The eight steps, parsed from the SOP's `## Steps` section:
 | 5 | Digest repro | `make digests`, build a second time, confirm the digest is unchanged. | `shell` |
 | 6 | Commit + push | Commit on a per-package, per-version branch; push to the fork. | `shell`, `git_operations` |
 | 7 | Open draft PR | Fill the PR template, attach digests, mark ready only on a clean reproduced build. | `http_request` |
-| 8 | Announce | Post the outcome to the Matrix room: package, version delta, repro status, digest, PR URL. | `shell` |
+| 8 | Announce | Post the outcome to the announcement channel: package, version delta, repro status, digest, PR URL. | `shell` |
 
 The agent closes out each step with a `sop_advance` call reporting the result:
 

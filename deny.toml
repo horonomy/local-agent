@@ -12,7 +12,6 @@ ignore = [
     # rustls-pemfile -- unmaintained, functionality moved to rustls-pki-types;
     # transitive dep, upstream migration tracked
     { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; transitive dep awaiting upstream migration to rustls-pki-types" },
-    { id = "RUSTSEC-2026-0319", reason = "anymap2 unmaintained; matrix-sdk 0.19.1 still depends on it with no replacement release; remove after upstream migration, tracked in #11429" },
     { id = "RUSTSEC-2026-0441", reason = "HORO-2447 maintenance-only pin-utils 0.1.0; exact source/parent, review and expiry enforced by scripts/ci/dependency_risk_guard.py using .cargo/dependency-risk.toml" },
 ]
 
@@ -64,12 +63,11 @@ name = "bitflags"
 version = "=1.3.2"
 
 
-# The four entries below arrived with the matrix-sdk 0.19 bump: vodozemac
-# 0.11 pulls the RustCrypto 0.12 generation (aead 0.6, chacha20poly1305
-# 0.11, cipher 0.5, digest 0.11), while zeroclaw-config still encrypts with
-# chacha20poly1305 0.10 on the older generation. Same split as the existing
-# `chacha20 =0.9.1` skip. They go away when this repository's own crypto
-# deps move to the newer generation.
+# The four entries below cover the RustCrypto 0.12 generation (cipher 0.5,
+# digest 0.11 and friends) that whatsapp-rust and wacore still pull, while
+# zeroclaw-config encrypts with chacha20poly1305 0.10 on the older generation.
+# Same split as the existing `chacha20 =0.9.1` skip. They go away when this
+# repository's own crypto deps move to the newer generation.
 
 [[bans.skip]]
 name = "block-buffer"

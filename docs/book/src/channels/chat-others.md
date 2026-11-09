@@ -117,7 +117,6 @@ Treats a Notion database as a message surface. Useful for asynchronous workflows
 
 Channels with more intricate setup (OAuth flows, end-to-end encryption, multi-device considerations) live in their own pages:
 
-- [Matrix](./matrix.md): E2EE, device verification, Synapse/Dendrite specifics
 - [Telegram](./telegram.md): bot creation, aliases, pairing, and peer authorization
 - [Discord](./discord.md)
 - [Slack](./slack.md)

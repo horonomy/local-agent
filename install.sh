@@ -423,7 +423,7 @@ Options:
   --source             Build from source (skips the pre-built prompt)
   --preset NAME        Named feature preset: 'minimal' (kernel only, ~6.6MB) or
                        'full' (every channel plus heavyweight extras such as
-                       whatsapp-web and channel-matrix). Source builds only.
+                       whatsapp-web and channel-lark). Source builds only.
   --full               Install everything: the 'full' feature preset plus every
                        installable app (implies --source)
   --minimal            Alias for --preset minimal
@@ -756,7 +756,7 @@ build_web_dashboard() {
 # ── Low-memory build heuristic ────────────────────────────────────
 #
 # [profile.release] in Cargo.toml uses fat LTO + codegen-units = 1.
-# With heavy crates in the graph (matrix-sdk-crypto, ruma, vodozemac)
+# With heavy crates in the graph (wasmtime, aws-lc-sys)
 # a single rustc process can peak past 7 GB RSS during the cross-crate
 # type pass, OOM-ing 8 GB ARM devices. Thin LTO trades a small
 # binary-size hit for a much lower build-time RAM peak. Apply it as
@@ -1099,7 +1099,7 @@ See all available features:
   fi
 
   # `--preset full` must actually deliver the broad bundle the installer
-  # advertises (whatsapp-web, channel-matrix, the heavyweight extras), not
+  # advertises (whatsapp-web, channel-lark, the heavyweight extras), not
   # Cargo's lean `default`. Resolve the explicit feature list from the
   # canonical registry (`cargo generate features --selection all`), the same
   # source of truth the release workflow consumes, and build with

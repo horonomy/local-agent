@@ -64,7 +64,6 @@
         feature = "channel-lark",
         feature = "channel-line",
         feature = "channel-linq",
-        feature = "channel-matrix",
         feature = "channel-mattermost",
         feature = "channel-mochat",
         feature = "channel-mqtt",
@@ -332,13 +331,13 @@ Add a new channel configuration.
 Provide the channel type and a JSON object with the required \
 configuration keys for that channel type.
 
-Supported types: telegram, discord, slack, whatsapp, matrix, imessage, email.
+Supported types: telegram, discord, slack, whatsapp, imessage, email.
 
 Examples:
   zeroclaw channel add telegram '{\"bot_token\":\"...\",\"name\":\"my-bot\"}'
   zeroclaw channel add discord '{\"bot_token\":\"...\",\"name\":\"my-discord\"}'")]
     Add {
-        /// Channel type (telegram, discord, slack, whatsapp, matrix, imessage, email)
+        /// Channel type (telegram, discord, slack, whatsapp, imessage, email)
         channel_type: String,
         /// Optional configuration as JSON
         config: String,

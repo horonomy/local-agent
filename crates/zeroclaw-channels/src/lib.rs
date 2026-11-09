@@ -5,7 +5,6 @@
     clippy::useless_format,
     clippy::explicit_auto_deref
 )]
-#![cfg_attr(feature = "channel-matrix", recursion_limit = "256")]
 
 pub mod allowlist;
 // Ungated: the reader-aligned paired-identity writer is now shared by every
@@ -62,8 +61,6 @@ pub mod lark;
 pub mod line;
 #[cfg(feature = "channel-linq")]
 pub mod linq;
-#[cfg(feature = "channel-matrix")]
-pub mod matrix;
 #[cfg(feature = "channel-mattermost")]
 pub mod mattermost;
 #[cfg(feature = "channel-mochat")]
