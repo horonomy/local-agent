@@ -13,6 +13,12 @@ mode = "features"
 features = ["agent-runtime"]
 
 [[profiles]]
+id = "local-agent-minimal"
+package = "zeroclaw"
+mode = "features"
+features = ["local-agent-minimal"]
+
+[[profiles]]
 id = "root-default"
 package = "zeroclaw"
 mode = "defaults"
