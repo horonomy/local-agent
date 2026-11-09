@@ -99,6 +99,7 @@ permission to bypass execution, review or release controls.
 | HORO-2378 | Synthetic Golden Journey fixtures | Tests only |
 | HORO-2379 | Content/provenance export review support and policy | Developer workflow only |
 | HORO-2380 | Architecture and upstream synchronization decision | Documentation only |
+| HORO-2383 | Gate the relay bridge, enrollment server and local RPC listener in `zeroclaw-runtime` behind the existing `daemon-listeners` feature so the minimal profile compiles none of that listener source; revert the merge to roll back | None in standard builds; the minimal profile no longer contains those listeners |
 
 Rows describe ticket scope, not completion or merged state. Exact local commit,
 review, PR, validation and blocker status belong in the local engineering ledger.

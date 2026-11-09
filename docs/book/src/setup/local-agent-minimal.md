@@ -79,11 +79,14 @@ environment override. Those are tracked as open decisions for HORO-2385.
 
 - Provider adapters are still compiled in. A single OpenAI-compatible endpoint is a
   configuration choice protected by the existing default-deny approval, not a feature gate.
-- The runtime crate still contains the relay bridge, enrollment server and local RPC
-  listener source, because they share types and helpers with code other commands use.
-  Nothing reachable from this profile calls them, so the linker drops their entry points:
-  `scripts/ci/minimal_profile_artifact.sh binary` asserts they are absent from an unstripped
-  build, with positive controls. Removing that source is separate work (HORO-2383).
+- The relay bridge, enrollment server and local RPC listener are compiled out of this
+  profile: their source in the runtime crate sits behind `daemon-listeners`, so the
+  compiler, not the linker, keeps it out. The client helpers other commands use
+  (`call_local`, `ensure_node_id`, `request_new_paircode` and friends) stay compiled in.
+  `scripts/ci/minimal_profile_artifact.sh binary` still asserts the listener entry points
+  are absent from an unstripped build, with positive controls, as a second line of
+  defence against a gate being lost. The dependencies those listeners use are not yet
+  removed from the profile's graph; that is separate work.
 - Provider OAuth sign-in (for example the Gemini and OpenAI flows) uses a short-lived,
   user-initiated loopback callback listener. It is not gated, and `listener_probe.py`
   does not exercise it.

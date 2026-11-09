@@ -92,9 +92,10 @@ zeroclaw-config = { workspace = true, features = ["test-helpers"] }
 rand = "0.10"
 rcgen = "0.13"
 tempfile = "3.26"
-# Enables deterministic clock and shared-authority helpers for gateway fixtures;
-# this feature is dev-only and is not part of the shipped gateway.
-zeroclaw-runtime = { workspace = true, features = ["test-util"] }
+# Enables deterministic clock and shared-authority helpers for gateway fixtures, and the
+# local RPC listener (gated behind daemon-listeners) that the shared-authority test dials;
+# both are dev-only and not part of the shipped gateway.
+zeroclaw-runtime = { workspace = true, features = ["test-util", "daemon-listeners"] }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "test-util"] }
 zeroclaw-channels = { workspace = true, default-features = false, features = ["test-util"] }
 # Real WebSocket client used to drive the `/acp` route end-to-end in

@@ -9,8 +9,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "daemon-listeners")]
 use tokio_util::sync::CancellationToken;
 
+#[cfg(feature = "daemon-listeners")]
 use super::EnrollServer;
 
 const REQUESTS_DIR: &str = "enroll_paircode_requests";
@@ -93,6 +95,7 @@ pub async fn request_new_paircode(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 pub(crate) fn spawn_request_loop(
     server: std::sync::Arc<EnrollServer>,
     data_dir: PathBuf,
@@ -110,6 +113,7 @@ pub(crate) fn spawn_request_loop(
     });
 }
 
+#[cfg(feature = "daemon-listeners")]
 async fn request_loop(
     server: std::sync::Arc<EnrollServer>,
     data_dir: PathBuf,
@@ -130,6 +134,7 @@ async fn request_loop(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn process_requests(server: &EnrollServer, requests: &Path, responses: &Path) -> Result<()> {
     for entry in
         std::fs::read_dir(requests).with_context(|| format!("read {}", requests.display()))?
@@ -163,6 +168,7 @@ fn process_requests(server: &EnrollServer, requests: &Path, responses: &Path) ->
     Ok(())
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn handle_request(server: &EnrollServer, request: PaircodeRequest) -> PaircodeResponse {
     if request.action != "new" {
         return PaircodeResponse {
@@ -195,6 +201,7 @@ fn handle_request(server: &EnrollServer, request: PaircodeRequest) -> PaircodeRe
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn sas_for_code(ca_cert_pem: &str, code: &str) -> Result<String> {
     let fingerprint = zeroclaw_tls::single_cert_pem_sha256_fingerprint(ca_cert_pem)?;
     Ok(zeroclaw_tls::enrollment_sas(code, &fingerprint))
@@ -233,6 +240,7 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
