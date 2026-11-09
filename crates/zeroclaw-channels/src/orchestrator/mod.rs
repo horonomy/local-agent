@@ -19813,52 +19813,6 @@ pub(crate) mod tests {
         assert!(!event.to_string().contains("private-context-prompt"));
     }
 
-    struct SlowBatchChannel {
-        batches: Arc<tokio::sync::Mutex<Vec<Vec<String>>>>,
-        delay: Duration,
-    }
-
-    impl ::zeroclaw_api::attribution::Attributable for SlowBatchChannel {
-        fn role(&self) -> ::zeroclaw_api::attribution::Role {
-            ::zeroclaw_api::attribution::Role::Channel(
-                ::zeroclaw_api::attribution::ChannelKind::Matrix,
-            )
-        }
-
-        fn alias(&self) -> &str {
-            "slow-batch"
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Channel for SlowBatchChannel {
-        fn name(&self) -> &str {
-            "slow-batch"
-        }
-
-        async fn send(&self, _message: &SendMessage) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn listen(
-            &self,
-            _tx: tokio::sync::mpsc::Sender<zeroclaw_api::channel::ChannelMessage>,
-        ) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn update_draft_progress_batch(
-            &self,
-            _recipient: &str,
-            _message_id: &str,
-            texts: &[String],
-        ) -> anyhow::Result<()> {
-            tokio::time::sleep(self.delay).await;
-            self.batches.lock().await.push(texts.to_vec());
-            Ok(())
-        }
-    }
-
     #[test]
     fn channel_doctor_surfaces_dangling_peer_group_channel_warning() {
         // The dangling `peer_groups.<name>.channel` diagnostic belongs on the
@@ -23739,19 +23693,6 @@ api_key = "anthropic-key"
                 ..Self::new(false, false)
             }
         }
-    }
-
-    async fn wait_for_draft_recording_event(channel: &DraftRecordingChannel, event: &'static str) {
-        tokio::time::timeout(Duration::from_millis(100), async {
-            loop {
-                if channel.delivery_events.lock().await.contains(&event) {
-                    return;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("timed out waiting for {event}"));
     }
 
     #[derive(Default)]
