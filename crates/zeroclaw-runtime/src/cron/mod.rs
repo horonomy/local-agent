@@ -40,7 +40,6 @@ pub(crate) const CRON_DELIVERY_SCHEMA_CHANNELS: &[&str] = &[
     "discord",
     "slack",
     "mattermost",
-    "matrix",
     "qq",
     "whatsapp",
     "webhook",
@@ -67,6 +66,20 @@ pub(crate) fn cron_delivery_channel_pattern() -> String {
         "^({})(\\.[A-Za-z0-9_-]+)?$",
         CRON_DELIVERY_SCHEMA_CHANNELS.join("|")
     )
+}
+
+/// Comma-separated `CRON_DELIVERY_SCHEMA_CHANNELS`, for tool descriptions.
+pub(crate) fn cron_delivery_supported_types() -> String {
+    CRON_DELIVERY_SCHEMA_CHANNELS.join(", ")
+}
+
+/// JSON Schema for a cron delivery `channel` property.
+pub(crate) fn cron_delivery_channel_schema(description: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "string",
+        "pattern": cron_delivery_channel_pattern(),
+        "description": description,
+    })
 }
 
 /// Validate a shell command against an agent's security policy

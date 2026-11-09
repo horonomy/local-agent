@@ -5,7 +5,6 @@ const AUTO_DELIVERY_DEFAULT_CHANNELS: &[&str] = &[
     "discord",
     "slack",
     "mattermost",
-    "matrix",
     "dingtalk",
     "lark",
     "feishu",
