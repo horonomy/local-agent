@@ -3,6 +3,7 @@
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import runtime_bench as rb
@@ -106,6 +107,21 @@ class ExitCodeTests(unittest.TestCase):
         self.assertEqual(claimed["verdicts"]["size"], "PASS")
 
 
+class DeadAgentTests(unittest.TestCase):
+    def test_agent_that_exits_during_sampling_is_not_ok(self):
+        proc = mock.Mock(pid=1)
+        proc.poll.return_value = 1
+        with mock.patch.object(rb.lp, "write_config"), \
+                mock.patch.object(rb.lp, "launch_agent", return_value=proc), \
+                mock.patch.object(rb.lp, "wait_until_idle", return_value=True), \
+                mock.patch.object(rb.lp, "stop_agent"), \
+                mock.patch.object(rb, "SETTLE_SECONDS", 0), \
+                mock.patch.object(rb.time, "sleep"), \
+                mock.patch.object(rb, "tree_rss", return_value={"agent": 0, "browser": 0, "other": 0}):
+            rb.TimedStall.first_request_at = rb.time.monotonic()
+            self.assertEqual(rb.one_launch(Path("/x"), 1, 2), {"ok": False})
+
+
 class GuardTests(unittest.TestCase):
     def test_output_directory_must_be_outside_git(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,6 +132,23 @@ class GuardTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", tmp], check=True)
             self.assertFalse(rb.outside_git(Path(tmp)))
             self.assertFalse(rb.outside_git(Path(tmp) / "evidence" / "a" / "b"))
+
+    def test_unknown_git_failure_is_not_treated_as_outside(self):
+        failed = subprocess.CompletedProcess([], 128, "", "fatal: detected dubious ownership")
+        with mock.patch.object(rb.subprocess, "run", return_value=failed):
+            self.assertFalse(rb.outside_git(Path(tempfile.gettempdir())))
+        with mock.patch.object(rb.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertFalse(rb.outside_git(Path(tempfile.gettempdir())))
+
+    def test_premise_rejects_unusable_sampling_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "zeroclaw"
+            binary.write_bytes(b"x")
+            out = Path(tmp) / "evidence"
+            with mock.patch.object(rb, "heavy_lock_held", return_value=False):
+                self.assertIsNone(rb.premise_error({"m": binary}, out, 1, 10))
+                for launches, idle in ((0, 10), (1, 0), (1, 25)):
+                    self.assertIsNotNone(rb.premise_error({"m": binary}, out, launches, idle))
 
     def test_noise_detection(self):
         quiet = {"loadavg_1m": 0.2, "cpus": 16, "cargo_processes": 0}

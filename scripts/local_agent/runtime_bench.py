@@ -165,11 +165,16 @@ def outside_git(path: Path) -> bool:
     probe = path
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent  # nearest existing ancestor decides
-    result = subprocess.run(
-        ["git", "-C", str(probe), "rev-parse", "--is-inside-work-tree"],
-        capture_output=True, text=True, check=False,
-    )
-    return result.returncode != 0
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(probe), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return False  # cannot tell: fail closed
+    # Only git's own "not a repository" answer counts as outside; any other failure
+    # (dubious ownership, corrupt repo) must not let evidence land in a worktree.
+    return result.returncode != 0 and "not a git repository" in result.stderr.lower()
 
 
 def one_launch(binary: Path, port: int, idle_seconds: int) -> dict:
@@ -193,6 +198,9 @@ def one_launch(binary: Path, port: int, idle_seconds: int) -> dict:
         for _ in range(idle_seconds):
             samples.append(tree_rss(proc.pid))
             time.sleep(1)
+        # A dead agent reads as 0 bytes, which would pass the memory budget.
+        if proc.poll() is not None or any(sample["agent"] <= 0 for sample in samples):
+            return {"ok": False}
         listeners = lp.inspect_tree(proc.pid)
         return {"ok": True, "cold_start_s": cold, "samples": samples, "listeners": listeners}
     finally:
@@ -293,13 +301,21 @@ def parse_variants(values: list[str]) -> dict[str, Path] | None:
     return parsed
 
 
-def premise_error(variants, out: Path) -> str | None:
+def premise_error(variants, out: Path, launches: int = 1, idle_seconds: int = 10) -> str | None:
     if not variants:
         return "a variant is not NAME=PATH to an executable"
+    if launches < 1 or idle_seconds < 1:
+        return "--launches and --idle-seconds must be at least 1"
+    if SETTLE_SECONDS + idle_seconds >= lp.STALL_SECONDS - 5:
+        return "--idle-seconds too long: the stalled provider times out mid-measurement"
     if not outside_git(out):
         return "--out must be outside every Git worktree"
     if heavy_lock_held():
         return "a heavy Local Agent build holds the admission lock"
+    try:
+        out.mkdir(parents=True, exist_ok=True)  # fail now, not after the batch
+    except OSError:
+        return "--out cannot be created"
     return None
 
 
@@ -345,7 +361,7 @@ def main() -> int:
     args = parser.parse_args()
 
     variants = parse_variants(args.variant)
-    problem = premise_error(variants, args.out.resolve())
+    problem = premise_error(variants, args.out.resolve(), args.launches, args.idle_seconds)
     if problem:
         print(json.dumps({"verdict": "premise-failed", "reason": problem}))
         return 2
