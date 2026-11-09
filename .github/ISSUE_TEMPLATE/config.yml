@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability report
-    url: https://github.com/horonomy/local-agent/blob/release/mvp-1.0/SECURITY.md
-    about: Do not post vulnerability details in a public issue. A Local Agent security-reporting channel has not been established yet; read SECURITY.md for the current status.
+    url: https://github.com/horonomy/local-agent/security/advisories/new
+    about: Do not post vulnerability details in a public issue. Report privately through a GitHub security advisory.
   - name: Contribution guide
     url: https://github.com/horonomy/local-agent/blob/release/mvp-1.0/CONTRIBUTING.md
     about: Please read contribution and PR requirements before opening an issue.

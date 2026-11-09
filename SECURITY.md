@@ -19,12 +19,9 @@ there, report it as described below.
 
 **Please do NOT open a public GitHub issue, pull request or RFC for security vulnerabilities, and do not post vulnerability details anywhere public.**
 
-A Local Agent security-reporting channel has not been established yet; this is a
-pending founder decision. Until one is published here, there is no supported
-private channel and no response-time commitment. If you hold a vulnerability
-report, withhold the details and open a public issue that says only that you have
-a security report to deliver, with no technical detail, so a maintainer can reply
-with a private route once one exists.
+Report vulnerabilities privately through GitHub's private vulnerability reporting
+for this repository: [open a private advisory](https://github.com/horonomy/local-agent/security/advisories/new).
+No response-time commitment is published yet.
 
 Local Agent is derived from ZeroClaw. The upstream project's security policy
 covers upstream releases only; do not use it to report a Local Agent issue.
