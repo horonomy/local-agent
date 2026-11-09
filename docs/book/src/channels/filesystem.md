@@ -1,5 +1,7 @@
 # Filesystem
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The `filesystem` channel watches one or more paths and feeds each change into the agent loop or the SOP engine. It is gated by the `channel-filesystem` build feature (default on).
 
 > **This is a SOP event source.** For trigger syntax and path matching, see [SOP Fan-In: Filesystem](../sop/fan-in/filesystem.md). This page covers what is watched and the safety scoping.

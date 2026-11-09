@@ -1,5 +1,7 @@
 # A2A agent discovery
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 This deployment can publish its agents so another deployment, or any HTTP
 client, can find them and call them. A2A is the protocol for one agent to reach
 another agent, the way a person reaches a bot over a chat app. This page shows

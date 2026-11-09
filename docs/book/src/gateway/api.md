@@ -1,5 +1,7 @@
 # Gateway HTTP API
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The gateway exposes a REST surface alongside the local CLI. Anything that can
 be set with `zeroclaw config get/set/list/init/migrate` is also reachable via
 HTTP, so the dashboard, third-party tooling, and the CLI all drive the same

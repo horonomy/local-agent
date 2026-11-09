@@ -1,5 +1,7 @@
 # Writing a Channel Plugin
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 A channel plugin is a messaging-platform integration: it delivers the agent's
 responses to a platform and surfaces the platform's messages to the agent. It
 is the most involved plugin kind, because a channel is long-lived, stateful,

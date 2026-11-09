@@ -1,5 +1,7 @@
 # Secure transport: end-to-end configuration
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 This page is the full configuration reference for connecting a client to a daemon
 securely, in three topologies:
 

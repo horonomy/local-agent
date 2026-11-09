@@ -1,5 +1,7 @@
 # Slack
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 Run your ZeroClaw agent as a Slack bot. This guide walks you through it step by
 step. By the end you'll have a bot in your workspace that answers when people
 message it or @-mention it.
