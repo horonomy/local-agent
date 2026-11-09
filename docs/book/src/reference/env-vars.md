@@ -49,7 +49,7 @@ Values applied via `ZEROCLAW_*` env vars land on the **in-memory** `Config` at l
 
 ## Alias grammar
 
-Aliases (the `<alias>` segments in the examples above, `home`, `prod_v2`, `mymatrixalias`, etc.) follow these rules:
+Aliases (the `<alias>` segments in the examples above, `home`, `prod_v2`, `mytelegramalias`, etc.) follow these rules:
 
 1. Lowercase ASCII letters, digits, and single underscores.
 2. Must start AND end with a letter or digit (no leading or trailing underscore).
