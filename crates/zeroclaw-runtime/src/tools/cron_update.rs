@@ -187,7 +187,7 @@ impl Tool for CronUpdateTool {
                                 "channel": {
                                     "type": "string",
                                     "pattern": cron::cron_delivery_channel_pattern(),
-                                    "description": "Channel to deliver output to. Use '<type>.<alias>' (e.g. 'telegram.work'); a bare type resolves only while that type has one configured instance. Supported types: telegram, discord, slack, mattermost, matrix, qq, whatsapp, webhook, lark, feishu, dingtalk, wechat, signal, email. Unlike cron_add, this patch is never filled in from the current conversation."
+                                    "description": "Channel to deliver output to. Use '<type>.<alias>' (e.g. 'telegram.work'); a bare type resolves only while that type has one configured instance. Supported types: telegram, discord, slack, mattermost, qq, whatsapp, webhook, lark, feishu, dingtalk, wechat, signal, email. Unlike cron_add, this patch is never filled in from the current conversation."
                                 },
                                 "to": {
                                     "type": "string",

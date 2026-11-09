@@ -36,7 +36,7 @@ pub(crate) fn render_tool_completion_progress(
     }
 }
 
-/// Preserve the historical non-Matrix progress contract: start lines expose
+/// Preserve the historical progress contract: start lines expose
 /// one tool-specific string hint, while completion lines identify only the
 /// finished tool and outcome.
 fn tool_argument_hint(tool: &str, args: &Value) -> Option<String> {

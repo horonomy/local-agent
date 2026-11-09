@@ -2,9 +2,9 @@ tool-backup = 创建、列出、验证和恢复共享数据目录备份
 tool-browser = 使用可插拔后端（agent-browser、rust-native、computer_use）进行网页/浏览器自动化。支持 DOM 操作以及通过 computer-use 边车进行的可选系统级操作（mouse_move、mouse_click、mouse_drag、key_type、key_press、screen_capture）。使用 'snapshot' 将交互元素映射到引用（@e1、@e2）。对 open 操作强制执行 browser.allowed_domains。
 tool-browser-delegate = 将基于浏览器的任务委托给具备浏览器能力的 CLI，用于与 Teams、Outlook、Jira、Confluence 等 Web 应用进行交互
 tool-browser-open = 在系统浏览器中打开经批准的 HTTPS URL。安全约束：仅限允许列表中的域名，不允许本地/私有主机，不允许抓取。
-tool-channel-room = 通过活动频道创建房间并邀请用户。提供频道键（如 'matrix.default'）、操作 'create_room' 或 'invite_user'，以及特定操作的房间字段。
+tool-channel-room = 通过活动频道创建房间并邀请用户。提供频道键（如 '<type>.<alias>'）、操作 'create_room' 或 'invite_user'，以及特定操作的房间字段。
 tool-channel-room-param-action = 要执行的房间管理操作。
-tool-channel-room-param-channel = 活动频道键，如 'matrix.default'。
+tool-channel-room-param-channel = 活动频道键，如 '<type>.<alias>'。
 tool-channel-room-param-name = create_room 的可选房间名称。
 tool-channel-room-param-topic = create_room 的可选房间主题。
 tool-channel-room-param-invites = 创建房间时可选邀请的用户 ID。
@@ -28,7 +28,7 @@ tool-cloud-ops = 云转型咨询工具。分析 IaC 计划、评估迁移路径�
 tool-cloud-patterns = 云模式库。根据工作负载描述，建议适用的云原生架构模式（容器化、无服务器、数据库现代化等）。
 tool-composio = 通过 Composio 在 1000 多个应用上执行操作（Gmail、Notion、GitHub、Slack 等）。使用 action='list' 查看可用操作（包含参数名称）。使用 action='execute' 并提供 action_name/tool_slug 和 params 来运行操作。如果不确定确切的参数，请改为传入 'text' 并附上你想要执行内容的自然语言描述（Composio 将通过 NLP 解析出正确的参数）。使用 action='list_accounts' 或 action='connected_accounts' 列出 OAuth 已连接的账户。使用 action='connect' 并提供 app/auth_config_id 获取 OAuth URL。省略时会自动解析 connected_account_id。
 tool-content-search = 在工作区内按正则表达式模式搜索文件内容。支持 ripgrep (rg)，并以 grep 或内部搜索作为后备。输出模式：'content'（带上下文的匹配行）、'files_with_matches'（仅文件路径）、'count'（每个文件的匹配数量）。示例：pattern='fn main'，include='*.rs'，output_mode='content'。
-tool-cron-add = 创建一个定时 cron 任务（shell 或 agent），支持 cron/at/every 调度。使用 job_type='agent' 并提供提示词以按计划运行 AI agent。要将输出投递到频道（Discord、Telegram、Slack、Mattermost、Matrix），请设置 delivery={"{"}"mode":"announce","channel":"discord","to":"<channel_id_or_chat_id>"{"}"}。这是通过频道向用户发送定时/延迟消息的首选工具。
+tool-cron-add = 创建一个定时 cron 任务（shell 或 agent），支持 cron/at/every 调度。使用 job_type='agent' 并提供提示词以按计划运行 AI agent。要将输出投递到频道（Discord、Telegram、Slack、Mattermost），请设置 delivery={"{"}"mode":"announce","channel":"discord","to":"<channel_id_or_chat_id>"{"}"}。这是通过频道向用户发送定时/延迟消息的首选工具。
 tool-cron-list = 列出所有定时 cron 任务
 tool-cron-remove = 按 id 移除一个 cron 任务
 tool-cron-run = 立即强制运行一个 cron 任务并记录运行历史
@@ -98,7 +98,7 @@ tool-notion = 与 Notion 交互：查询数据库、读取/创建/更新页面�
 tool-project-intel = 项目交付智能：生成状态报告、检测风险、起草客户更新、总结冲刺，以及估算工作量。只读分析工具。
 tool-proxy-config = 管理 ZeroClaw 代理设置（范围：environment | zeroclaw | services），包括运行时和进程环境变量应用
 tool-pushover = 向你的设备发送 Pushover 通知。需要 .env 文件中的 PUSHOVER_TOKEN 和 PUSHOVER_USER_KEY。
-tool-schedule = 管理仅限 shell 的定时任务。操作：create/add/once/list/get/cancel/remove/pause/resume。警告：此工具创建的 shell 任务输出仅被记录，不会投递到任何频道。要向 Discord/Telegram/Slack/Matrix 发送定时消息，请使用 cron_add 工具，并设置 job_type='agent' 和如 {"{"}"mode":"announce","channel":"discord","to":"<channel_id>"{"}"} 的 delivery 配置。
+tool-schedule = 管理仅限 shell 的定时任务。操作：create/add/once/list/get/cancel/remove/pause/resume。警告：此工具创建的 shell 任务输出仅被记录，不会投递到任何频道。要向 Discord/Telegram/Slack 发送定时消息，请使用 cron_add 工具，并设置 job_type='agent' 和如 {"{"}"mode":"announce","channel":"discord","to":"<channel_id>"{"}"} 的 delivery 配置。
 tool-screenshot = 捕获当前屏幕的截图。返回已保存文件的路径。
 tool-browser-screenshot-error-path-not-allowed = 截图路径 '{ $path }' 不在工作区允许列表中
 tool-browser-screenshot-error-parent-not-exist = 截图路径 '{ $path }' 的父目录 '{ $parent }' 不存在

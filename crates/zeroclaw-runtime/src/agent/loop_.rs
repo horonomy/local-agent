@@ -2024,7 +2024,7 @@ pub async fn run(
     ));
         tool_descs.push((
             "channel_room",
-            "Create channel rooms and invite users through active channels. Use with Matrix channel keys such as matrix.default.",
+            "Create channel rooms and invite users through active channels that support rooms. Use with channel keys such as `<channel>.<alias>`.",
         ));
         tool_descs.push((
         "model_routing_config",
