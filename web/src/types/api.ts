@@ -182,7 +182,7 @@ export interface Session {
    * with no attribution at all (channel_id null too). */
   agent_alias: string | null;
   /** Owning channel as `<type>.<alias>` for channel-driven sessions
-   * (Discord, Matrix, …). `null` for gateway WebSocket sessions. */
+   * (Discord, Slack, …). `null` for gateway WebSocket sessions. */
   channel_id: string | null;
 }
 

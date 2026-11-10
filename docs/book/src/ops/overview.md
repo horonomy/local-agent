@@ -81,7 +81,7 @@ curl -s http://localhost:42617/health | jq
     "uptime_seconds": 3600,
     "components": {
       "channel:telegram": {"status": "ok", "updated_at": "…", "last_ok": "…", "restart_count": 0},
-      "channel:matrix":   {"status": "error", "updated_at": "…", "last_ok": "…", "restart_count": 3}
+      "channel:discord":  {"status": "error", "updated_at": "…", "last_ok": "…", "restart_count": 3}
     }
   }
 }

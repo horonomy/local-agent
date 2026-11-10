@@ -9,7 +9,7 @@ Deploying ZeroClaw so it can receive inbound traffic: gateway exposure, webhook 
 | Mode | Inbound port? | Notes |
 |---|:---:|---|
 | Telegram (long-poll) | No | ZeroClaw polls `api.telegram.org`, works behind NAT |
-| Matrix / Mattermost / Nextcloud Talk | No | Sync/WebSocket, outbound only |
+| Mattermost / Nextcloud Talk | No | Sync/WebSocket, outbound only |
 | Discord / Slack (Socket Mode) | No | Outbound WebSocket |
 | Signal (`signal-cli-rest-api`) | No | Localhost container |
 | Nostr / IMAP / MQTT | No | All outbound |

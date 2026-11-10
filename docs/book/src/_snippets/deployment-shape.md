@@ -4,7 +4,7 @@ zeroclaw service                          — systemd / launchctl / Windows Serv
 └── zeroclaw daemon                       — the single long-running process
     ├── gateway listener  :42617          — REST / WebSocket / webhook intake
     ├── channel pollers                   — Telegram, IMAP, Nostr relays (outbound poll)
-    ├── channel listeners                 — Discord / Slack / Matrix / WebSocket (inbound stream)
+    ├── channel listeners                 — Discord / Slack / WebSocket (inbound stream)
     ├── cron scheduler                    — scheduled SOPs and jobs
     └── agent loop  (one per session)     — provider call + tool execution
                                             ▲ driven by any listener, poller,

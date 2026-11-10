@@ -146,8 +146,7 @@ selected `RuntimeAdapter`, and the agent's memory handle. A tool is
 host-coupled if it needs any other runtime handle, or if the runtime changes
 how it executes on the tool's name: event emission, turn admission, memory
 rebinding, argument injection, loop guards, or prompt guidance selection.
-Name-keyed display and description tables, such as the ACP tool-kind map, the
-Matrix argument-disclosure list, and the agent loop's tool descriptions, do not
+Name-keyed display and description tables, such as the ACP tool-kind map and the agent loop's tool descriptions, do not
 count. Tools that pass the test but stay in the runtime are recorded as
 judgment calls. If the contract changes before it merges, update the tier test
 here to match.

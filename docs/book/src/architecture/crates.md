@@ -155,7 +155,7 @@ The microkernel roadmap (RFC #5574) defines a feature-flag taxonomy. The practic
 
 - `default`: a sensible core build
 - `ci-all`: everything on, for CI
-- `channel-<name>`: opt-in per channel (e.g. `channel-matrix`, `channel-discord`)
+- `channel-<name>`: opt-in per channel (e.g. `channel-irc`, `channel-discord`)
 - `hardware`: enable hardware subsystem
 - `gateway`, `acp-bridge`, `whatsapp-web`: opt-in capability groups
 

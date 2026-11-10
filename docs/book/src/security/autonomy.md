@@ -30,7 +30,7 @@ Risk classification:
 | Medium | `file_write` within workspace, `shell` with allowed commands, `http POST` to allowed domains | Asks operator |
 | High | `shell` with unknown/denied commands, `file_write` outside workspace, destructive patterns | Blocks |
 
-**Approval channel:** the approval prompt is delivered through whichever channel initiated the conversation. Telegram uses inline keyboard buttons; Slack Socket Mode uses Block Kit buttons; Discord, Signal, Matrix, and WhatsApp embed a short token in the prompt and wait for a `<token> approve|deny|always` reply. In the CLI, it's an inline prompt. In ACP, the agent issues a `session/request_permission` JSON-RPC *request* from agent to client (not a `session/update` notification); the client responds with `{"outcome": {"outcome": "selected", "optionId": "allow-once|allow-always|reject-once"}}` or `{"outcome": {"outcome": "cancelled"}}` to approve, always-approve, or deny. See [ACP → `session/request_permission`](../channels/acp.md#sessionrequest_permission-agent--client-outbound-request).
+**Approval channel:** the approval prompt is delivered through whichever channel initiated the conversation. Telegram uses inline keyboard buttons; Slack Socket Mode uses Block Kit buttons; Discord, Signal, and WhatsApp embed a short token in the prompt and wait for a `<token> approve|deny|always` reply. In the CLI, it's an inline prompt. In ACP, the agent issues a `session/request_permission` JSON-RPC *request* from agent to client (not a `session/update` notification); the client responds with `{"outcome": {"outcome": "selected", "optionId": "allow-once|allow-always|reject-once"}}` or `{"outcome": {"outcome": "cancelled"}}` to approve, always-approve, or deny. See [ACP → `session/request_permission`](../channels/acp.md#sessionrequest_permission-agent--client-outbound-request).
 
 **Timeout:** unanswered approval requests expire after the channel's `approval_timeout_secs` (default 120 for most channels; see each channel's config block). Timeouts are treated as denials.
 
@@ -50,14 +50,14 @@ By default an approval prompt is delivered through whichever channel initiated t
 
 ```toml
 [risk_profiles.frontline.approval_route]
-approver_channel = "matrix.ops"     # a channel registry key, NOT the originator
-approver_recipient = "!ops:example.org" # Matrix room ID; route-specific destination
+approver_channel = "slack.ops"       # a channel registry key, NOT the originator
+approver_recipient = "C0123456789"   # Slack channel ID; route-specific destination
 on_no_approver   = "deny"           # default; or "inherit-originator"
 timeout_secs     = 120              # default; bounds the approver's response window
 ```
 
-- `approver_channel` is the channel registry key that receives the approval request. Keys are platform-qualified, `<channel>.<alias>` (for example `matrix.ops` or `telegram.default`); a bare platform name (e.g. `matrix`) resolves only when it is the single channel of that platform. An alias on its own is not a registry key and will fail closed. When the route is set, the approval gate asks **only** that channel, not the originating one.
-- `approver_recipient` is the destination on that channel, not the originator's recipient. It is channel-specific: use a Matrix room ID such as `!ops:example.org`, a Telegram chat ID such as `-1001234567890`, a Slack channel ID such as `C0123456789`, or a Discord channel ID such as `123456789012345678`. The configured destination is used for the approver hop; the origin recipient is never reused for it.
+- `approver_channel` is the channel registry key that receives the approval request. Keys are platform-qualified, `<channel>.<alias>` (for example `slack.ops` or `telegram.default`); a bare platform name (e.g. `slack`) resolves only when it is the single channel of that platform. An alias on its own is not a registry key and will fail closed. When the route is set, the approval gate asks **only** that channel, not the originating one.
+- `approver_recipient` is the destination on that channel, not the originator's recipient. It is channel-specific: use a Telegram chat ID such as `-1001234567890`, a Slack channel ID such as `C0123456789`, or a Discord channel ID such as `123456789012345678`. The configured destination is used for the approver hop; the origin recipient is never reused for it.
 - `on_no_approver` decides what happens when the approver does not answer decisively, is unreachable, is not a registered channel, or times out:
   - `deny` (the default) fails closed and denies the tool call.
   - `inherit-originator` falls back to the originating-channel prompt (today's behavior).
