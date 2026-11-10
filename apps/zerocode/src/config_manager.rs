@@ -9587,7 +9587,7 @@ mod tests {
         let mut fields = vec![
             field("channels.show_tool_calls"),
             field("channels.ack_reactions"),
-            field("channels.matrix.default.enabled"),
+            field("channels.telegram.default.enabled"),
             field("channels.whatsapp.personal.session_path"),
             field("agents.default.model"),
         ];

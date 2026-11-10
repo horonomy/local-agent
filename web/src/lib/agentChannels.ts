@@ -17,7 +17,7 @@ import { getProp } from './api';
 export interface AgentBoundChannel {
   /** Composite `<type>.<alias>` as it appears in `agents.<alias>.channels`. */
   composite: string;
-  /** Bare channel type (`matrix`, `discord`, ...). */
+  /** Bare channel type (`telegram`, `discord`, ...). */
   type: string;
   /** Operator-chosen alias half of the composite. */
   alias: string;
@@ -40,7 +40,6 @@ interface IdentityField {
 // `ChannelsConfig` and the picker derives from there; this table only
 // names which field to surface alongside the composite.
 const CHANNEL_IDENTITY: Record<string, IdentityField> = {
-  matrix: { field: 'user_id', label: 'user' },
   discord: { field: 'guild_ids', label: 'guilds' },
   slack: { field: 'channel_ids', label: 'channels' },
   mattermost: { field: 'channel_ids', label: 'channels' },

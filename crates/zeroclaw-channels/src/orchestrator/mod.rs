@@ -13878,18 +13878,6 @@ fn collect_configured_channels_with_authority(
         );
     }
 
-    if !config.channels.matrix.is_empty() {
-        ::zeroclaw_log::record!(
-            WARN,
-            ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
-                .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
-            &format!(
-                "The bundled Matrix channel was removed from this build; skipping Matrix {}. Revoke the Matrix access token and device, and delete the Matrix state directory next to the config file by hand.",
-                skip_context
-            )
-        );
-    }
-
     #[cfg(feature = "channel-signal")]
     for (alias, sig) in &config.channels.signal {
         if !active_channel_aliases.contains(&format!("signal.{alias}")) {

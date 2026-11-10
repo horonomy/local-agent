@@ -4264,19 +4264,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_delivery_accepts_matrix_target() {
+    fn resolve_delivery_rejects_removed_matrix_target() {
         let mut config = Config::default();
         config.heartbeat.target = Some("matrix".into());
         config.heartbeat.to = Some("!room:example.org".into());
-        config
-            .channels
-            .matrix
-            .insert("default".to_string(), Default::default());
 
-        let target = resolve_heartbeat_delivery(&config).unwrap();
-        assert_eq!(
-            target,
-            Some(("matrix".to_string(), "!room:example.org".to_string()))
+        let err = resolve_heartbeat_delivery(&config).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("unsupported heartbeat.target channel")
         );
     }
 

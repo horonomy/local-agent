@@ -255,7 +255,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     Gérer les canaux de communication.
 
-    Ajouter, supprimer, lister, envoyer et vérifier la santé des canaux qui connectent ZeroClaw aux plateformes de messagerie. Types de canaux pris en charge : telegram, discord, slack, whatsapp, matrix, imessage, email.
+    Ajouter, supprimer, lister, envoyer et vérifier la santé des canaux qui connectent ZeroClaw aux plateformes de messagerie. Types de canaux pris en charge : telegram, discord, slack, whatsapp, imessage, email.
 
     Exemples :
     zeroclaw channel list
@@ -303,19 +303,19 @@ cli-config-long-about =
 
     Afficher, définir ou initialiser les propriétés de la configuration par chemin ponctué. Utilisez 'schema' pour.dumping le schéma JSON complet pour le fichier de configuration.
 
-    Les propriétés sont adressées par chemin ponctué (par ex. channels.matrix.mention-only).
+    Les propriétés sont adressées par chemin ponctué (par ex. channels.telegram.mention-only).
     Les champs secrets (clés API, jetons) utilisent automatiquement une entrée masquée.
     Les champs énumérables offrent une sélection interactive lorsque la valeur est omise.
 
     Exemples :
     zeroclaw config list                                  # lister toutes les propriétés
     zeroclaw config list --secrets                        # lister uniquement les secrets
-    zeroclaw config list --filter channels.matrix         # filtrer par préfixe
-    zeroclaw config get channels.matrix.mention-only      # obtenir une valeur
-    zeroclaw config set channels.matrix.mention-only true # définir une valeur
-    zeroclaw config set channels.matrix.access-token      # secret : entrée masquée
-    zeroclaw config set channels.matrix.stream-mode       # enum : sélection interactive
-    zeroclaw config init channels.matrix                  # initier la section par défaut
+    zeroclaw config list --filter channels.telegram         # filtrer par préfixe
+    zeroclaw config get channels.telegram.mention-only      # obtenir une valeur
+    zeroclaw config set channels.telegram.mention-only true # définir une valeur
+    zeroclaw config set channels.telegram.bot-token      # secret : entrée masquée
+    zeroclaw config set channels.telegram.stream-mode       # enum : sélection interactive
+    zeroclaw config init channels.telegram                  # initier la section par défaut
     zeroclaw config schema                                # imprimer le schéma JSON vers stdout
     zeroclaw config schema > schema.json
 
@@ -949,6 +949,7 @@ cli-plugin-list-entry-failed = {$name} v{$version} — {$description} [ne se cha
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description} [aucun composant à charger]
 cli-config-section-degraded = avertissement : la section de configuration `{$section}` dans {$path} est mal formée et a été réinitialisée aux valeurs par défaut pour cette exécution. Les valeurs de cette section NE sont PAS appliquées. Exécutez `zeroclaw config migrate` pour voir l'erreur d'analyse, puis réparez le fichier.
 cli-config-section-retired-wati = avertissement : la section de configuration de canal WATI obsolète `{$section}` est ignorée, car la prise en charge de WATI a été supprimée. Migrez vers `[channels.whatsapp.<alias>]` à l’aide de Cloud API ou de WhatsApp Web, puis révoquez le jeton d’API WATI inutilisé.
+cli-config-section-retired-matrix = avertissement : la section de configuration de canal Matrix obsolète `{$section}` est ignorée, car le canal Matrix intégré a été supprimé. Révoquez le jeton d’accès et l’appareil Matrix, puis supprimez manuellement `<config_dir>/state/matrix/<alias>/`.
 cli-config-section-retired-node-transport = avertissement : la section de configuration obsolète `[node_transport]` est ignorée, car le transport de nœuds HMAC hérité a été supprimé. Supprimez la section du fichier config.toml.
 cli-plugin-removed = Plugin « {$name} » supprimé.
 cli-plugin-removed-grant-kept = Son entrée de configuration « {$key} » est conservée, avec son autorisation de sortie ({$grants}) : un paquet installé plus tard sous le nom « {$name} » en hérite. Supprimez la ligne [[plugins.entries]] nommée « {$key} » pour retirer l'autorisation.

@@ -1391,7 +1391,7 @@ Manage communication channels.
 
 Add, remove, list, send, and health-check channels that connect ZeroClaw \
 to messaging platforms. Supported channel types: telegram, discord, \
-slack, whatsapp, matrix, imessage, email.
+slack, whatsapp, imessage, email.
 
 Examples:
   zeroclaw channel list
@@ -1539,19 +1539,19 @@ Manage ZeroClaw configuration.
 View, set, or initialize config properties by dotted path. \
 Use 'schema' to dump the full JSON Schema for the config file.
 
-Properties are addressed by dotted path (e.g. channels.matrix.mention-only).
+Properties are addressed by dotted path (e.g. channels.telegram.mention-only).
 Secret fields (API keys, tokens) automatically use masked input.
 Enum fields offer interactive selection when value is omitted.
 
 Examples:
   zeroclaw config list                                  # list all properties
   zeroclaw config list --secrets                        # list only secrets
-  zeroclaw config list --filter channels.matrix         # filter by prefix
-  zeroclaw config get channels.matrix.mention-only      # get a value
-  zeroclaw config set channels.matrix.mention-only true # set a value
-  zeroclaw config set channels.matrix.access-token      # secret: masked input
-  zeroclaw config set channels.matrix.stream-mode       # enum: interactive select
-  zeroclaw config init channels.matrix                  # init section with defaults
+  zeroclaw config list --filter channels.telegram         # filter by prefix
+  zeroclaw config get channels.telegram.mention-only      # get a value
+  zeroclaw config set channels.telegram.mention-only true # set a value
+  zeroclaw config set channels.telegram.bot-token      # secret: masked input
+  zeroclaw config set channels.telegram.stream-mode       # enum: interactive select
+  zeroclaw config init channels.telegram                  # init section with defaults
   zeroclaw config init risk_profiles.strict             # create a new dynamic-map alias
   zeroclaw config schema                                # print JSON Schema to stdout
   zeroclaw config schema > schema.json
@@ -7385,7 +7385,7 @@ enum ConfigCommands {
     },
     /// Initialize unconfigured sections with defaults (enabled=false)
     Init {
-        /// Section prefix (e.g. channels.matrix), or <section>.<alias> to create a new dynamic-map alias (e.g. risk_profiles.strict). Omit to init all.
+        /// Section prefix (e.g. channels.telegram), or <section>.<alias> to create a new dynamic-map alias (e.g. risk_profiles.strict). Omit to init all.
         section: Option<String>,
         /// Emit a structured JSON envelope ({initialized: [...]}) instead of plain text.
         #[arg(long)]
@@ -10003,18 +10003,22 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
         };
         eprintln!("{warning}");
     }
-    for section in &config.retired_wati_config_sections {
-        let fallback = format!(
-            "warning: retired WATI channel config section '{section}' is ignored because WATI support was removed. Migrate to '[channels.whatsapp.<alias>]' using the Cloud API or WhatsApp Web, then revoke the unused WATI API token."
-        );
-        eprintln!(
-            "{}",
-            ta(
+    for section in &config.retired_channel_config_sections {
+        let (key, fallback) = match section.rsplit('.').next() {
+            Some("matrix") => (
+                "cli-config-section-retired-matrix",
+                format!(
+                    "warning: retired Matrix channel config section '{section}' is ignored because the bundled Matrix channel was removed. Revoke the Matrix access token and device, and delete '<config_dir>/state/matrix/<alias>/' by hand."
+                ),
+            ),
+            _ => (
                 "cli-config-section-retired-wati",
-                &[("section", section)],
-                &fallback,
-            )
-        );
+                format!(
+                    "warning: retired WATI channel config section '{section}' is ignored because WATI support was removed. Migrate to '[channels.whatsapp.<alias>]' using the Cloud API or WhatsApp Web, then revoke the unused WATI API token."
+                ),
+            ),
+        };
+        eprintln!("{}", ta(key, &[("section", section)], &fallback));
     }
     if config.retired_node_transport_config {
         eprintln!(

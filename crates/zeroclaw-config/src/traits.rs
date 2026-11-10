@@ -13,7 +13,7 @@ pub fn is_unset_display_value(value: &str) -> bool {
 /// Describes a single secret field discovered via `#[derive(Configurable)]`.
 #[derive(Debug, Clone)]
 pub struct SecretFieldInfo {
-    /// Full dotted name (e.g. `channels.matrix.access-token`)
+    /// Full dotted name (e.g. `channels.telegram.bot-token`)
     pub name: &'static str,
     /// Category for grouping in `zeroclaw config list`
     pub category: &'static str,
@@ -254,9 +254,6 @@ impl HasPropKind for Vec<crate::schema::PeripheralBoardConfig> {
     const PROP_KIND: PropKind = PropKind::ObjectArray;
 }
 impl HasPropKind for Vec<crate::schema::ToolFilterGroup> {
-    const PROP_KIND: PropKind = PropKind::ObjectArray;
-}
-impl HasPropKind for Vec<crate::schema::StreamToolArgumentEntry> {
     const PROP_KIND: PropKind = PropKind::ObjectArray;
 }
 

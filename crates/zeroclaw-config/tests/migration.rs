@@ -224,37 +224,8 @@ fn v1_model_routes_preserved_at_providers_level() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// T1, T2 — V1→V2 channel singular→plural folds
+// T2 — V1→V2 channel singular→plural folds
 // ─────────────────────────────────────────────────────────────
-
-#[test]
-fn t1_matrix_room_id_folds_into_allowed_rooms() {
-    let raw = r#"
-default_provider = "openai"
-default_model = "gpt-4o-mini"
-
-[channels_config.matrix]
-enabled = true
-homeserver = "https://matrix.org"
-access_token = "tok"
-room_id = "!fold-test:matrix.org"
-allowed_users = ["@u:matrix.org"]
-"#;
-    let cfg = migrate_to_current(raw).expect("V1 matrix migrates");
-    let matrix = cfg
-        .channels
-        .matrix
-        .get("default")
-        .expect("channels.matrix.default exists");
-    assert!(
-        matrix
-            .allowed_rooms
-            .iter()
-            .any(|r| r == "!fold-test:matrix.org"),
-        "V1 matrix.room_id was not folded into V3 allowed_rooms[]; got {:?}",
-        matrix.allowed_rooms
-    );
-}
 
 #[test]
 fn t2_slack_channel_id_folds_into_channel_ids() {
@@ -450,18 +421,18 @@ fn t7_enabled_unset_defaults_to_false() {
 
 #[test]
 fn t7_enabled_field_preserved_on_surviving_instance() {
-    // V3 keeps the `enabled` field on every channel config. Matrix in
+    // V3 keeps the `enabled` field on every channel config. Mattermost in
     // the V1 fixture has enabled = true; migration ports the value
     // through verbatim and the typed config exposes it.
     let cfg = v3_config();
-    let matrix_default = cfg
+    let mattermost_default = cfg
         .channels
-        .matrix
+        .mattermost
         .get("default")
-        .expect("channels.matrix.default in migrated config");
+        .expect("channels.mattermost.default in migrated config");
     assert!(
-        matrix_default.enabled,
-        "V2 enabled = true must port through to V3 channels.matrix.default.enabled"
+        mattermost_default.enabled,
+        "V2 enabled = true must port through to V3 channels.mattermost.default.enabled"
     );
 }
 
@@ -1800,58 +1771,34 @@ allowed_senders = ["ops@example"]
 }
 
 #[test]
-fn v2_matrix_allowed_users_folds_and_allowed_rooms_stays() {
+fn v2_retired_matrix_section_is_skipped_without_folding_peers() {
     let v3 = migrate_v2(
         r#"
 [channels.matrix]
 enabled = true
 homeserver = "https://matrix.org"
 access_token = "tok"
-allowed_users = ["@alice:matrix.org", "@bob:matrix.org"]
+allowed_users = ["@alice:matrix.org"]
 allowed_rooms = ["!ops:matrix.org"]
 "#,
     );
 
-    // 1. Synthesized peer group with the channel ref and MXIDs.
-    let group = v3
-        .get("peer_groups")
-        .and_then(toml::Value::as_table)
-        .and_then(|t| t.get("matrix_default"))
-        .and_then(toml::Value::as_table)
-        .expect("matrix allow-list folds into [peer_groups.matrix_default]");
-    let peers: Vec<&str> = group
-        .get("external_peers")
-        .and_then(toml::Value::as_array)
-        .unwrap()
-        .iter()
-        .filter_map(toml::Value::as_str)
-        .collect();
-    assert_eq!(peers, vec!["@alice:matrix.org", "@bob:matrix.org"]);
-
-    // 2. allowed_users is REMOVED from the channel block — peer
-    //    authorization is in peer_groups only.
-    let matrix = v3
-        .get("channels")
-        .and_then(toml::Value::as_table)
-        .and_then(|t| t.get("matrix"))
-        .and_then(toml::Value::as_table)
-        .and_then(|t| t.get("default"))
-        .and_then(toml::Value::as_table)
-        .expect("channels.matrix.default present after V2→V3");
+    // The retired channel must not be wrapped into an alias or contribute a
+    // synthesized peer group; the typed config simply never sees it.
     assert!(
-        matrix.get("allowed_users").is_none(),
-        "channel-level allowed_users must be stripped after the fold"
+        v3.get("peer_groups")
+            .and_then(toml::Value::as_table)
+            .is_none_or(|groups| !groups.contains_key("matrix_default")),
+        "retired matrix allow-list must not fold into peer_groups"
     );
-
-    // 3. allowed_rooms is container scope (rooms aren't peers); stays.
-    let rooms: Vec<&str> = matrix
-        .get("allowed_rooms")
-        .and_then(toml::Value::as_array)
-        .unwrap()
-        .iter()
-        .filter_map(toml::Value::as_str)
-        .collect();
-    assert_eq!(rooms, vec!["!ops:matrix.org"]);
+    assert!(
+        v3.get("channels")
+            .and_then(toml::Value::as_table)
+            .and_then(|t| t.get("matrix"))
+            .and_then(toml::Value::as_table)
+            .is_none_or(|t| !t.contains_key("default")),
+        "retired matrix section must not be wrapped into channels.matrix.default"
+    );
 }
 
 #[test]
@@ -2456,7 +2403,6 @@ fn generate_v3_channel_breadth_lower_bound() {
         + cfg.channels.mattermost.len()
         + cfg.channels.webhook.len()
         + cfg.channels.imessage.len()
-        + cfg.channels.matrix.len()
         + cfg.channels.signal.len()
         + cfg.channels.whatsapp.len()
         + cfg.channels.linq.len()
@@ -2510,7 +2456,6 @@ fn generate_with_encrypt_produces_enc2_ciphertext_at_every_version() {
         );
         for plaintext in &[
             "sk-v1-test-global",
-            "matrix-bot-token",
             "discord-bot-token-v1",
             "telegram-bot-token-v1",
             "bsky-app-password",
