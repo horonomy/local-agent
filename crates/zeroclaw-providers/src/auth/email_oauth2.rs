@@ -231,3 +231,75 @@ async fn parse_token_response(response: reqwest::Response) -> Result<TokenSet> {
         scope: token.scope,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn require_https_accepts_https() {
+        assert!(require_https("https://login.example.com/oauth/token").is_ok());
+    }
+
+    #[test]
+    fn require_https_rejects_remote_http() {
+        let err = require_https("http://login.example.com/oauth/token").unwrap_err();
+        assert!(err.to_string().contains("must use https"));
+    }
+
+    #[test]
+    fn require_https_allows_loopback_http() {
+        for url in [
+            "http://localhost:8080/token",
+            "http://LOCALHOST/token",
+            "http://127.0.0.1:9000/token",
+            "http://127.1.2.3/token",
+            "http://[::1]:9000/token",
+        ] {
+            assert!(require_https(url).is_ok(), "{url} should be allowed");
+        }
+    }
+
+    #[test]
+    fn require_https_rejects_malformed_and_other_schemes() {
+        assert!(require_https("not a url").is_err());
+        assert!(require_https("").is_err());
+        assert!(require_https("ftp://example.com/token").is_err());
+        assert!(require_https("http://localhost.evil.com/token").is_err());
+    }
+
+    const INSECURE: &str = "http://login.example.com/oauth";
+
+    #[tokio::test]
+    async fn refresh_rejects_insecure_url_before_request() {
+        let err = refresh_access_token(&Client::new(), INSECURE, "id", "rt", &[])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("must use https"));
+    }
+
+    #[tokio::test]
+    async fn device_code_start_rejects_insecure_url_before_request() {
+        let err = start_device_code_flow(&Client::new(), INSECURE, "id", &[])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("must use https"));
+    }
+
+    #[tokio::test]
+    async fn poll_rejects_insecure_url_before_request() {
+        let device = DeviceCodeStart {
+            device_code: "dc".into(),
+            user_code: "uc".into(),
+            verification_uri: "https://example.com/verify".into(),
+            verification_uri_complete: None,
+            expires_in: 600,
+            interval: 5,
+            message: None,
+        };
+        let err = poll_device_code_tokens(&Client::new(), INSECURE, "id", &device)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("must use https"));
+    }
+}
