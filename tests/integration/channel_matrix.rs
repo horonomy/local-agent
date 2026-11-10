@@ -1320,7 +1320,6 @@ async fn capability_matrix_spec() {
     for name in [
         "discord",
         "slack",
-        "matrix",
         "signal",
         "email",
         "imessage",

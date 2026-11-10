@@ -1302,8 +1302,7 @@ fn ephemeral_daemon_command(
     if std::env::var_os("RUST_LOG").is_none() {
         cmd.env(
             "RUST_LOG",
-            "debug,matrix_sdk=warn,matrix_sdk_base=warn,matrix_sdk_crypto=warn,\
-             hyper=warn,reqwest=warn,tokio=warn,h2=warn",
+            "debug,hyper=warn,reqwest=warn,tokio=warn,h2=warn",
         );
     }
 

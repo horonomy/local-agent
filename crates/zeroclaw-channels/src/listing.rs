@@ -44,11 +44,6 @@ const CHANNEL_COMPILE_SPECS: &[ChannelCompileSpec] = &[
         compiled: cfg!(feature = "channel-imessage"),
     },
     ChannelCompileSpec {
-        schema_name: Some("Matrix"),
-        type_keys: &["matrix"],
-        compiled: cfg!(feature = "channel-matrix"),
-    },
-    ChannelCompileSpec {
         schema_name: Some("Signal"),
         type_keys: &["signal"],
         compiled: cfg!(feature = "channel-signal"),
@@ -450,6 +445,9 @@ mod tests {
             // Voice duplex is a gateway event-stream config surface, not a
             // `zeroclaw-channels` Channel implementation with its own feature.
             "voice_duplex",
+            // The bundled Matrix adapter was removed; its config section stays
+            // in the schema until the retired-section cleanup lands.
+            "matrix",
         ]);
 
         for channel_type in zeroclaw_config::schema::v2::V3_CHANNEL_TYPES {

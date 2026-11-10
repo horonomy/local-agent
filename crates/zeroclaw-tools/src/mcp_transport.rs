@@ -2198,7 +2198,7 @@ mod tests {
     /// Install the `ring` `CryptoProvider` for this process (idempotent).
     ///
     /// The workspace test build links both `ring` (this crate) and `aws-lc-rs`
-    /// (pulled in transitively by the `matrix-sdk` dev-dependency), so rustls
+    /// (pulled in transitively by other workspace crates), so rustls
     /// cannot infer a process-level provider from crate features and panics
     /// inside `ServerConfig::builder()`. Production is unaffected: the remote
     /// transports build their clients through reqwest's `__rustls-ring`

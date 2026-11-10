@@ -1132,7 +1132,6 @@ channel-runtime-progress-waiting-on-model = En attente du modèle
 channel-runtime-progress-running-tool = Exécution d’un outil
 channel-runtime-progress-compacting-context = Compactage du contexte
 channel-runtime-progress-finalizing-response = Finalisation de la réponse
-channel-runtime-matrix-progress-item-too-large = ⚠️ Cette ligne est trop volumineuse pour tenir dans un seul message Matrix. ⚠️
 channel-runtime-new-session = Historique de conversation effacé. Nouveau départ.
 channel-runtime-stop-sent = Signal d'arrêt envoyé.
 channel-runtime-stop-no-task = Aucune tâche en cours pour ce périmètre d'expéditeur.
