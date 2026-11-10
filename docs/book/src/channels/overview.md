@@ -157,3 +157,5 @@ Channels declare what kind of streaming they support: see [Providers → Streami
 ## Adding a channel
 
 Implementing a new channel means adding a file to `crates/zeroclaw-channels/src/` that implements the `Channel` trait. The canonical reference is any existing channel of similar shape: `discord.rs` for push-based, `email_channel.rs` for polling, `webhook.rs` for HTTP-driven.
+
+For an enterprise-owned adapter in a custom build, see [Enterprise-owned channel adapters](./enterprise-adapters.md) for the full list of touch points and the support boundary.
