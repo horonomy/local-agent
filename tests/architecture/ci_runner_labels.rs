@@ -41,7 +41,7 @@ const HOUSEKEEPING_JOBS: [&str; 19] = [
 const HOSTED_LINUX_JOBS: [&str; 1] = ["test-landlock"];
 
 /// Every job that compiles the workspace on the standard Linux image.
-const COMPILE_JOBS: [&str; 14] = [
+const COMPILE_JOBS: [&str; 15] = [
     "lint",
     "build",
     "check",
@@ -53,6 +53,7 @@ const COMPILE_JOBS: [&str; 14] = [
     "test-channel-features",
     "test-tool-features",
     "test-cli-only",
+    "test-local-agent-minimal",
     "memory-postgres-test",
     "parallel-runtime-test",
     "installer-drift",
