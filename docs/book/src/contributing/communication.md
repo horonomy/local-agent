@@ -66,7 +66,7 @@ The Focus column describes where each person works, not how much authority they 
 | [@JordanTheJet](https://github.com/JordanTheJet) | Core Team, project lead | Web, plugins and skills, desktop app, tests and repository tooling, Cargo and license stewardship |
 | [@Audacity88](https://github.com/Audacity88) | Core Team | Runtime, agent, tools, gateway, memory, config, providers, build and release tooling |
 | [@Nillth](https://github.com/Nillth) | Core Team | Git forge channel (GitHub, Gitea, Forgejo) |
-| [@tidux](https://github.com/tidux) | Core Team | Providers, API, infra, hardware, firmware, channels (Matrix, ACP), auth and the legacy `src/` tree, i18n, docs |
+| [@tidux](https://github.com/tidux) | Core Team | Providers, API, infra, hardware, firmware, channels (ACP), auth and the legacy `src/` tree, i18n, docs |
 | [@IftekharUddin](https://github.com/IftekharUddin) | Core Team | Web GUI, maintainer process docs, labels and issue templates |
 | [@vyahhi](https://github.com/vyahhi) | Core Team | Repository automation and ZeroClaw-Bot |
 | [@Stalesamy](https://github.com/Stalesamy) | Core Team | Marketing and community, plus occasional PRs |

@@ -43,7 +43,7 @@
   <rect x="35" y="210" width="120" height="24" rx="6" fill="#1e293b"/>
   <text x="95" y="227" text-anchor="middle" fill="#c084fc" font-size="10">iMessage</text>
   <rect x="35" y="240" width="120" height="24" rx="6" fill="#1e293b"/>
-  <text x="95" y="257" text-anchor="middle" fill="#e879f9" font-size="10">Matrix</text>
+  <text x="95" y="257" text-anchor="middle" fill="#e879f9" font-size="10">Signal</text>
   <rect x="35" y="270" width="120" height="24" rx="6" fill="#1e293b"/>
   <text x="95" y="287" text-anchor="middle" fill="#f472b6" font-size="10">Webhook</text>
   <rect x="35" y="300" width="120" height="24" rx="6" fill="#1e293b"/>

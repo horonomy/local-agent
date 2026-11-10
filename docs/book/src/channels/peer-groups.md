@@ -118,7 +118,7 @@ to avoid a self-loop. An agent on no peer group runs solo with no cross-agent
 dispatch.
 
 The sender identifier each channel matches against differs by platform (a
-Telegram user ID, a Matrix `@user:server`, an E.164 number, a UUID, …). Each
+Telegram user ID, a Mattermost user ID, an E.164 number, a UUID, …). Each
 channel page states the identifier shape it expects.
 
 ## Example

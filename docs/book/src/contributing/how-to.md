@@ -106,7 +106,7 @@ Conventional Commits:
 
 ```
 feat(providers): add support for DeepSeek reasoning mode
-fix(channels/matrix): prevent duplicate device sessions after verify
+fix(channels/discord): prevent duplicate sessions after reconnect
 docs(getting-started): add YOLO-mode quick-start
 refactor(runtime): split agent loop into steps
 chore: bump tokio to 1.43

@@ -45,7 +45,7 @@ flowchart TB
 | `zeroclaw-config` | TOML schema, secrets encryption, autonomy levels, workspace resolution |
 | `zeroclaw-api` | Public traits: `ModelProvider`, `Channel`, `Tool`, `Memory`, `Observer`, `RuntimeAdapter`, and `Peripheral`. The kernel ABI |
 | `zeroclaw-providers` | All LLM client impls (Anthropic, OpenAI, Ollama, ...) plus hint-based routing, retry, cooldown, and cross-profile fallback |
-| `zeroclaw-channels` | 30+ messaging integrations (Discord, Slack, Telegram, Matrix, email, voice, …) |
+| `zeroclaw-channels` | 30+ messaging integrations (Discord, Slack, Telegram, email, voice, …) |
 | `zeroclaw-gateway` | HTTP / WebSocket gateway, web dashboard, webhook ingress |
 | `zeroclaw-tools` | Callable tool implementations the agent invokes (browser, HTTP, hardware probes) |
 | `zeroclaw-tool-call-parser` | Model-side tool-call syntax parsing and normalisation |

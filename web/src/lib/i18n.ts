@@ -921,7 +921,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'reload_btn.body_when': "Use this after editing config from the dashboard. For everyday in-flight changes (toggle, comment, etc.) save is enough — reload is for changes that need a fresh subsystem (added a channel, changed gateway port, swapped memory backend).",
     'reload_btn.button_title': "Re-read config and re-init every daemon subsystem in place",
     'reload_btn.dismiss': "dismiss",
-    'reload_btn.effect_channels': "Channel listeners (Matrix, Slack, etc.) abort and respawn.",
+    'reload_btn.effect_channels': "Channel listeners (Slack, Discord, etc.) abort and respawn.",
     'reload_btn.effect_gateway': "Gateway listener stops and rebinds (clients briefly see connection-refused).",
     'reload_btn.effect_mcp': "MCP servers, scheduler, heartbeat re-init.",
     'reload_btn.effect_providers': "Provider clients pick up new API keys / model defaults.",
