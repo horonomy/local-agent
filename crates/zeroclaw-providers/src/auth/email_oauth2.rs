@@ -50,6 +50,33 @@ struct OAuthErrorResponse {
     error_description: Option<String>,
 }
 
+/// Reject endpoint URLs that would send OAuth2 secrets (device codes, refresh
+/// and access tokens) over cleartext. `http` is accepted only for loopback
+/// hosts, which keeps local test/mock servers usable.
+fn require_https(url: &str) -> Result<()> {
+    let parsed =
+        reqwest::Url::parse(url).with_context(|| "Email OAuth2 endpoint is not a valid URL")?;
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let host = parsed.host_str().unwrap_or_default();
+            let host = host.trim_start_matches('[').trim_end_matches(']');
+            let loopback = host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback());
+            if loopback {
+                Ok(())
+            } else {
+                anyhow::bail!(
+                    "Email OAuth2 endpoint must use https (http is allowed only for loopback hosts)"
+                )
+            }
+        }
+        other => anyhow::bail!("Email OAuth2 endpoint has unsupported scheme '{other}'"),
+    }
+}
+
 /// Refresh an existing access token using the standard `refresh_token` grant.
 pub async fn refresh_access_token(
     client: &Client,
@@ -58,6 +85,7 @@ pub async fn refresh_access_token(
     refresh_token: &str,
     scopes: &[String],
 ) -> Result<TokenSet> {
+    require_https(token_url)?;
     let scope_str = scopes.join(" ");
     let form: &[(&str, &str)] = &[
         ("grant_type", "refresh_token"),
@@ -83,6 +111,7 @@ pub async fn start_device_code_flow(
     client_id: &str,
     scopes: &[String],
 ) -> Result<DeviceCodeStart> {
+    require_https(device_code_url)?;
     let scope_str = scopes.join(" ");
     let form: &[(&str, &str)] = &[("client_id", client_id), ("scope", &scope_str)];
 
@@ -122,6 +151,7 @@ pub async fn poll_device_code_tokens(
     client_id: &str,
     device: &DeviceCodeStart,
 ) -> Result<TokenSet> {
+    require_https(token_url)?;
     let started = Instant::now();
     let mut interval_secs = device.interval.max(1);
 
