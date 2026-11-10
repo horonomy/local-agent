@@ -50,7 +50,9 @@ complete reference to follow end to end.
    Add `pub acme: HashMap<String, AcmeConfig>` (with `#[nested]`) to `ChannelsConfig`,
    then update the places that enumerate its fields: `ChannelsConfig::channels()`,
    `has_any_enabled`, `channel_presence` (a fixed-size array, so its length constant changes too) and `impl Default for ChannelsConfig`. A
-   compiler error or the config tests will point at any you miss.
+   wrong `channel_presence` length fails to compile, but a missed `channels()` or
+   `has_any_enabled` entry is not caught by the compiler, so add a test that covers your
+   adapter.
 4. **Do not reuse a retired key.** `RETIRED_CHANNEL_TYPES` in the same file (currently
    `wati` and `matrix`) makes a leftover section of that name skipped and flagged, and
    makes references to it fail validation with a removal hint. A new adapter must use a
@@ -119,4 +121,7 @@ la-cargo nextest run --locked --test component minimal_profile_feature_graph
 ```
 
 On a machine without `la-cargo`, use plain `cargo` with the same arguments. Build the
-custom binary with `--features agent-runtime,channel-acme`.
+custom binary with `--no-default-features --features agent-runtime,channel-acme`. Without
+`--no-default-features` the root default feature set (default channels, gateway, ACP
+bridge, Prometheus metrics) is built in as well; choose the features your deployment
+needs and review each one's listeners and egress.
