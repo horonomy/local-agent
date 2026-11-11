@@ -821,7 +821,52 @@ pub fn wt_instantiate<T>(r: wasmtime::Result<T>, ctx: &'static str) -> Result<T>
 
 /// Compile or deserialize the exact component bytes retained by admission.
 pub fn load_component(component: &AdmittedComponent) -> Result<Component> {
-    wt(load_inner(component), "failed to load WASM component")
+    let loaded = wt(load_inner(component), "failed to load WASM component")?;
+    let ty = loaded.component_type();
+    let names = ty
+        .imports(engine())
+        .map(|(name, _)| name)
+        .chain(ty.exports(engine()).map(|(name, _)| name));
+    check_abi_pin(names)?;
+    Ok(loaded)
+}
+
+/// The WIT package version this host implements. It must equal the `package`
+/// line of every file under `wit/v0/`; a test pins that.
+pub const HOST_WIT_PACKAGE: &str = "zeroclaw:plugin";
+pub const HOST_WIT_VERSION: &str = "0.1.0";
+
+/// WASI generation the host links (`wasi:*@0.2.x`).
+const HOST_WASI_MINOR_PREFIX: &str = "0.2.";
+
+/// Reject a component whose interface names target another ABI than this host.
+///
+/// Version drift otherwise surfaces as an opaque link failure. Names that are
+/// not in the host package or `wasi:` are not judged here; linking decides.
+fn check_abi_pin<'a>(names: impl Iterator<Item = &'a str>) -> Result<()> {
+    for name in names {
+        let (path, version) = match name.split_once('@') {
+            Some((path, version)) => (path, Some(version)),
+            None => (name, None),
+        };
+        if path.starts_with(&format!("{HOST_WIT_PACKAGE}/")) {
+            if version != Some(HOST_WIT_VERSION) {
+                anyhow::bail!(
+                    "plugin ABI mismatch: component uses `{name}` but this host implements \
+                     {HOST_WIT_PACKAGE}@{HOST_WIT_VERSION}; rebuild the plugin against the \
+                     wit/v0 shipped with this host"
+                );
+            }
+        } else if path.starts_with("wasi:")
+            && !version.is_some_and(|v| v.starts_with(HOST_WASI_MINOR_PREFIX))
+        {
+            anyhow::bail!(
+                "plugin ABI mismatch: component uses `{name}` but this host implements \
+                 WASI {HOST_WASI_MINOR_PREFIX}x (wasm32-wasip2); rebuild the plugin for wasm32-wasip2"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "plugins-wasm-cranelift")]
@@ -2040,5 +2085,95 @@ mod tests {
             rendered.contains(WIT_DRIFT_HINT),
             "must append the wit/v0 drift hint: {rendered}"
         );
+    }
+    #[test]
+    fn abi_pin_names_the_host_package_and_matches_the_shipped_wit() {
+        let wit = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wit/v0");
+        let expected = format!("package {HOST_WIT_PACKAGE}@{HOST_WIT_VERSION};");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(wit).expect("wit/v0 exists") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().is_some_and(|ext| ext == "wit") {
+                let text = std::fs::read_to_string(&path).expect("read wit");
+                assert_eq!(text.lines().next(), Some(expected.as_str()), "{path:?}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "no wit files found, the pin proves nothing");
+    }
+
+    #[test]
+    fn abi_pin_accepts_matching_names_and_ignores_foreign_packages() {
+        let names = [
+            "zeroclaw:plugin/tool@0.1.0",
+            "zeroclaw:plugin/logging@0.1.0",
+            "wasi:io/streams@0.2.6",
+            "wasi:cli/environment@0.2.0",
+            "some:other/thing@9.9.9",
+        ];
+        check_abi_pin(names.into_iter()).expect("matching ABI is accepted");
+    }
+
+    #[test]
+    fn abi_pin_rejects_other_plugin_versions_and_unversioned_names() {
+        for name in [
+            "zeroclaw:plugin/tool@0.2.0",
+            "zeroclaw:plugin/tool@1.0.0",
+            "zeroclaw:plugin/tool",
+        ] {
+            let err = check_abi_pin([name].into_iter())
+                .expect_err(name)
+                .to_string();
+            assert!(err.contains("plugin ABI mismatch"), "{err}");
+            assert!(
+                err.contains(name),
+                "must name the offending interface: {err}"
+            );
+            assert!(
+                err.contains("zeroclaw:plugin@0.1.0"),
+                "must name the host ABI: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn abi_pin_rejects_non_p2_wasi() {
+        for name in ["wasi:io/streams@0.3.0", "wasi:io/streams"] {
+            let err = check_abi_pin([name].into_iter())
+                .expect_err(name)
+                .to_string();
+            assert!(
+                err.contains("plugin ABI mismatch") && err.contains("wasm32-wasip2"),
+                "{err}"
+            );
+        }
+    }
+
+    /// Smallest valid component that imports one empty instance named `name`.
+    #[cfg(feature = "plugins-wasm-cranelift")]
+    fn component_importing(name: &str) -> AdmittedComponent {
+        let mut bytes = b"\0asm\x0d\0\x01\0".to_vec();
+        // Type section: one empty instance type.
+        bytes.extend([0x07, 0x03, 0x01, 0x42, 0x00]);
+        // Import section: one plain-named import of instance type 0.
+        let mut import = vec![0x01, 0x00, u8::try_from(name.len()).expect("short name")];
+        import.extend(name.as_bytes());
+        import.extend([0x05, 0x00]);
+        bytes.push(0x0a);
+        bytes.push(u8::try_from(import.len()).expect("small section"));
+        bytes.extend(import);
+        AdmittedComponent::test_component(&bytes)
+    }
+
+    #[cfg(feature = "plugins-wasm-cranelift")]
+    #[test]
+    fn load_component_rejects_a_component_built_for_another_plugin_abi() {
+        load_component(&component_importing("zeroclaw:plugin/logging@0.1.0"))
+            .expect("control: the pinned ABI loads");
+        let err = load_component(&component_importing("zeroclaw:plugin/logging@0.2.0"))
+            .expect_err("a different plugin ABI must not load")
+            .to_string();
+        assert!(err.contains("plugin ABI mismatch"), "{err}");
+        assert!(err.contains("zeroclaw:plugin/logging@0.2.0"), "{err}");
     }
 }
