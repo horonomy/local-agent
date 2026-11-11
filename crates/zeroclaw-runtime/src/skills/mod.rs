@@ -812,10 +812,14 @@ fn rejected_skill_name(name: &str) -> Option<String> {
     if name.trim().is_empty() {
         return Some("skill name is empty".to_string());
     }
-    if name.chars().any(char::is_control) {
-        return Some("skill name contains control characters".to_string());
+    if name
+        .chars()
+        .any(|c| c.is_control() || is_invisible_format_char(c))
+    {
+        return Some("skill name contains control or invisible formatting characters".to_string());
     }
     if name
+        .trim()
         .get(..PLUGIN_SKILL_NAMESPACE.len())
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PLUGIN_SKILL_NAMESPACE))
     {
@@ -824,6 +828,21 @@ fn rejected_skill_name(name: &str) -> Option<String> {
         ));
     }
     None
+}
+
+/// Zero-width, bidi and soft-hyphen format characters that render as nothing
+/// or reorder text, so a name containing them can look like another name.
+fn is_invisible_format_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
 }
 
 fn name_key(name: &str) -> String {
@@ -5773,7 +5792,11 @@ mod trust_boundary_tests {
     }
 
     fn toml_skill(name: &str, description: &str) -> String {
-        format!("[skill]\nname = {name:?}\ndescription = {description:?}\n")
+        format!(
+            "[skill]\nname = {}\ndescription = {}\n",
+            toml::Value::String(name.to_string()),
+            toml::Value::String(description.to_string())
+        )
     }
 
     fn load_workspace(workspace: &TempDir) -> (Vec<Skill>, Vec<DroppedSkill>) {
@@ -5947,22 +5970,40 @@ mod trust_boundary_tests {
             "---\nname: Plugin:md\ndescription: md impersonation\n---\nbody\n",
         );
         write_skill(ws.path(), "ok", "SKILL.toml", &toml_skill("fine", "kept"));
+        write_skill(
+            ws.path(),
+            "z",
+            "SKILL.toml",
+            &toml_skill("de\u{200B}ploy", "zero width"),
+        );
+        write_skill(
+            ws.path(),
+            "b",
+            "SKILL.toml",
+            &toml_skill("\u{202E}evil", "bidi"),
+        );
+        write_skill(
+            ws.path(),
+            "t",
+            "SKILL.toml",
+            &toml_skill(" plugin:sp", "leading space"),
+        );
         let (skills, dropped) = load_workspace(&ws);
         assert_eq!(
             skills.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
             ["fine"]
         );
-        assert_eq!(dropped.len(), 4, "{dropped:?}");
+        assert_eq!(dropped.len(), 7, "{dropped:?}");
         let messages: Vec<_> = dropped.iter().map(drop_message).collect();
         assert!(
             messages
                 .iter()
                 .filter(|m| m.contains("reserved 'plugin:'"))
                 .count()
-                == 2
+                == 3
         );
         assert!(messages.iter().any(|m| m.contains("is empty")));
-        assert!(messages.iter().any(|m| m.contains("control characters")));
+        assert!(messages.iter().any(|m| m.contains("control or invisible")));
     }
 
     #[test]
