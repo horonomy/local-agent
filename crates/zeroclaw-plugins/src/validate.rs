@@ -110,3 +110,51 @@ fn validation_services() -> crate::services::PluginHostServices {
         crate::services::PluginStateService::unavailable(),
     )
 }
+
+#[cfg(all(test, feature = "plugins-wasm-cranelift"))]
+mod tests {
+    use super::verify_component_loads;
+    use crate::component::{component_importing, test_limits};
+    use crate::{PluginCapability, PluginManifest};
+
+    fn manifest() -> PluginManifest {
+        PluginManifest {
+            name: "abi-fixture".to_string(),
+            version: "0.1.0".to_string(),
+            description: None,
+            author: None,
+            wasm_path: Some("abi-fixture.wasm".to_string()),
+            wasm_sha256: None,
+            // Memory has no dedicated instantiate world, so only the load
+            // gate (compile plus ABI pin) is exercised.
+            capabilities: vec![PluginCapability::Memory],
+            provides: None,
+            permissions: vec![],
+            config_schema: None,
+            signature: None,
+            publisher_key: None,
+            egress: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn install_gate_accepts_the_pinned_abi() {
+        let component = component_importing("zeroclaw:plugin/logging@0.1.0");
+        verify_component_loads(&component, &manifest(), test_limits(1_000))
+            .await
+            .expect("pinned ABI passes the install gate");
+    }
+
+    #[tokio::test]
+    async fn install_gate_rejects_other_abis_with_a_clear_error() {
+        for name in ["zeroclaw:plugin/logging@0.2.0", "wasi:io/streams@0.3.0"] {
+            let err =
+                verify_component_loads(&component_importing(name), &manifest(), test_limits(1_000))
+                    .await
+                    .expect_err(name)
+                    .to_string();
+            assert!(err.contains("plugin ABI mismatch"), "{err}");
+            assert!(err.contains(name), "{err}");
+        }
+    }
+}

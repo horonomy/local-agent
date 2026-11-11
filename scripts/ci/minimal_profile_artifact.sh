@@ -28,10 +28,10 @@ tree_features() { # $1.. = extra cargo args
   } 2>/dev/null | sort -u
 }
 
-absent_markers='zeroclaw-gateway|zerorelay|zeroclaw-runtime feature "daemon-listeners"|zeroclaw-channels feature "(channel-|whatsapp-web|voice-wake)|zeroclaw-runtime feature "observability-prometheus"|^prometheus v|^tokio-tungstenite v|^tungstenite v'
+absent_markers='zeroclaw-plugins|^wasmtime v|^wasmtime-wasi|zeroclaw-runtime feature "plugins-wasm|zeroclaw-gateway|zerorelay|zeroclaw-runtime feature "daemon-listeners"|zeroclaw-channels feature "(channel-|whatsapp-web|voice-wake)|zeroclaw-runtime feature "observability-prometheus"|^prometheus v|^tokio-tungstenite v|^tungstenite v'
 
 check_tree() {
-  local minimal default
+  local minimal default plugins cranelift
   minimal=$(tree_features "${MIN[@]}")
   default=$(tree_features)
   # Positive control: the default graph must contain the markers.
@@ -49,6 +49,25 @@ check_tree() {
     echo "FAIL control: default graph lacks tungstenite; the WebSocket check cannot prove anything" >&2
     exit 2
   fi
+  # The optional WASM plugin host (HORO-2390) has its own positive control: it is
+  # not in the default graph, so the opt-in graph must show every marker.
+  plugins=$(tree_features --features plugins-wasm-runtime-only)
+  for marker in 'zeroclaw-plugins' 'wasmtime v' 'zeroclaw-runtime feature "plugins-wasm'; do
+    if ! grep -qF -- "$marker" <<<"$plugins"; then
+      echo "FAIL control: opt-in plugin graph lacks '$marker'; the check cannot prove anything" >&2
+      exit 2
+    fi
+  done
+  # Runtime-only must not carry a compiler; the cranelift opt-in must.
+  if grep -qE -- '^(cranelift-codegen|wasmtime-internal-cranelift) v' <<<"$plugins"; then
+    echo "FAIL tree: plugins-wasm-runtime-only pulls in a Cranelift compiler" >&2
+    fail=1
+  fi
+  cranelift=$(tree_features --features plugins-wasm-cranelift)
+  if ! grep -qE -- '^cranelift-codegen v' <<<"$cranelift"; then
+    echo "FAIL control: plugins-wasm-cranelift graph lacks cranelift-codegen" >&2
+    exit 2
+  fi
   if [[ -z "$minimal" ]] || ! grep -q '^zeroclaw-runtime' <<<"$minimal"; then
     echo "FAIL control: minimal graph is empty or lacks zeroclaw-runtime" >&2
     exit 2
@@ -58,7 +77,7 @@ check_tree() {
     echo "$hits" >&2
     fail=1
   else
-    echo "PASS tree: no gateway, relay app, daemon-listeners, channel feature, metrics exporter or WebSocket library in the minimal closure"
+    echo "PASS tree: no WASM plugin host, gateway, relay app, daemon-listeners, channel feature, metrics exporter or WebSocket library in the minimal closure"
   fi
 }
 
@@ -70,7 +89,7 @@ check_binary() {
     echo "FAIL control: no core agent symbols; the binary is stripped or not a zeroclaw build" >&2
     exit 2
   fi
-  if hits=$(grep -E 'zeroclaw_gateway::|zeroclaw_runtime::rpc::wss|zeroclaw_channels::(telegram|discord|webhook|email_channel|acp_channel|filesystem|matrix|slack|line|lark)::|orchestrator::acp_server::' <<<"$syms" | head -5) && [[ -n "$hits" ]]; then
+  if hits=$(grep -E 'zeroclaw_plugins::|wasmtime::|zeroclaw_gateway::|zeroclaw_runtime::rpc::wss|zeroclaw_channels::(telegram|discord|webhook|email_channel|acp_channel|filesystem|matrix|slack|line|lark)::|orchestrator::acp_server::' <<<"$syms" | head -5) && [[ -n "$hits" ]]; then
     echo "FAIL binary: forbidden symbols are linked:" >&2
     echo "$hits" >&2
     fail=1

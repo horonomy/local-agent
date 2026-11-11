@@ -1105,6 +1105,14 @@ impl ScopedToolRegistry {
                         tool,
                         kind_label,
                         |target_name| {
+                            crate::skills::elevation_target_admitted(
+                                security,
+                                skill_name,
+                                tool,
+                                target_name,
+                            )
+                        },
+                        |target_name| {
                             if let Some(target) = context_filtered_tool_arcs
                                 .iter()
                                 .chain(mcp_elevation_arcs.iter())
@@ -1164,6 +1172,18 @@ impl ScopedToolRegistry {
                 5,
                 skill_tools.len(),
             );
+            // A per-run caller allowlist only narrows, and a skill tool is not
+            // exempt from it (the built-in filter above ran before skills).
+            let skill_tools: Vec<_> = skill_tools
+                .into_iter()
+                .filter(|tool| {
+                    let name = match tool {
+                        PreparedSkill::Ready(tool) => tool.name(),
+                        PreparedSkill::Elevated { prepared, .. } => &prepared.tool_name,
+                    };
+                    caller_allowed.is_none_or(|list| list.iter().any(|n| n == name))
+                })
+                .collect();
             // The complete batch is prepared before the one fixed snapshot.
             let existing_names = tools_registry
                 .iter()
@@ -1596,6 +1616,85 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    fn tool_skill(kind: &str, command: &str, target: Option<&str>) -> Skill {
+        Skill {
+            name: "ops".to_string(),
+            description: "d".to_string(),
+            description_localizations: Default::default(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: Vec::new(),
+            tools: vec![SkillTool {
+                name: "t".to_string(),
+                description: "d".to_string(),
+                kind: kind.to_string(),
+                command: command.to_string(),
+                args: Default::default(),
+                target: target.map(str::to_string),
+                locked_args: Default::default(),
+                timeout_secs: None,
+            }],
+            prompts: Vec::new(),
+            slash_options: Vec::new(),
+            always: false,
+            location: None,
+        }
+    }
+
+    async fn skill_names(
+        security: SecurityPolicy,
+        skill: Skill,
+        caller_allowed: Option<&[String]>,
+    ) -> Vec<String> {
+        let assembled = assemble_pipeline(
+            Arc::new(security),
+            std::slice::from_ref(&skill),
+            Arc::new(AtomicUsize::new(0)),
+            caller_allowed,
+        )
+        .await;
+        assembled
+            .registry
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn skill_elevation_cannot_reexpose_a_policy_excluded_target() {
+        let security = SecurityPolicy {
+            excluded_tools: Some(vec!["shell".to_string()]),
+            ..SecurityPolicy::default()
+        };
+        let names = skill_names(security, tool_skill("builtin", "", Some("shell")), None).await;
+        assert!(!names.contains(&"shell".to_string()), "{names:?}");
+        assert!(!names.contains(&"ops__t".to_string()), "{names:?}");
+    }
+
+    #[tokio::test]
+    async fn skill_elevation_to_excluded_target_needs_an_explicit_operator_grant() {
+        let security = SecurityPolicy {
+            allowed_tools: Some(vec!["ops__t".to_string()]),
+            excluded_tools: Some(vec!["shell".to_string()]),
+            ..SecurityPolicy::default()
+        };
+        let names = skill_names(security, tool_skill("builtin", "", Some("shell")), None).await;
+        assert!(names.contains(&"ops__t".to_string()), "{names:?}");
+        assert!(!names.contains(&"shell".to_string()), "{names:?}");
+    }
+
+    #[tokio::test]
+    async fn caller_allowlist_narrows_skill_tools_too() {
+        let skill = || tool_skill("shell", "echo hi", None);
+        let narrowed = vec!["file_write".to_string()];
+        let names = skill_names(SecurityPolicy::default(), skill(), Some(&narrowed)).await;
+        assert!(!names.contains(&"ops__t".to_string()), "{names:?}");
+
+        let granted = vec!["file_write".to_string(), "ops__t".to_string()];
+        let names = skill_names(SecurityPolicy::default(), skill(), Some(&granted)).await;
+        assert!(names.contains(&"ops__t".to_string()), "{names:?}");
     }
 
     async fn assert_mixed_pipeline_is_prevalidated(parallel: bool) {
