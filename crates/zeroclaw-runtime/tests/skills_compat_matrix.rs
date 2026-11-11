@@ -58,10 +58,9 @@ fn in_repo_markdown_skills_that_load_unchanged() {
 fn in_repo_skills_with_repo_relative_links_are_dropped_with_a_reason() {
     let (_skills, dropped) = load_skills_from_directory(&repo_skills(), false);
     for name in ["zeroclaw", "github-issue-triage"] {
-        let entry = dropped
-            .iter()
-            .find(|d| d.name == name)
-            .unwrap_or_else(|| panic!("`{name}` must be dropped; update the matrix if this changed"));
+        let entry = dropped.iter().find(|d| d.name == name).unwrap_or_else(|| {
+            panic!("`{name}` must be dropped; update the matrix if this changed")
+        });
         match &entry.reason {
             SkillDropReason::AuditFindings {
                 summary,
@@ -120,7 +119,10 @@ fn shell_script_payload_is_refused_unless_scripts_are_allowed() {
     match &dropped[0].reason {
         SkillDropReason::AuditFindings {
             scripts_blocked, ..
-        } => assert!(scripts_blocked, "the refusal is attributed to script policy"),
+        } => assert!(
+            scripts_blocked,
+            "the refusal is attributed to script policy"
+        ),
         other => panic!("unexpected drop reason {other:?}"),
     }
 

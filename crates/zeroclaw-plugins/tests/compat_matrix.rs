@@ -47,8 +47,8 @@ fn in_tree_fixture_manifests_parse_and_request_only_known_surface() {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();
-        let manifest: PluginManifest = toml::from_str(&text)
-            .unwrap_or_else(|e| panic!("{} must parse: {e}", path.display()));
+        let manifest: PluginManifest =
+            toml::from_str(&text).unwrap_or_else(|e| panic!("{} must parse: {e}", path.display()));
         assert!(!manifest.capabilities.is_empty(), "{}", path.display());
         assert!(
             manifest.egress.hosts.iter().all(|h| !h.contains("://")),
@@ -74,14 +74,24 @@ fn install_refuses_unknown_capability_with_the_accepted_list() {
         ));
         let err = result.expect_err(cap);
         assert!(err.contains(cap), "error must name `{cap}`: {err}");
-        assert!(err.contains("tool"), "error must list accepted values: {err}");
+        assert!(
+            err.contains("tool"),
+            "error must list accepted values: {err}"
+        );
     }
 }
 
 /// Likewise for permissions: only client-side, host-mediated permissions exist.
 #[test]
 fn install_refuses_unknown_permission_such_as_a_listener() {
-    for perm in ["socket_server", "listen", "bind", "shell", "exec", "env_all"] {
+    for perm in [
+        "socket_server",
+        "listen",
+        "bind",
+        "shell",
+        "exec",
+        "env_all",
+    ] {
         let (_host, _home, result) = install(&format!(
             "name = \"p\"\nversion = \"0.1.0\"\nwasm_path = \"plugin.wasm\"\ncapabilities = [\"tool\"]\npermissions = [\"{perm}\"]\n"
         ));
@@ -92,8 +102,9 @@ fn install_refuses_unknown_permission_such_as_a_listener() {
 
 #[test]
 fn install_refuses_a_manifest_that_declares_no_capability() {
-    let (_host, _home, result) =
-        install("name = \"p\"\nversion = \"0.1.0\"\nwasm_path = \"plugin.wasm\"\ncapabilities = []\n");
+    let (_host, _home, result) = install(
+        "name = \"p\"\nversion = \"0.1.0\"\nwasm_path = \"plugin.wasm\"\ncapabilities = []\n",
+    );
     let err = result.expect_err("no capability");
     assert!(err.contains("declares no capabilities"), "{err}");
 }
@@ -140,5 +151,9 @@ fn declared_egress_without_http_permission_requests_no_network_permission() {
     let info = host.get_plugin("eg").unwrap();
     assert!(!info.permissions.contains(&PluginPermission::HttpClient));
     assert!(!info.permissions.contains(&PluginPermission::SocketClient));
-    assert!(!info.permissions.contains(&PluginPermission::WebSocketClient));
+    assert!(
+        !info
+            .permissions
+            .contains(&PluginPermission::WebSocketClient)
+    );
 }
