@@ -90,6 +90,14 @@ Never exfiltrate secrets, never disable audit logging, and always ask for approv
 
 A skill can also be a structured TOML manifest (`SKILL.toml`). The `[skill]` table requires `name` and `description`; `version` defaults to `0.1.0` when omitted; `author`, `tags`, `prompts`, and `always` are optional (`always` defaults to `false`; see above). Tool entries may use `kind = "shell"`, `kind = "http"`, or `kind = "script"`. Keep tool descriptions narrow and concrete so the model knows when to use them.
 
+## Precedence and trust boundary
+
+A skill is data and grants no authority. Loading a skill never changes autonomy, allowed commands, channels or listeners: unknown keys outside the documented schema are ignored, `[skill]` and `[forge]` reject unknown fields, and a tool `kind` the runtime does not implement is not registered.
+
+Names resolve first-wins and case-insensitively, in this order: workspace, open-skills, assigned bundles, built-ins. Within one source the candidates are sorted by name and location, so the result does not depend on directory iteration order. A skill that loses its name, or that carries an empty name, a control character, or the reserved `plugin:` prefix, is not loaded and is reported as dropped.
+
+A skill tool may delegate to another tool with `kind = "builtin"` or `kind = "mcp"`. The target must be admitted by the operator's `allowed_tools` / `excluded_tools`, or the operator must list the skill's composed tool name (`<skill>__<tool>`) in `allowed_tools`. Otherwise the skill tool is not registered. A per-run caller allowlist also applies to skill tools.
+
 HTTP skill tools use only `http` and `https` URLs. Arguments are percent-encoded before insertion, redirects and ambient proxies are disabled, and the resolved destination must pass ZeroClaw's public-network egress policy. Private or metadata destinations are rejected, and response bodies larger than one megabyte are truncated before they can expand runtime memory.
 
 Each HTTP skill call shares one 30-second timeout across destination validation, DNS lookup, request dispatch, and response-body reading. A timeout returns a failed tool result without including the URL or argument values. This bounds the call's wait; a platform DNS lookup already running on a blocking worker may continue until the operating system's resolver timeout.
