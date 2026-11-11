@@ -445,6 +445,9 @@ mod tests {
             // Voice duplex is a gateway event-stream config surface, not a
             // `zeroclaw-channels` Channel implementation with its own feature.
             "voice_duplex",
+            // The bundled Matrix adapter was removed; its config section stays
+            // in the schema until the retired-section cleanup lands.
+            "matrix",
         ]);
 
         for channel_type in zeroclaw_config::schema::v2::V3_CHANNEL_TYPES {

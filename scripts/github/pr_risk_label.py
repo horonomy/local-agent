@@ -428,23 +428,33 @@ def item_paths(item: dict[str, Any]) -> tuple[str, ...]:
     return (current,)
 
 
-def file_bound_to_head(item: dict[str, Any], head_sha: str) -> bool:
+def file_bound_to_head(item: dict[str, Any], head_sha: str, base_sha: str | None = None) -> bool:
+    # GitHub resolves a removed file's URLs against the base commit because the
+    # file does not exist at head; only that status may bind to the base SHA.
+    allowed = {head_sha}
+    if item.get("status") == "removed" and base_sha:
+        allowed.add(base_sha)
     contents_url = item.get("contents_url")
     if isinstance(contents_url, str):
         refs = parse_qs(urlparse(contents_url).query).get("ref", [])
-        return refs == [head_sha]
+        return len(refs) == 1 and refs[0] in allowed
 
     for key, marker in (("raw_url", "raw"), ("blob_url", "blob")):
         value = item.get(key)
         if not isinstance(value, str):
             continue
         parts = urlparse(value).path.split("/")
-        if len(parts) >= 5 and parts[3] == marker and parts[4] == head_sha:
+        if len(parts) >= 5 and parts[3] == marker and parts[4] in allowed:
             return True
     return False
 
 
-def validate_files(files: Any, expected_count: int, head_sha: str | None = None) -> list[dict[str, Any]]:
+def validate_files(
+    files: Any,
+    expected_count: int,
+    head_sha: str | None = None,
+    base_sha: str | None = None,
+) -> list[dict[str, Any]]:
     require(
         0 < expected_count <= MAX_PR_FILES,
         "PR file count is incomplete or exceeds the safe API boundary",
@@ -469,7 +479,10 @@ def validate_files(files: Any, expected_count: int, head_sha: str | None = None)
         if "patch" in item:
             require(item["patch"] is None or isinstance(item["patch"], str), "PR patch is malformed")
         if head_sha is not None:
-            require(file_bound_to_head(item, head_sha), "PR file evidence is not bound to the captured head SHA")
+            require(
+                file_bound_to_head(item, head_sha, base_sha),
+                "PR file evidence is not bound to the captured head SHA",
+            )
         result.append(item)
     return result
 
@@ -1015,6 +1028,7 @@ def evaluate(api: Any, pr_number: int, policy_path: Path) -> dict[str, Any]:
         api.paginate(repository_path(api.repository, f"pulls/{pr_number}/files"), changed_file_count),
         changed_file_count,
         head_sha,
+        base_sha,
     )
     classification = classify(files, policy, api, base_sha, head_sha)
 
