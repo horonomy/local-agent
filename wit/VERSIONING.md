@@ -55,6 +55,18 @@ stable Component Model release ships. Until a version directory is frozen, it
 is experimental: components must be rebuilt against the WIT shipped by the
 target host, including after additions to existing enums or variants.
 
+#### Host ABI pin
+
+The host pins one WIT package version (`HOST_WIT_PACKAGE` / `HOST_WIT_VERSION`
+in `crates/zeroclaw-plugins/src/component.rs`, currently `zeroclaw:plugin@0.1.0`)
+and WASI preview 2 (`wasi:*@0.2.x`). Every component is checked when it is
+loaded, so `plugin install`, `plugin info` and daemon startup reject a component
+whose `zeroclaw:plugin/*` interfaces carry another version or no version, or
+whose `wasi:*` interfaces are not `0.2.x`. The error names the offending
+interface and the version the host implements. A test pins the constant to the
+`package` line of every `wit/v0/*.wit` file, so bumping the WIT package without
+bumping the pin fails CI.
+
 #### Host compatibility window
 
 After a version directory is frozen, the host maintains adapters for **the

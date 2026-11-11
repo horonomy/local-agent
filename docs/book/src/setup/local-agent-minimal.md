@@ -44,6 +44,13 @@ For inference requests, `zeroclaw agent` contacts only a provider you configured
   `doctor update-context-windows`. A bare family or a URL is refused, and the refusal does
   not echo the value because a URL can carry a credential. Without this rule a `custom:` override naming a URL would
   send the request to an endpoint the config never approved.
+- The minimal closure contains no WASM plugin host: no `zeroclaw-plugins`, no `wasmtime`
+  and no `plugins-wasm*` runtime feature. `minimal_profile_artifact.sh tree` asserts this
+  with a positive control from the `plugins-wasm-runtime-only` graph, and asserts that
+  `plugins-wasm-runtime-only` carries no Cranelift compiler while `plugins-wasm-cranelift`
+  does. The host is an explicit opt-in (`--features plugins-wasm-runtime-only` for
+  precompiled `.cwasm`, `--features plugins-wasm-cranelift` for `.wasm`). It loads only
+  components built for the pinned ABI described in `wit/VERSIONING.md` (Host ABI pin).
 - The minimal closure contains no Prometheus exporter
   (`minimal_profile_artifact.sh tree` asserts it is absent, with a positive control from
   the default graph). That is the only metrics or telemetry crate the check looks for.
