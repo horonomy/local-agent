@@ -822,13 +822,18 @@ pub fn wt_instantiate<T>(r: wasmtime::Result<T>, ctx: &'static str) -> Result<T>
 /// Compile or deserialize the exact component bytes retained by admission.
 pub fn load_component(component: &AdmittedComponent) -> Result<Component> {
     let loaded = wt(load_inner(component), "failed to load WASM component")?;
-    let ty = loaded.component_type();
+    check_component_abi(&loaded)?;
+    Ok(loaded)
+}
+
+/// Apply the ABI pin to a compiled or deserialized component's interface names.
+fn check_component_abi(component: &Component) -> Result<()> {
+    let ty = component.component_type();
     let names = ty
         .imports(engine())
         .map(|(name, _)| name)
         .chain(ty.exports(engine()).map(|(name, _)| name));
-    check_abi_pin(names)?;
-    Ok(loaded)
+    check_abi_pin(names)
 }
 
 /// The WIT package version this host implements. It must equal the `package`
@@ -1033,6 +1038,22 @@ macro_rules! call_channel_store {
     ($store:ident, $body:expr) => {{ crate::component::call_store_frame!($store, channel_service, $body) }};
 }
 pub(crate) use call_channel_store;
+
+/// Smallest valid component that imports one empty instance named `name`.
+#[cfg(all(test, feature = "plugins-wasm-cranelift"))]
+pub(crate) fn component_importing(name: &str) -> AdmittedComponent {
+    let mut bytes = b"\0asm\x0d\0\x01\0".to_vec();
+    // Type section: one empty instance type.
+    bytes.extend([0x07, 0x03, 0x01, 0x42, 0x00]);
+    // Import section: one plain-named import of instance type 0.
+    let mut import = vec![0x01, 0x00, u8::try_from(name.len()).expect("short name")];
+    import.extend(name.as_bytes());
+    import.extend([0x05, 0x00]);
+    bytes.push(0x0a);
+    bytes.push(u8::try_from(import.len()).expect("small section"));
+    bytes.extend(import);
+    AdmittedComponent::test_component(&bytes)
+}
 
 #[cfg(test)]
 mod tests {
@@ -2149,20 +2170,23 @@ mod tests {
         }
     }
 
-    /// Smallest valid component that imports one empty instance named `name`.
     #[cfg(feature = "plugins-wasm-cranelift")]
-    fn component_importing(name: &str) -> AdmittedComponent {
-        let mut bytes = b"\0asm\x0d\0\x01\0".to_vec();
-        // Type section: one empty instance type.
-        bytes.extend([0x07, 0x03, 0x01, 0x42, 0x00]);
-        // Import section: one plain-named import of instance type 0.
-        let mut import = vec![0x01, 0x00, u8::try_from(name.len()).expect("short name")];
-        import.extend(name.as_bytes());
-        import.extend([0x05, 0x00]);
-        bytes.push(0x0a);
-        bytes.push(u8::try_from(import.len()).expect("small section"));
-        bytes.extend(import);
-        AdmittedComponent::test_component(&bytes)
+    #[test]
+    fn abi_pin_applies_to_a_deserialized_cwasm_component() {
+        // The runtime-only build loads precompiled `.cwasm` through
+        // `Component::deserialize`; its type information must expose the names.
+        for (name, ok) in [
+            ("zeroclaw:plugin/logging@0.1.0", true),
+            ("zeroclaw:plugin/logging@0.2.0", false),
+        ] {
+            let wasm = component_importing(name);
+            let cwasm = engine()
+                .precompile_component(wasm.bytes())
+                .expect("precompile");
+            // SAFETY: bytes were just produced by this engine.
+            let loaded = unsafe { Component::deserialize(engine(), &cwasm) }.expect("deserialize");
+            assert_eq!(check_component_abi(&loaded).is_ok(), ok, "{name}");
+        }
     }
 
     #[cfg(feature = "plugins-wasm-cranelift")]
