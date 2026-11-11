@@ -1277,8 +1277,13 @@ async fn late_tool_search_deferred_mcp_skill_pipeline_retirement() {
                     |config, security| {
                         late_grant(config, &server.url);
                         if hidden {
-                            security.allowed_tools =
-                                Some(vec!["calculator".into(), "tool_search".into()]);
+                            // The operator grants the skill wrapper by its composed
+                            // name; the pipeline target itself stays hidden.
+                            security.allowed_tools = Some(vec![
+                                "calculator".into(),
+                                "tool_search".into(),
+                                skill_tool::composed_tool_name("pipeline-skill", "invoke"),
+                            ]);
                         }
                     },
                 )
@@ -1469,6 +1474,10 @@ async fn late_last_winner(run: &LateRun) {
                 "memory_recall",
                 "memory_store",
                 "tool_search",
+                // The skill's elevation target must itself be admitted by the
+                // allowlist (or the wrapper listed); this test keeps the wrapper
+                // unlisted so the prebuilt duplicate is still filtered out.
+                "calculator",
             ]
             .iter()
             .map(|s| (*s).into())
@@ -2154,7 +2163,15 @@ async fn late_tool_search_registration_order_and_hidden_specs() {
                         }
                     })
                     .await;
-                let declared = late_skill("guarded", "invoke", "calculator");
+                let mut declared = late_skill("guarded", "invoke", "calculator");
+                if decision == "deny-all" {
+                    // An elevation under deny-all is refused before registration
+                    // (HORO-2389), so observe the registration-time decision
+                    // with a kind that reaches it.
+                    declared.tools[0].kind = "shell".into();
+                    declared.tools[0].command = "echo guarded".into();
+                    declared.tools[0].target = None;
+                }
                 if decision == "duplicate" {
                     let target = row
                         .built
