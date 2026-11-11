@@ -703,17 +703,20 @@ pub fn load_skills_for_agent_audited(
             // First-write wins so workspace skills override bundle skills
             // with the same name (legacy agents who edited a workspace
             // copy keep their override after a bundle is assigned).
-            if seen.contains_key(&name_key(&skill.name)) {
-                // This bundle skill lost the name to an earlier source.
-                // Record the loser keyed to the winner's name so the
-                // dashboard can badge the winning skill.
-                shadows.push(ShadowedSkill {
-                    name: skill.name.clone(),
-                    origin_hint: "bundle".into(),
-                });
-            } else {
-                seen.insert(name_key(&skill.name), "bundle");
-                skills.push(skill);
+            match seen.entry(name_key(&skill.name)) {
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    // This bundle skill lost the name to an earlier source.
+                    // Record the loser keyed to the winner's name so the
+                    // dashboard can badge the winning skill.
+                    shadows.push(ShadowedSkill {
+                        name: skill.name.clone(),
+                        origin_hint: "bundle".into(),
+                    });
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert("bundle");
+                    skills.push(skill);
+                }
             }
         }
     }
@@ -2079,7 +2082,7 @@ pub(crate) fn elevation_target_admitted(
     let explicitly_granted = security
         .allowed_tools
         .as_ref()
-        .is_some_and(|list| list.iter().any(|name| *name == composed));
+        .is_some_and(|list| list.contains(&composed));
     explicitly_granted
         || zeroclaw_tools::tool_search::ToolAccessPolicy::from_security(
             security.allowed_tools.as_deref(),
@@ -5776,7 +5779,6 @@ mod trust_boundary_tests {
     use super::*;
     use std::sync::Arc;
     use tempfile::TempDir;
-    use zeroclaw_api::tool::Tool;
 
     fn write_skill(root: &Path, dir: &str, file: &str, body: &str) {
         let skill_dir = root.join("skills").join(dir);
