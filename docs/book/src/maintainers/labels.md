@@ -218,7 +218,6 @@ Each channel gets a `channel:<name>` label in addition to the base `channel` lab
 | `channel:lark` | `lark.rs` |
 | `channel:line` | `line.rs`, `channels/line.md` |
 | `channel:linq` | `linq.rs` |
-| `channel:matrix` | `matrix.rs` |
 | `channel:mattermost` | `mattermost.rs` |
 | `channel:mochat` | `mochat.rs` |
 | `channel:mqtt` | `mqtt.rs` |

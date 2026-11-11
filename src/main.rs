@@ -9598,15 +9598,8 @@ async fn async_main_inner(command: clap::Command) -> Result<()> {
 
     // The explicit flag wins over RUST_LOG; without a flag the
     // subscriber honours RUST_LOG and falls back to this default.
-    // matrix suppression is appended in both flag and default paths.
-    let recording_filter = cli.log_level.map(|level| {
-        format!(
-            "{},matrix_sdk=warn,matrix_sdk_base=warn,matrix_sdk_crypto=warn",
-            level.as_directive()
-        )
-    });
-    let default_filter =
-        format!("{default_floor},matrix_sdk=warn,matrix_sdk_base=warn,matrix_sdk_crypto=warn");
+    let recording_filter = cli.log_level.map(|level| level.as_directive().to_string());
+    let default_filter = default_floor.to_string();
 
     zeroclaw_log::install_global_subscriber(
         recording_filter.as_deref(),

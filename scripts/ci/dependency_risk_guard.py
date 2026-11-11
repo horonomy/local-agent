@@ -29,7 +29,7 @@ IDENTITY = {
     "tracking": "https://lightning-dust-mite.atlassian.net/browse/HORO-2447",
     "upstream": "https://github.com/async-email/async-imap",
 }
-LEGACY_DENY = {"RUSTSEC-2025-0134", "RUSTSEC-2026-0319"}
+LEGACY_DENY = {"RUSTSEC-2025-0134"}
 LEGACY_AUDIT = {
     "RUSTSEC-2025-0134",
     "RUSTSEC-2026-0253",

@@ -145,12 +145,6 @@
           - "src/channels/linq.rs"
           - "crates/zeroclaw-channels/src/linq.rs"
 
-"channel:matrix":
-  - changed-files:
-      - any-glob-to-any-file:
-          - "src/channels/matrix.rs"
-          - "crates/zeroclaw-channels/src/matrix.rs"
-
 "channel:mattermost":
   - changed-files:
       - any-glob-to-any-file:

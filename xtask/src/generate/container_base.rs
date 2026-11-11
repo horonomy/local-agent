@@ -126,8 +126,14 @@ fn valid_digest(digest: &str) -> bool {
         .is_some_and(|hex| hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
+/// Digest-only pin: a tag next to a digest is ignored by the runtime and can
+/// mislead (Sonar docker:S8431), so the intended tag is kept in a comment and
+/// the canonical TOML still drives digest refresh from it.
 fn arg_line(img: &BaseImage, tag: &str, digest: &str) -> String {
-    format!("ARG {}={}:{}@{}", img.arg, img.image_ref, tag, digest)
+    format!(
+        "# {}:{tag} (digest-pinned)\nARG {}={}@{}",
+        img.image_ref, img.arg, img.image_ref, digest
+    )
 }
 
 fn begin(zone: &str) -> String {
@@ -358,6 +364,16 @@ digest = "sha256:{}"
         assert!(valid_digest(&format!("sha256:{}", "a".repeat(64))));
         assert!(!valid_digest(&format!("sha256:{}", "a".repeat(10))));
         assert!(!valid_digest("md5:abc"));
+    }
+
+    #[test]
+    fn arg_line_is_digest_only_and_keeps_tag_in_comment() {
+        let img = fixed("base-arg-test");
+        let (tag, digest) = resolved(&img).unwrap();
+        let line = arg_line(&img, tag, digest);
+        let arg = line.lines().find(|l| l.starts_with("ARG ")).unwrap();
+        assert_eq!(arg, format!("ARG {}={}@{digest}", img.arg, img.image_ref));
+        assert!(line.lines().next().unwrap().contains(tag));
     }
 
     #[test]
