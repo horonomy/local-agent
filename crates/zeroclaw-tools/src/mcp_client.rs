@@ -3301,4 +3301,165 @@ done
             .expect_err("jsonrpc error should surface");
         assert!(err.to_string().contains("nope"), "got: {err}");
     }
+
+    /// Shared stub for the real-process stdio lifecycle tests. `$1` is a
+    /// behaviour switch so each test exercises one hostile or failure mode
+    /// against a genuine child process (no in-memory transport).
+    #[cfg(unix)]
+    const LIFECYCLE_SERVER: &[u8] = br#"#!/bin/sh
+mode="$1"
+if [ "$mode" = "exit-at-handshake" ]; then exit 3; fi
+if [ "$mode" = "dump-env" ]; then env > "$2"; fi
+while IFS= read -r line; do
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  if [ "$mode" = "noisy" ]; then
+    printf '%s\n' 'not json at all' '{"jsonrpc":"2.0","id":999999,"result":{"stale":true}}' '[1,2,3]' '{}'
+  fi
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"life\",\"version\":\"1\"}}}"
+      ;;
+    *'"method":"tools/list"'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"echo\",\"inputSchema\":{\"type\":\"object\"}},{\"name\":\"fail\",\"inputSchema\":{\"type\":\"object\"}},{\"name\":\"hang\",\"inputSchema\":{\"type\":\"object\"}},{\"name\":\"crash\",\"inputSchema\":{\"type\":\"object\"}}]}}"
+      ;;
+    *'"method":"tools/call"'*'"name":"echo"'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"pong\"}],\"isError\":false}}"
+      ;;
+    *'"method":"tools/call"'*'"name":"fail"'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"synthetic failure\"}],\"isError\":true}}"
+      ;;
+    *'"method":"tools/call"'*'"name":"hang"'*)
+      echo "$$" > "$2"
+      exec tail -f /dev/null
+      ;;
+    *'"method":"tools/call"'*'"name":"crash"'*)
+      exit 9
+      ;;
+  esac
+done
+"#;
+
+    #[cfg(unix)]
+    fn lifecycle_config(
+        temp: &std::path::Path,
+        mode: &str,
+        extra: Option<&std::path::Path>,
+        timeout_secs: u64,
+    ) -> McpServerConfig {
+        let script = temp.join("lifecycle-mcp.sh");
+        write_script(&script, LIFECYCLE_SERVER);
+        let mut args = vec![mode.to_string()];
+        args.extend(extra.map(|p| p.display().to_string()));
+        stdio_test_config("life", &script, args, timeout_secs)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_handshake_discovery_invoke_and_tool_error_survive_hostile_noise() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = McpServer::connect(lifecycle_config(temp.path(), "noisy", None, 5))
+            .await
+            .expect("connect despite non-JSON, stale-id and non-response lines");
+        assert_eq!(server.tools().await.len(), 4);
+
+        let ok = server.call_tool("echo", json!({})).await.expect("echo");
+        assert_eq!(ok["content"][0]["text"], "pong");
+
+        let err = server
+            .call_tool("fail", json!({}))
+            .await
+            .expect_err("isError result must fail the call");
+        assert!(err.to_string().contains("synthetic failure"), "got: {err}");
+
+        // A tool error is not a transport failure: the same server still works.
+        server
+            .call_tool("echo", json!({}))
+            .await
+            .expect("echo after error");
+        assert!(server.health_check());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_server_exiting_during_handshake_fails_connect_promptly() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let started = std::time::Instant::now();
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            McpServer::connect(lifecycle_config(temp.path(), "exit-at-handshake", None, 5)),
+        )
+        .await
+        .expect("connect must not wait for the 30s handshake timeout after the child died");
+        assert!(result.is_err());
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_child_crash_mid_call_fails_fast_and_is_not_replayed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let server = McpServer::connect(lifecycle_config(temp.path(), "normal", None, 30))
+            .await
+            .expect("connect");
+        let started = std::time::Instant::now();
+        let err = server
+            .call_tool("crash", json!({}))
+            .await
+            .expect_err("a crashed child must fail the call");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "crash waited for the 30s deadline instead of failing on child exit: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_call_deadline_fails_safely_and_reaps_the_silent_child() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let pid_path = temp.path().join("hang.pid");
+        let server =
+            McpServer::connect(lifecycle_config(temp.path(), "normal", Some(&pid_path), 1))
+                .await
+                .expect("connect");
+        let err = server
+            .call_tool("hang", json!({}))
+            .await
+            .expect_err("silent server must hit the call deadline");
+        assert!(err.to_string().contains("timed out"), "got: {err}");
+
+        let hung_pid: u32 = std::fs::read_to_string(&pid_path)
+            .expect("hang pid")
+            .trim()
+            .parse()
+            .expect("pid");
+        for _ in 0..100 {
+            if !process_is_alive(hung_pid) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("deadline left the unresponsive child {hung_pid} running");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdio_child_receives_only_allowlisted_and_configured_environment() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let env_dump = temp.path().join("env.txt");
+        let mut config = lifecycle_config(temp.path(), "dump-env", Some(&env_dump), 5);
+        config
+            .env
+            .insert("CONFIGURED_SERVER_TOKEN".into(), "granted".into());
+        let _server = McpServer::connect(config).await.expect("connect");
+
+        let dump = std::fs::read_to_string(&env_dump).expect("env dump");
+        let names: Vec<&str> = dump
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .collect();
+        assert!(names.contains(&"CONFIGURED_SERVER_TOKEN"), "{names:?}");
+        // `cargo test` always sets this in the parent; it must not leak.
+        assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
+        assert!(!names.contains(&"CARGO_MANIFEST_DIR"), "{names:?}");
+    }
 }
