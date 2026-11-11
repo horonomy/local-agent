@@ -922,6 +922,28 @@ pub fn allowed() -> bool {
         with self.assertRaises(classifier.RiskReportError):
             classifier.validate_files([changed_file("src/lib.rs")], 1, "c" * 40)
 
+    def test_removed_file_may_bind_to_base_sha_only_for_removed_status(self) -> None:
+        def at_ref(ref: str, **extra: object) -> dict[str, object]:
+            return changed_file(
+                "src/old.rs",
+                contents_url=f"https://api.github.com/repos/zeroclaw-labs/zeroclaw/contents/src/old.rs?ref={ref}",
+                **extra,
+            )
+
+        removed_at_base = at_ref(BASE, status="removed")
+        self.assertEqual(classifier.validate_files([removed_at_base], 1, HEAD, BASE), [removed_at_base])
+        removed_at_head = at_ref(HEAD, status="removed")
+        self.assertEqual(classifier.validate_files([removed_at_head], 1, HEAD, BASE), [removed_at_head])
+        for name, item, base in (
+            ("removed bound to unknown sha", at_ref("c" * 40, status="removed"), BASE),
+            ("modified bound to base", at_ref(BASE), BASE),
+            ("removed bound to base without base sha", removed_at_base, None),
+        ):
+            with self.subTest(name=name), self.assertRaisesRegex(
+                classifier.RiskReportError, "not bound to the captured head SHA"
+            ):
+                classifier.validate_files([item], 1, HEAD, base)
+
     def test_main_emits_human_summary_and_json_without_mutation(self) -> None:
         output = io.StringIO()
         api = FakeAPI(pull(["risk:high"]), [changed_file("wit/plugin.wit")])
