@@ -1105,6 +1105,14 @@ impl ScopedToolRegistry {
                         tool,
                         kind_label,
                         |target_name| {
+                            crate::skills::elevation_target_admitted(
+                                security,
+                                skill_name,
+                                tool,
+                                target_name,
+                            )
+                        },
+                        |target_name| {
                             if let Some(target) = context_filtered_tool_arcs
                                 .iter()
                                 .chain(mcp_elevation_arcs.iter())
@@ -1164,6 +1172,18 @@ impl ScopedToolRegistry {
                 5,
                 skill_tools.len(),
             );
+            // A per-run caller allowlist only narrows, and a skill tool is not
+            // exempt from it (the built-in filter above ran before skills).
+            let skill_tools: Vec<_> = skill_tools
+                .into_iter()
+                .filter(|tool| {
+                    let name = match tool {
+                        PreparedSkill::Ready(tool) => tool.name(),
+                        PreparedSkill::Elevated { prepared, .. } => &prepared.tool_name,
+                    };
+                    caller_allowed.is_none_or(|list| list.iter().any(|n| n == name))
+                })
+                .collect();
             // The complete batch is prepared before the one fixed snapshot.
             let existing_names = tools_registry
                 .iter()
