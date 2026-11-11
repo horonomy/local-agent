@@ -5985,10 +5985,14 @@ mod trust_boundary_tests {
         assert!(skills.is_empty(), "{skills:?}");
         assert_eq!(dropped.len(), 3);
         for d in &dropped {
-            assert!(
-                matches!(d.reason, SkillDropReason::ManifestParseError(_)),
-                "{d:?}"
-            );
+            // The static audit rejects syntactically invalid TOML before the
+            // typed parse sees it; schema violations reach the typed parse.
+            let expected = if d.name == "syntax" {
+                matches!(d.reason, SkillDropReason::AuditFindings { .. })
+            } else {
+                matches!(d.reason, SkillDropReason::ManifestParseError(_))
+            };
+            assert!(expected, "{d:?}");
         }
     }
 
