@@ -1476,6 +1476,21 @@ mod tests {
     }
 
     #[test]
+    fn elevation_under_deny_all_registers_nothing() {
+        let policy = SecurityPolicy {
+            allowed_tools: Some(Vec::new()),
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        };
+        let skill = elevated_skill("ops", &[("read", "file_read")]);
+        let admitted =
+            crate::skills::elevation_target_admitted(&policy, "ops", &skill.tools[0], "file_read");
+        assert!(!admitted, "deny-all must refuse any elevation target");
+        let names = registered_names(policy, &["file_read"], skill);
+        assert!(names.is_empty(), "{names:?}");
+    }
+
+    #[test]
     fn elevation_to_an_excluded_messaging_tool_registers_nothing() {
         let policy = SecurityPolicy {
             excluded_tools: Some(vec!["send_message_to_peer".to_string()]),
