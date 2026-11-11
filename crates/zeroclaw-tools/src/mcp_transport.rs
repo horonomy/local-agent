@@ -47,6 +47,10 @@ const STDIO_INHERITED_ENV: &[&str] = &[
     "LC_CTYPE",
     "TMPDIR",
     "TZ",
+    // Non-secret certificate locations; proxy variables are deliberately
+    // excluded because proxy URLs can embed credentials.
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
     // Windows runtimes cannot start (or resolve executables) without these.
     "SystemRoot",
     "USERPROFILE",
@@ -56,19 +60,55 @@ const STDIO_INHERITED_ENV: &[&str] = &[
     "TMP",
     "PATHEXT",
     "COMSPEC",
+    "USERNAME",
+    "WINDIR",
+    "SystemDrive",
+    "ProgramData",
+    "ProgramFiles",
+    "HOMEDRIVE",
+    "HOMEPATH",
 ];
 
 /// Build the least-privilege environment for a stdio MCP child: the allowlisted
 /// subset of `parent`, overlaid with the server's explicitly configured `env`.
+/// Windows environment names are case-insensitive, so matching and override
+/// are too there.
 fn stdio_child_env(
     parent: impl Iterator<Item = (String, String)>,
     configured: &std::collections::HashMap<String, String>,
 ) -> Vec<(String, String)> {
-    let mut env: std::collections::BTreeMap<String, String> = parent
-        .filter(|(name, _)| STDIO_INHERITED_ENV.contains(&name.as_str()))
+    stdio_child_env_with(parent, configured, cfg!(windows))
+}
+
+fn stdio_child_env_with(
+    parent: impl Iterator<Item = (String, String)>,
+    configured: &std::collections::HashMap<String, String>,
+    case_insensitive: bool,
+) -> Vec<(String, String)> {
+    let key = |name: &str| {
+        if case_insensitive {
+            name.to_ascii_uppercase()
+        } else {
+            name.to_string()
+        }
+    };
+    let allowed = |name: &str| {
+        STDIO_INHERITED_ENV
+            .iter()
+            .any(|allowed| key(allowed) == key(name))
+    };
+    // Keyed by normalized name so a configured value replaces a parent value
+    // of any casing deterministically; the configured spelling is kept.
+    let mut env: std::collections::BTreeMap<String, (String, String)> = parent
+        .filter(|(name, _)| allowed(name))
+        .map(|(name, value)| (key(&name), (name, value)))
         .collect();
-    env.extend(configured.iter().map(|(k, v)| (k.clone(), v.clone())));
-    env.into_iter().collect()
+    let mut configured: Vec<_> = configured.iter().collect();
+    configured.sort();
+    for (name, value) in configured {
+        env.insert(key(name), (name.clone(), value.clone()));
+    }
+    env.into_values().collect()
 }
 
 /// Timeout for init/list operations.
@@ -2645,6 +2685,41 @@ mod tests {
         assert!(!env.contains_key("OPENAI_API_KEY"));
         assert!(!env.contains_key("AWS_SECRET_ACCESS_KEY"));
         assert_eq!(env.len(), 3);
+    }
+
+    #[test]
+    fn stdio_child_env_matches_and_overrides_case_insensitively_when_requested() {
+        let parent = [
+            ("Path", "C:\\Windows"),
+            ("SYSTEMROOT", "C:\\Windows"),
+            ("Temp", "C:\\tmp"),
+            ("OPENAI_API_KEY", "parent-secret"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let configured =
+            std::collections::HashMap::from([("PATH".to_string(), "C:\\custom".to_string())]);
+
+        let env = stdio_child_env_with(parent, &configured, true);
+
+        assert_eq!(env.len(), 3, "{env:?}");
+        assert!(env.contains(&("PATH".to_string(), "C:\\custom".to_string())));
+        assert!(env.iter().any(|(k, _)| k == "SYSTEMROOT"));
+        assert!(env.iter().any(|(k, _)| k == "Temp"));
+        assert!(
+            !env.iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("Path") && k != "PATH")
+        );
+        assert!(!env.iter().any(|(k, _)| k == "OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn stdio_child_env_is_case_sensitive_when_not_requested() {
+        let parent = [("path", "x"), ("PATH", "y")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()));
+        let env = stdio_child_env_with(parent, &std::collections::HashMap::new(), false);
+        assert_eq!(env, vec![("PATH".to_string(), "y".to_string())]);
     }
 
     #[tokio::test]
