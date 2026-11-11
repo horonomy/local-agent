@@ -813,12 +813,6 @@ fn rejected_skill_name(name: &str) -> Option<String> {
         return Some("skill name is empty".to_string());
     }
     if name
-        .chars()
-        .any(|c| c.is_control() || is_invisible_format_char(c))
-    {
-        return Some("skill name contains control or invisible formatting characters".to_string());
-    }
-    if name
         .trim()
         .get(..PLUGIN_SKILL_NAMESPACE.len())
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PLUGIN_SKILL_NAMESPACE))
@@ -827,22 +821,21 @@ fn rejected_skill_name(name: &str) -> Option<String> {
             "skill name must not use the reserved '{PLUGIN_SKILL_NAMESPACE}' namespace"
         ));
     }
+    // An allowlist, not a denylist of known-bad code points: lookup elsewhere
+    // (`read_skill`, `name_key`) compares names with ASCII-only case folding,
+    // so any invisible, combining, private-use, unassigned or lookalike
+    // character (for example a fullwidth colon) would let two validators
+    // disagree about whether a name equals another or carries the reserved
+    // prefix. Letters and digits in any script stay valid.
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | ' '))
+    {
+        return Some(
+            "skill name may contain only letters, digits, space and '-', '_', '.', ':'".to_string(),
+        );
+    }
     None
-}
-
-/// Zero-width, bidi and soft-hyphen format characters that render as nothing
-/// or reorder text, so a name containing them can look like another name.
-fn is_invisible_format_char(c: char) -> bool {
-    matches!(
-        c,
-        '\u{00AD}'
-            | '\u{061C}'
-            | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2060}'..='\u{2064}'
-            | '\u{2066}'..='\u{2069}'
-            | '\u{FEFF}'
-    )
 }
 
 fn name_key(name: &str) -> String {
@@ -6003,7 +5996,46 @@ mod trust_boundary_tests {
                 == 3
         );
         assert!(messages.iter().any(|m| m.contains("is empty")));
-        assert!(messages.iter().any(|m| m.contains("control or invisible")));
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("may contain only letters"))
+        );
+    }
+
+    #[test]
+    fn skill_name_allowlist_rejects_invisible_combining_private_and_lookalike_characters() {
+        for (name, why) in [
+            ("de\u{200B}ploy", "zero width space"),
+            ("\u{202E}evil", "bidi override"),
+            ("soft\u{00AD}hyphen", "soft hyphen"),
+            ("word\u{2060}joiner", "word joiner"),
+            ("emoji\u{FE0F}", "variation selector"),
+            ("tag\u{E0001}", "tag character"),
+            ("plugin\u{FF1A}x", "fullwidth colon"),
+            ("pri\u{E000}vate", "private use"),
+            ("\u{0301}", "combining acute alone"),
+            ("tab\there", "control"),
+            ("slash/name", "path separator"),
+        ] {
+            assert!(
+                rejected_skill_name(name).is_some(),
+                "{why} must be rejected"
+            );
+        }
+        for name in [
+            "code-review",
+            "my_skill.v2",
+            "zeroclaw-docs",
+            "caf\u{e9}",
+            "\u{90e8}\u{7f72}",
+            "Deploy 2",
+        ] {
+            assert!(
+                rejected_skill_name(name).is_none(),
+                "{name:?} must stay valid"
+            );
+        }
     }
 
     #[test]
