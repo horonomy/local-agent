@@ -1366,71 +1366,139 @@ mod tests {
         );
     }
 
-    #[test]
-    fn elevation_wrapper_survives_policy_filter_that_blocks_raw_target() {
-        // The trust-boundary contract a SecurityPolicy blocking the
-        // raw tool by name must keep it out of the model-visible registry,
-        // while the skill's scoped wrapper — registered under the prefixed
-        // name — remains the only callable path to that capability.
+    fn elevated_skill(name: &str, tools: &[(&str, &str)]) -> crate::skills::Skill {
         use crate::skills::{Skill, SkillTool};
-
-        let shell: Arc<dyn Tool> = Arc::new(MockBuiltinTool::new("shell"));
-        let file_read: Arc<dyn Tool> = Arc::new(MockBuiltinTool::new("file_read"));
-        // The resolution registry retains the raw tool so the wrapper can
-        // delegate to it even after the policy filter removes it below.
-        let resolution: Vec<Arc<dyn Tool>> = vec![Arc::clone(&shell), Arc::clone(&file_read)];
-
-        let mut registry: Vec<Box<dyn Tool>> = vec![
-            Box::new(crate::tools::ArcToolRef(Arc::clone(&shell))),
-            Box::new(crate::tools::ArcToolRef(Arc::clone(&file_read))),
-        ];
-        let policy = SecurityPolicy {
-            excluded_tools: Some(vec!["shell".to_string()]),
-            workspace_dir: std::env::temp_dir(),
-            ..SecurityPolicy::default()
-        };
-        crate::agent::loop_::apply_policy_tool_filter(&mut registry, Some(&policy), None);
-        assert!(
-            !registry.iter().any(|t| t.name() == "shell"),
-            "raw shell must be blocked by the policy filter"
-        );
-
-        let skill = Skill {
-            name: "ops".to_string(),
+        Skill {
+            name: name.to_string(),
             description: "d".to_string(),
             description_localizations: Default::default(),
             version: "1".to_string(),
             author: None,
             tags: vec![],
-            tools: vec![SkillTool {
-                name: "use_shell".to_string(),
-                description: "scoped shell".to_string(),
-                kind: "builtin".to_string(),
-                command: String::new(),
-                args: HashMap::new(),
-                target: Some("shell".to_string()),
-                locked_args: HashMap::new(),
-                timeout_secs: None,
-            }],
+            tools: tools
+                .iter()
+                .map(|(tool, target)| SkillTool {
+                    name: (*tool).to_string(),
+                    description: "scoped".to_string(),
+                    kind: "builtin".to_string(),
+                    command: String::new(),
+                    args: HashMap::new(),
+                    target: Some((*target).to_string()),
+                    locked_args: HashMap::new(),
+                    timeout_secs: None,
+                })
+                .collect(),
             prompts: vec![],
             slash_options: Vec::new(),
             always: false,
             location: None,
-        };
+        }
+    }
+
+    fn registered_names(
+        policy: SecurityPolicy,
+        targets: &[&str],
+        skill: crate::skills::Skill,
+    ) -> Vec<String> {
+        let resolution: Vec<Arc<dyn Tool>> = targets
+            .iter()
+            .map(|name| Arc::new(MockBuiltinTool::new(name)) as Arc<dyn Tool>)
+            .collect();
+        let mut registry: Vec<Box<dyn Tool>> = Vec::new();
         crate::tools::register_skill_tools_with_context(
             &mut registry,
             &[skill],
-            test_security(),
+            Arc::new(policy),
             &resolution,
         );
+        registry.iter().map(|t| t.name().to_string()).collect()
+    }
 
+    // HORO-2389 narrows the earlier upstream contract that an elevation wrapper
+    // survives a policy filter that blocks its raw target: a skill manifest
+    // is data, so it cannot by itself re-expose a tool the operator policy
+    // removed. The operator opts in by listing the wrapper in `allowed_tools`.
+    #[test]
+    fn elevation_cannot_reexpose_a_policy_excluded_target() {
+        let policy = SecurityPolicy {
+            excluded_tools: Some(vec!["shell".to_string()]),
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        };
+        let skill = elevated_skill("ops", &[("use_shell", "shell"), ("read", "file_read")]);
+        let names = registered_names(policy, &["shell", "file_read"], skill);
         assert!(
-            !registry.iter().any(|t| t.name() == "shell"),
-            "raw shell must STILL be unavailable after skill registration"
+            names.contains(&"ops__read".to_string()),
+            "admitted target stays elevatable"
         );
         assert!(
-            registry.iter().any(|t| t.name() == "ops__use_shell"),
-            "the scoped elevation wrapper must be the only callable path"
+            !names.contains(&"ops__use_shell".to_string()),
+            "excluded target must not be reachable through a skill: {names:?}"
         );
+    }
+
+    #[test]
+    fn elevation_to_an_excluded_target_is_allowed_when_the_operator_lists_the_wrapper() {
+        let policy = SecurityPolicy {
+            allowed_tools: Some(vec!["ops__use_shell".to_string()]),
+            excluded_tools: Some(vec!["shell".to_string()]),
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        };
+        let skill = elevated_skill("ops", &[("use_shell", "shell")]);
+        let names = registered_names(policy, &["shell"], skill);
+        assert_eq!(names, vec!["ops__use_shell".to_string()]);
+    }
+
+    #[test]
+    fn elevation_cannot_reach_a_target_outside_a_non_empty_allowlist() {
+        let policy = SecurityPolicy {
+            allowed_tools: Some(vec!["file_read".to_string()]),
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        };
+        let skill = elevated_skill(
+            "ops",
+            &[
+                ("use_shell", "shell"),
+                ("msg", "send_message_to_peer"),
+                ("read", "file_read"),
+            ],
+        );
+        let names = registered_names(
+            policy,
+            &["shell", "send_message_to_peer", "file_read"],
+            skill,
+        );
+        assert!(names.contains(&"ops__read".to_string()));
+        assert!(!names.contains(&"ops__use_shell".to_string()), "{names:?}");
+        assert!(!names.contains(&"ops__msg".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn elevation_under_deny_all_registers_nothing() {
+        let policy = SecurityPolicy {
+            allowed_tools: Some(Vec::new()),
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        };
+        let skill = elevated_skill("ops", &[("read", "file_read")]);
+        let admitted =
+            crate::skills::elevation_target_admitted(&policy, "ops", &skill.tools[0], "file_read");
+        assert!(!admitted, "deny-all must refuse any elevation target");
+        let names = registered_names(policy, &["file_read"], skill);
+        assert!(names.is_empty(), "{names:?}");
+    }
+
+    #[test]
+    fn elevation_to_an_excluded_messaging_tool_registers_nothing() {
+        let policy = SecurityPolicy {
+            excluded_tools: Some(vec!["send_message_to_peer".to_string()]),
+            workspace_dir: std::env::temp_dir(),
+            ..SecurityPolicy::default()
+        };
+        let skill = elevated_skill("notify", &[("ping", "send_message_to_peer")]);
+        let names = registered_names(policy, &["send_message_to_peer"], skill);
+        assert!(names.is_empty(), "{names:?}");
     }
 }

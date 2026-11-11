@@ -1277,8 +1277,13 @@ async fn late_tool_search_deferred_mcp_skill_pipeline_retirement() {
                     |config, security| {
                         late_grant(config, &server.url);
                         if hidden {
-                            security.allowed_tools =
-                                Some(vec!["calculator".into(), "tool_search".into()]);
+                            // The operator grants the skill wrapper by its composed
+                            // name; the pipeline target itself stays hidden.
+                            security.allowed_tools = Some(vec![
+                                "calculator".into(),
+                                "tool_search".into(),
+                                skill_tool::composed_tool_name("pipeline-skill", "invoke"),
+                            ]);
                         }
                     },
                 )
@@ -1469,6 +1474,10 @@ async fn late_last_winner(run: &LateRun) {
                 "memory_recall",
                 "memory_store",
                 "tool_search",
+                // The skill's elevation target must itself be admitted by the
+                // allowlist (or the wrapper listed); this test keeps the wrapper
+                // unlisted so the prebuilt duplicate is still filtered out.
+                "calculator",
             ]
             .iter()
             .map(|s| (*s).into())
@@ -1539,14 +1548,17 @@ async fn late_last_winner(run: &LateRun) {
         .collect();
     assert_eq!(specs.len(), 2);
     assert_ne!(specs[0].second, specs[1].second);
-    assert!(
+    // `calculator` is admitted so the elevation target is policy-admitted
+    // (HORO-2389), which also leaves it as a deferred built-in; the retired
+    // skill aliases must be the only thing that is not hidden.
+    assert_eq!(
         out.activated_handle
             .as_ref()
             .unwrap()
             .lock()
             .unwrap()
-            .hidden_builtin_names()
-            .is_empty()
+            .hidden_builtin_names(),
+        std::collections::HashSet::from(["calculator".to_string()])
     );
 }
 
@@ -1823,7 +1835,12 @@ async fn late_tool_search_helper_denied_keeps_no_guest_recovery() {
             .await;
             let out = late_assemble(
                 &mut case,
-                &[late_skill("late", "invoke", "tool_search")],
+                &[
+                    late_skill("late", "invoke", "tool_search"),
+                    // Positive control: a policy-admitted target still registers,
+                    // so the refusal above is not a vacuous absence.
+                    late_skill("control", "invoke", "calculator"),
+                ],
                 None,
                 true,
                 false,
@@ -1833,6 +1850,11 @@ async fn late_tool_search_helper_denied_keeps_no_guest_recovery() {
             .await;
             server.handshake();
             assert!(out.tool_search_handle.is_some());
+            assert!(
+                out.registry
+                    .iter()
+                    .any(|tool| tool.name() == skill_tool::composed_tool_name("control", "invoke"))
+            );
             assert!(!out.registry.iter().any(|tool| tool.name() == "tool_search"));
             assert!(out.deferred_section().is_empty());
             let alias = skill_tool::composed_tool_name("late", "invoke");
@@ -2154,7 +2176,15 @@ async fn late_tool_search_registration_order_and_hidden_specs() {
                         }
                     })
                     .await;
-                let declared = late_skill("guarded", "invoke", "calculator");
+                let mut declared = late_skill("guarded", "invoke", "calculator");
+                if decision == "deny-all" {
+                    // An elevation under deny-all is refused before registration
+                    // (HORO-2389), so observe the registration-time decision
+                    // with a kind that reaches it.
+                    declared.tools[0].kind = "shell".into();
+                    declared.tools[0].command = "echo guarded".into();
+                    declared.tools[0].target = None;
+                }
                 if decision == "duplicate" {
                     let target = row
                         .built
