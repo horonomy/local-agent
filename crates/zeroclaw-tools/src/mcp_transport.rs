@@ -32,6 +32,45 @@ const STDIO_CHILD_POLL_INTERVAL: std::time::Duration = std::time::Duration::from
 /// server that ignores EOF delays teardown before being signalled.
 const STDIO_CLOSE_GRACE: Duration = Duration::from_secs(2);
 
+/// Parent-environment variables a stdio MCP server inherits. Everything else
+/// (API keys, tokens, cloud credentials) is withheld; a server receives a
+/// secret only when it is explicitly configured in the server's own `env`.
+const STDIO_INHERITED_ENV: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+    "TZ",
+    // Windows runtimes cannot start (or resolve executables) without these.
+    "SystemRoot",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+];
+
+/// Build the least-privilege environment for a stdio MCP child: the allowlisted
+/// subset of `parent`, overlaid with the server's explicitly configured `env`.
+fn stdio_child_env(
+    parent: impl Iterator<Item = (String, String)>,
+    configured: &std::collections::HashMap<String, String>,
+) -> Vec<(String, String)> {
+    let mut env: std::collections::BTreeMap<String, String> = parent
+        .filter(|(name, _)| STDIO_INHERITED_ENV.contains(&name.as_str()))
+        .collect();
+    env.extend(configured.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env.into_iter().collect()
+}
+
 /// Timeout for init/list operations.
 const RECV_TIMEOUT_SECS: u64 = 30;
 
@@ -618,7 +657,8 @@ impl StdioTransport {
     ) -> Result<StdioConn> {
         let mut child = Command::new(&config.command)
             .args(&config.args)
-            .envs(&config.env)
+            .env_clear()
+            .envs(stdio_child_env(std::env::vars(), &config.env))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
@@ -2576,6 +2616,35 @@ mod tests {
         SharedMcpTransportConn::close(&transport)
             .await
             .expect("close transport");
+    }
+
+    #[test]
+    fn stdio_child_env_withholds_unlisted_parent_secrets_and_keeps_configured() {
+        let parent = [
+            ("PATH", "/usr/bin"),
+            ("HOME", "/home/u"),
+            ("OPENAI_API_KEY", "parent-secret"),
+            ("AWS_SECRET_ACCESS_KEY", "parent-secret"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let configured = std::collections::HashMap::from([
+            ("GITHUB_TOKEN".to_string(), "configured".to_string()),
+            ("PATH".to_string(), "/custom/bin".to_string()),
+        ]);
+
+        let env: std::collections::HashMap<_, _> =
+            stdio_child_env(parent, &configured).into_iter().collect();
+
+        assert_eq!(env.get("HOME").map(String::as_str), Some("/home/u"));
+        assert_eq!(
+            env.get("GITHUB_TOKEN").map(String::as_str),
+            Some("configured")
+        );
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/custom/bin"));
+        assert!(!env.contains_key("OPENAI_API_KEY"));
+        assert!(!env.contains_key("AWS_SECRET_ACCESS_KEY"));
+        assert_eq!(env.len(), 3);
     }
 
     #[tokio::test]
