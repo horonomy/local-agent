@@ -11,6 +11,7 @@
   - [Provider configuration](./providers/configuration.md)
   - [Tools overview](./tools/overview.md)
 - [MCP and Skills](./local-agent/mcp-skills.md)
+  - [Compatibility matrix](./local-agent/compatibility-matrix.md)
   - [MCP (Model Context Protocol)](./tools/mcp.md)
   - [Skills](./tools/skills.md)
   - [Skill bundles](./tools/skill-bundles.md)
