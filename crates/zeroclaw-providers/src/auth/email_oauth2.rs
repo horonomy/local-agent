@@ -268,6 +268,18 @@ mod tests {
         assert!(require_https("http://localhost.evil.com/token").is_err());
     }
 
+    #[test]
+    fn require_https_rejects_loopback_lookalike_hosts() {
+        for url in [
+            "http://localhost@evil.com/token",
+            "http://127.0.0.1@evil.com/token",
+            "http://[2001:db8::1]/token",
+            "http://[::ffff:127.0.0.1]/token",
+        ] {
+            assert!(require_https(url).is_err(), "{url} should be rejected");
+        }
+    }
+
     const INSECURE: &str = "http://login.example.com/oauth";
 
     #[tokio::test]
