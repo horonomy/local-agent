@@ -1,5 +1,7 @@
 # Creating a Gitea / Forgejo token (Codeberg)
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The [Git channel](./git.md) with `provider = "gitea"` or `provider = "forgejo"` authenticates with a **personal access token** against the instance's Gitea-compatible REST API, and replies as the token owner. Both providers share one internal implementation; the only real difference from GitHub is that there is no app, only a token and an explicit API base URL.
 
 Examples below use [**Codeberg**](https://codeberg.org) (a public Forgejo instance). For a self-hosted Gitea or Forgejo, substitute your own host.

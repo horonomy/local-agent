@@ -80,7 +80,7 @@ For the Raspberry Pi specifics, see [Raspberry Pi setup → build](../hardware/r
 
 ### Build is very slow
 
-Build time scales with the features you enable. The Matrix E2EE stack (`matrix-sdk`, `ruma`, `vodozemac`) and the `aws-lc-sys` native crypto build are not in the default feature set: `channel-matrix` pulls in both, and `channels-full` pulls in `aws-lc-sys`. If you enabled features you don't need, drop them first.
+Build time scales with the features you enable. The `aws-lc-sys` native crypto build is not in the default feature set: `channels-full` pulls it in. If you enabled features you don't need, drop them first.
 
 To build less than the default set, build the agent runtime alone:
 
@@ -290,21 +290,6 @@ filesystem, or AMQP SOP dispatch can start a run. For those sources, start `zero
 the SOP runtime enabled (`sop.sops_dir` set to a non-empty value; unset by default, which disables it; the documented value is `shared/sops`), then inspect the source connection and `SOP ingress` log events. An AMQP
 channel using `dispatch = "sop"` or `"sop_and_agent_loop"` fails closed at daemon startup when the
 SOP handles are unavailable; it is intentionally omitted from the doctor work list in that state.
-
-### Matrix: "unknown device"
-
-If you re-onboarded without keeping device keys, the homeserver sees a new device that hasn't been verified. Re-verify from another logged-in client, or reset the key store:
-
-<div class="os-tabs-src">
-
-#### sh
-
-```sh
-rm -rf ~/.zeroclaw/workspace/matrix-crypto
-# re-run pairing flow on next channel start
-```
-
-</div>
 
 ### IMAP polling stopped
 

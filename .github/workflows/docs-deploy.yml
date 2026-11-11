@@ -350,9 +350,12 @@ jobs:
               $MDBOOK_XTASK extract-chrome "$TAG" "_shared"
             fi
 
-            # Persist custom domain (#6142) and disable Jekyll on every push, or
-            # Pages drops the CNAME and 404s every underscore-prefixed path.
-            echo "docs.zeroclaw.com" > CNAME
+            # Disable Jekyll on every push, or Pages 404s every
+            # underscore-prefixed path. No CNAME is written: Local Agent does not
+            # own or deploy the upstream docs.zeroclaw.com domain (HORO-2429).
+            # NOTE: `gen-seo` below reads CNAME for the site host and fails
+            # without it, so re-enabling this job outside upstream needs a
+            # decided host first.
             touch .nojekyll
 
             # Drop pre-versioned orphan dirs (including any legacy stable/), then
@@ -375,8 +378,8 @@ jobs:
             # carries both. Versioned copies stay at <tag>/en/llms*.txt.
             $MDBOOK_XTASK sync-root-llms
             # Canonical/hreflang/description/share tags on every page, plus
-            # robots.txt and sitemap.xml at the root. Reads CNAME (written
-            # above) for the site host and stable-version.txt for the copy
+            # robots.txt and sitemap.xml at the root. Reads CNAME (no longer
+            # written, see above) for the site host and stable-version.txt for the copy
             # that counts; idempotent across deploys.
             $MDBOOK_XTASK gen-seo
 

@@ -329,7 +329,7 @@ zeroclaw daemon --host 0.0.0.0 --port 42617
 
 ### 5. Enable channels
 
-ZeroClaw can connect to chat platforms (Matrix, Mattermost, Discord, Telegram, etc.). See [Channels → Overview](../channels/overview.md). Most channel transports work fine on a Pi; the heaviest is the WebRTC stack used by some voice channels, which can spike CPU during call setup.
+ZeroClaw can connect to chat platforms (Mattermost, Discord, Telegram, etc.). See [Channels → Overview](../channels/overview.md). Most channel transports work fine on a Pi; the heaviest is the WebRTC stack used by some voice channels, which can spike CPU during call setup.
 
 ## GPIO and Hardware Peripherals
 

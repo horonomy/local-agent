@@ -1,204 +1,158 @@
-<p align="center">
-  <img src="docs/assets/zeroclaw-banner.png" alt="ZeroClaw" width="600" />
-</p>
+# Local Agent
 
-<h1 align="center">🦀 ZeroClaw — Personal AI Assistant</h1>
+Local Agent is a local-first personal AI agent that runs from a single Rust
+binary on your own machine. It is an independent derivative of
+[ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) and is not an official
+ZeroClaw distribution. See [Provenance and attribution](#provenance-and-attribution).
 
-<p align="center">
-  <strong>You own the agent. You own the data. You own the machine it runs on.</strong>
-</p>
+> **Status: MVP 1.0 in development.** There is no published release, installer
+> or package. The product brand is undecided; "Local Agent" is a working name,
+> and the executable, crates and config directory still use upstream names
+> (`zeroclaw`, `~/.zeroclaw`). Only what is listed under
+> [What works in MVP 1.0](#what-works-in-mvp-10) is claimed.
 
-<p align="center">
-  <a href="https://github.com/zeroclaw-labs/zeroclaw/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/zeroclaw-labs/zeroclaw/ci.yml?branch=master&label=build" alt="Build Status" /></a>
-  <a href="https://github.com/zeroclaw-labs/zeroclaw/releases/latest"><img src="https://img.shields.io/github/v/release/zeroclaw-labs/zeroclaw?label=release" alt="Latest release" /></a>
-  <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License" /></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-edition%202024-orange?logo=rust" alt="Rust Edition 2024" /></a>
-  <a href="https://github.com/zeroclaw-labs/zeroclaw/graphs/contributors"><img src="https://img.shields.io/github/contributors/zeroclaw-labs/zeroclaw?color=green" alt="Contributors" /></a>
-  <a href="https://discord.gg/zeroclaw"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord" /></a>
-</p>
+## North star
 
-<p align="center">
-  <a href="https://www.zeroclaw.com">Website</a> ·
-  <a href="https://docs.zeroclaw.com/master/en/introduction.html">Docs</a> ·
-  <a href="docs/book/src/philosophy/index.md">Philosophy</a> ·
-  <a href="docs/book/src/getting-started/quickstart.md">Quick start</a> ·
-  <a href="docs/book/src/architecture/overview.md">Architecture</a> ·
-  <a href="https://discord.gg/zeroclaw">Discord</a>
-</p>
+You run the agent on your machine, against a model provider you chose. It plans,
+acts through governed tools, observes the result and remembers. You start every
+interaction yourself from the command line. This project does not offer, document
+or promise an inbound endpoint, a chat-platform listener or remote control.
 
----
+## What works in MVP 1.0
 
-ZeroClaw is an agent runtime — a single Rust binary you configure and run. It talks to LLM providers (Anthropic, OpenAI, Ollama, and ~20 others), reaches the world through 30+ channels (Discord, Telegram, Matrix, email, voice, webhooks, your own CLI), and acts through tools (shell, browser, HTTP, hardware, custom MCP servers). Everything runs on your machine, with your keys, in your workspace.
+The `local-agent-minimal` build profile
+([profile page](docs/book/src/setup/local-agent-minimal.md)) contains:
 
-Read the [Philosophy](docs/book/src/philosophy/index.md) for the four opinions that shape it.
+- the Agent Loop (plan, act, observe) through `zeroclaw agent`, interactive or
+  single-message
+- tools under the configured autonomy and risk profile (default `supervised`)
+- agent memory, managed with `zeroclaw memory`
+- MCP servers over stdio, granted per agent
+- Skills (`zeroclaw skills`)
+- diagnostics and configuration commands (`config`, `doctor`, `status`,
+  `self-test`, `auth`, `security`)
 
-## Install
+It is standalone. An optional integration with AASM is planned for a later
+milestone and is not implemented; nothing here depends on it.
 
-### Unix (recommended)
+### Not available in this profile
 
-<!-- >>> generated:readme-unix-fast by `cargo generate installers` - do not edit <<< -->
+The gateway, ACP bridge, messaging channels, the daemon and its listeners, relay
+and enrollment, the embedded web UI, voice wake, tunnels, and the `service`
+commands that install or start a unit are not compiled in or are refused at
+startup. There are **no install or quickstart instructions for them here**, by
+design. The exact list and behavior is in the
+[minimal profile page](docs/book/src/setup/local-agent-minimal.md#what-is-excluded).
+
+## User journeys
+
+1. **Chat with a model you configured.** Run `zeroclaw agent -a <alias>`
+   (interactive) or add `-m "<message>"` (one message). The alias must exist as
+   `[agents.<alias>]` and its `model_provider` must resolve to a configured
+   `[providers.models.<family>.<alias>]`; otherwise the command exits before any
+   network activity.
+2. **Let the agent use tools under your approval policy.** The default
+   `supervised` level runs low-risk tools, asks before medium-risk ones and
+   blocks high-risk ones. See [Autonomy levels](docs/book/src/security/autonomy.md).
+3. **Grant an MCP tool server.** An agent with no `mcp_bundles` connects to no
+   MCP server. See [MCP](docs/book/src/tools/mcp.md).
+4. **Check the claims yourself, offline.** The golden-journey runner drives a
+   built binary against a loopback-only scripted provider and a stdio MCP
+   fixture, with no real model or credential. See
+   [golden-journeys-runner.md](docs/local-agent/golden-journeys-runner.md).
+
+## Supported platforms, providers and build
+
+- **Build:** from source only, with Rust 1.96.0 or newer (edition 2024).
+- **OS:** exercised on macOS (`aarch64-apple-darwin`) only. The golden-journey
+  runner is POSIX-only and the egress probe uses macOS `sandbox-exec`. Linux and
+  Windows are **not verified** for this profile.
+- **Providers:** `zeroclaw quickstart` offers Anthropic, OpenAI, OpenRouter and
+  Ollama, and OpenAI-compatible endpoints can be configured. `zeroclaw providers
+  list` lists the provider aliases you have configured, not what the binary
+  supports. Which providers were exercised end to end for MVP 1.0 is **not
+  established**: the verified journeys use a synthetic local provider, and
+  provider sign-in flows (OAuth) are not covered by the egress evidence.
+
+## Install and first run
+
+Build the minimal profile from a checkout:
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh | sh
-"${CARGO_HOME:-$HOME/.cargo}/bin/zeroclaw" quickstart
-```
-<!-- >>> end generated:readme-unix-fast <<< -->
-
-### Windows (recommended)
-
-Use the Rust-free [prebuilt PowerShell path](docs/book/src/setup/windows.md#option-1-prebuilt-binary-recommended) in the Windows setup guide. It installs the current release, updates PATH, and runs Quickstart.
-
-For the guided Unix installer, source builds, app and feature selection, and PATH behavior, compare the [installation paths](docs/book/src/getting-started/quickstart.md#install).
-
-Run `./install.sh --help` for the complete Unix installer flag reference.
-
-> **Working on the docs?** The translated documentation catalogues live in a
-> git submodule (`docs/book/po`). The Rust build does not need it, but building
-> or syncing the docs does. Clone with it, or add it to an existing clone:
->
-> ```bash
-> git clone --recurse-submodules https://github.com/zeroclaw-labs/zeroclaw.git
-> git submodule update --init docs/book/po   # existing clone
-> ```
-
-Platform-specific notes: [Linux](docs/book/src/setup/linux.md) · [macOS](docs/book/src/setup/macos.md) · [Windows](docs/book/src/setup/windows.md) · [FreeBSD](docs/book/src/setup/freebsd.md) · [NixOS](docs/book/src/setup/nixos.md) · [Docker](docs/book/src/setup/container.md)
-
-## Quick start
-
-```bash
-zeroclaw quickstart               # one-shot setup: pick a provider, write a working config
-zeroclaw agent -a <alias>         # interactive chat using the [agents.<alias>] entry
-zeroclaw service install          # register as systemd/launchctl/Windows Service
-zeroclaw service start            # run it always-on in the background
+cargo build --release --locked --bin zeroclaw \
+  --no-default-features --features local-agent-minimal
 ```
 
-Full walkthrough: [Quick start](docs/book/src/getting-started/quickstart.md) — or skip the safety gates with [YOLO mode](docs/book/src/getting-started/yolo.md) for dev boxes.
+The binary is `zeroclaw` in your Cargo target directory. Then:
 
-## What ZeroClaw does
-
-- **Multi-channel** — one agent answering you across [every channel you configure](docs/book/src/channels/overview.md). Inbound messages from Discord, Telegram, Matrix, email, webhooks, CLI — all delivered to the same agent loop.
-- **Provider-agnostic** — [model providers](docs/book/src/providers/overview.md) are pluggable. Configure Anthropic, OpenAI, local Ollama, or any OpenAI-compatible endpoint. [Fallback chains and routing](docs/book/src/providers/routing.md) keep the agent running when a provider flakes.
-- **Security-first, with escape hatches** — default autonomy is `supervised`: medium-risk ops require approval, high-risk blocked. Workspace boundaries, command policy, OS-level sandboxes (Landlock / Bubblewrap / Seatbelt / Docker), and cryptographic [tool receipts](docs/book/src/security/tool-receipts.md) on every action. [YOLO mode](docs/book/src/getting-started/yolo.md) exists for trusted dev environments.
-- **Hardware-capable** — GPIO / I2C / SPI / USB on Raspberry Pi, STM32, Arduino, and ESP32 via the `Peripheral` trait. See [Hardware](docs/book/src/hardware/index.md).
-- **Gateway + dashboard** — HTTP / WebSocket gateway for clients, with a web dashboard for chat, memory browsing, config editing, cron management, and tool inspection.
-- **SOP engine** — event-triggered [Standard Operating Procedures](docs/book/src/sop/index.md) (MQTT / webhook / cron / peripheral) with approval gates and resumable runs.
-- **ACP** — IDE / editor integration via [Agent Client Protocol](docs/book/src/channels/acp.md) (JSON-RPC 2.0 over stdio).
-
-## Configuration
-
-One TOML file at `~/.zeroclaw/config.toml`. Pointers:
-
-- [Provider configuration](docs/book/src/providers/configuration.md) — the universal `[providers.models.<type>.<alias>]` schema
-- [Channels overview](docs/book/src/channels/overview.md) — per-channel `[channels.<type>.<alias>]` blocks
-- [Security overview](docs/book/src/security/overview.md) — autonomy, sandboxing, tool receipts
-- [Full config reference](https://docs.zeroclaw.com/master/en/reference/config.html) — generated from the live schema; every key documented
-
-A V3 config has at minimum four section headers (`<type>.<alias>` shaped) — a provider entry, an agent that references it, and a risk profile the agent gates against. See [Provider Configuration → Minimal working example](docs/book/src/providers/configuration.md#minimal-working-example) for the canonical four-section form with inline type/alias commentary.
-
-For standard OpenAI Codex subscription auth, Quickstart can write the provider
-entry for you:
-
-```bash
-zeroclaw auth login --model-provider openai-codex --import ~/.codex/auth.json  # if already signed in with Codex CLI
-zeroclaw quickstart --model-provider openai-codex --model gpt-5.4
+```sh
+zeroclaw quickstart                  # interactive, needs a terminal; writes a provider and an agent
+zeroclaw agent -a <alias> -m "hello"
 ```
 
-The provider entry uses the canonical OpenAI shape; the alias below is an
-example:
+Configuration lives in `~/.zeroclaw/config.toml` unless you pass `--config-dir`;
+`zeroclaw config set <path> <value>` configures headlessly. A plain
+`cargo build --release` builds the **standard** profile, which includes the
+surfaces excluded above, and the upstream installer scripts target upstream
+releases. Neither is a Local Agent install path.
 
-```toml
-[providers.models.openai.coding]   # type = openai; alias = coding (you choose)
-model = "gpt-5.4"
-wire_api = "responses"
-requires_openai_auth = true
-```
+## Security and data egress
 
-…and point your agent at it with `model_provider = "openai.<alias>"`.
+- Inference requests go only to a provider you configured. `--model-provider`
+  accepts only a configured `<family>.<alias>`, never a bare family or a URL.
+- Everything the model is sent, including tool results and recalled memory, goes
+  to that provider. Use a local provider such as Ollama if that is not acceptable.
+- Tools act on your machine with your privileges, within the workspace and
+  command policy of the agent's risk profile. Read the
+  [security overview](docs/book/src/security/overview.md) before raising autonomy.
+- The egress evidence is a sandboxed probe on macOS with loopback recorders; see
+  [Provider approval and egress](docs/book/src/setup/local-agent-minimal.md#provider-approval-and-egress).
+  It is not proof that no byte ever leaves the machine.
 
-Notes:
+## Known limits
 
-- Normal OpenAI Codex subscription auth uses stored auth profiles, not an `api_key` on the provider entry.
-- Claude Max setup-token auth stays on the canonical Anthropic slot: run `claude setup-token`, choose `setup_token` in Quickstart, and paste the generated token into the API key/token prompt.
-- Only set `api_key` / `uri` on `[providers.models.openai.<alias>]` when intentionally targeting a custom OpenAI-compatible gateway or endpoint.
-- If you see `provider streaming failed, falling back to non-streaming chat`, ZeroClaw retries the same request in non-streaming mode. Check `zeroclaw auth status` before changing provider config.
+Details are in the
+[minimal profile page](docs/book/src/setup/local-agent-minimal.md#limits-of-the-claim).
 
-## Architecture
+- Not covered by the egress claim: model-catalog lookups, provider OAuth sign-in
+  (a short-lived loopback callback listener that is not gated), update checks,
+  the tool sandbox's DNS allowance, and approval-gated network tools such as
+  `web_fetch`.
+- Provider adapters, and some relay and enrollment source, are still in the source
+  tree; the minimal binary is checked not to link the relay and enrollment entry
+  points.
+- Distribution license review is not complete (see [UPSTREAM.md](UPSTREAM.md)).
+  The inherited [SECURITY.md](SECURITY.md) describes upstream's reporting
+  channels; no Local Agent vulnerability-reporting channel is established yet.
+- The journey evidence is one synthetic-provider run on macOS, not release
+  validation.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│            channels       gateway        ACP                 │
-│          (30+ adapters)   (REST/WS)    (JSON-RPC)            │
-│                        ↓                                     │
-│                   ZeroClaw runtime                           │
-│         ┌──────────┬──────────┬──────────┐                   │
-│         │  agent   │ security │   SOP    │                   │
-│         │   loop   │  policy  │  engine  │                   │
-│         └──────────┴──────────┴──────────┘                   │
-│              ↓          ↓           ↓                        │
-│          providers    tools      memory                      │
-│         (Anthropic,  (shell,    (SQLite,                     │
-│          OpenAI,     browser,    embeddings)                 │
-│          Ollama,     HTTP,                                   │
-│          ~20 more)   hardware)                               │
-└──────────────────────────────────────────────────────────────┘
-```
+## Provenance and attribution
 
-Full detail with Mermaid diagrams: [Architecture overview](docs/book/src/architecture/overview.md) · [Request lifecycle](docs/book/src/architecture/request-lifecycle.md) · [Crates](docs/book/src/architecture/crates.md).
+Local Agent is derived from [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw),
+created by its own community and maintainers. This repository keeps the upstream
+license terms and attribution, and claims no upstream trademark rights or
+endorsement.
 
-## Contributing
+- Pinned baseline: upstream `master` at commit
+  `9dbb57231f48e26fee56243de4f7845924ce4f04` (workspace version `0.8.7`).
+  Verification commands and the divergence ledger are in [UPSTREAM.md](UPSTREAM.md).
+- License: [MIT](LICENSE-MIT) OR [Apache 2.0](LICENSE-APACHE); attribution in
+  [NOTICE](NOTICE). Dependencies need their own license review.
+- The ZeroClaw name and logo belong to upstream. Upstream documentation, ADRs and
+  RFCs elsewhere in this repository are kept as historical record and may describe
+  ZeroClaw channels and features that Local Agent excludes.
+- Decision record for this derivative:
+  [ADR-0001](docs/book/src/architecture/decisions/ADR-0001-upstream-foundation.md).
 
-Start with [how to contribute](docs/book/src/contributing/how-to.md). Larger changes go through the [RFC process](docs/book/src/contributing/rfcs.md). Real-time chat lives on [Discord](https://discord.gg/zeroclaw) (the best way to reach the team); durable work tracking is on [GitHub issues](https://github.com/zeroclaw-labs/zeroclaw/issues).
+## Documentation and contributing
 
-Good places to start:
-
-- New channel → `crates/zeroclaw-channels/`
-- New provider → `crates/zeroclaw-providers/`
-- New tool → `crates/zeroclaw-tools/`
-- Hardware support → `crates/zeroclaw-hardware/`
-- Docs → `docs/book/src/`
-
-AI-assisted PRs are welcome; see [Contribution culture (RFC #5615)](https://github.com/zeroclaw-labs/zeroclaw/issues/5615) for the co-authorship norms.
-
-<!-- BEGIN:RECENT_CONTRIBUTORS -->
-<!-- END:RECENT_CONTRIBUTORS -->
-
-## Security
-
-Do not file public issues for security vulnerabilities. Email `security@zeroclaw.dev`. See [SECURITY.md](SECURITY.md) for the full policy.
-
-## Official repository & impersonation notice
-
-This is the only official ZeroClaw repository:
-
-> <https://github.com/zeroclaw-labs/zeroclaw>
-
-Any other repository, organization, domain, or package claiming to be "ZeroClaw" or implying affiliation with ZeroClaw Labs is **unauthorized and not affiliated with this project**.
+- Documentation source: [`docs/book/src`](docs/book/src/introduction.md)
+- Contributor workflow: [AGENTS.md](AGENTS.md) and the
+  [engineering lifecycle](docs/local-agent/engineering-lifecycle.md)
+- Baseline measurement method: [baseline-method.md](docs/local-agent/baseline-method.md)
+- Source export review aid: [export-policy.md](docs/local-agent/export-policy.md)
 
 ## Support Development
 
 This project is free and open source. If it is useful to you and you would like to, you can voluntarily support its development on [Ko-fi](https://ko-fi.com/chisanan232). Horonom is not yet an incorporated company: contributions go to the individual maintainer's personal Ko-fi account, not to a registered company. Support is optional, is not a charitable donation, and does not come with priority support or other benefits.
-
-## License
-
-Dual-licensed: [MIT](LICENSE-MIT) OR [Apache 2.0](LICENSE-APACHE). You may choose either. Contributors automatically grant rights under both — see [CLA](docs/book/src/contributing/cla.md). The **ZeroClaw** name and logo are trademarks of ZeroClaw Labs.
-
-## Credits
-
-Built and maintained by the community — original creator [@theonlyhennygod](https://github.com/theonlyhennygod); project lead [@JordanTheJet](https://github.com/JordanTheJet). Full maintainer list in [Communication](docs/book/src/contributing/communication.md).
-
-Thanks to the communities that incubated early work: **Harvard University**, **MIT**, **Sundai Club**, and every contributor pushing it forward.
-
-<p align="center">
-  <a href="https://www.star-history.com/#zeroclaw-labs/zeroclaw&type=date&legend=top-left">
-    <picture>
-     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&theme=dark&legend=top-left" />
-     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
-     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
-    </picture>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/zeroclaw-labs/zeroclaw/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=zeroclaw-labs/zeroclaw" alt="ZeroClaw contributors" />
-  </a>
-</p>

@@ -1,5 +1,7 @@
 # Mattermost
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 REST v4 polling and WebSocket client. By default the bot polls channels every 3 seconds for new posts; set `listen_mode = "websocket"` for near-real-time event delivery over a persistent WebSocket connection. Reply posts always go out via `POST /api/v4/posts` regardless of listen mode.
 
 ## Who can talk to the agent

@@ -1316,6 +1316,7 @@ impl RpcDispatcher {
         }
     }
 
+    #[cfg(feature = "daemon-listeners")]
     /// Attach the accepted connection's liveness token. Additive builder so the
     /// listeners can share their client-count token with the tasks this
     /// dispatcher spawns while other construction sites need no change.
@@ -1328,6 +1329,7 @@ impl RpcDispatcher {
         self
     }
 
+    #[cfg(feature = "daemon-listeners")]
     /// Close this connection if it has not completed `initialize` by
     /// `deadline`, so a client that connects and never initializes cannot
     /// hold a listener slot for as long as it stays open.
@@ -3093,6 +3095,7 @@ impl RpcDispatcher {
         }
     }
 
+    #[cfg(any(test, feature = "daemon-listeners"))]
     /// Cancel and join every prompt accepted by this connection generation.
     /// The queue guard held by an in-flight turn is released only after its
     /// provider/tool future has observed cancellation and returned, so a
@@ -3338,6 +3341,7 @@ impl RpcDispatcher {
         false
     }
 
+    #[cfg(any(test, feature = "daemon-listeners"))]
     fn log_prompt_task_failure(result: Result<(), tokio::task::JoinError>) {
         if let Err(error) = result {
             ::zeroclaw_log::record!(
@@ -3408,6 +3412,7 @@ impl RpcDispatcher {
 
     /// Own a transport until EOF or generation cancellation, then drain all
     /// work accepted by that exact connection before returning.
+    #[cfg(feature = "daemon-listeners")]
     pub(crate) async fn run_connection(&mut self, transport: &mut (dyn RpcTransport + Send)) {
         let connection_cancel = self.connection_cancel.clone();
         tokio::select! {
@@ -13876,6 +13881,10 @@ fn replace_rpc_chat_conversation_state(
 }
 
 #[cfg(test)]
+// The immediate-session and provider-gate pieces of this shared fixture are
+// consumed only by the `local` and `wss` listener tests, which exist only with
+// `daemon-listeners`; without it they are legitimately unreferenced.
+#[cfg_attr(not(feature = "daemon-listeners"), allow(dead_code))]
 pub(crate) mod connection_test_support {
     use super::RpcContext;
     use async_trait::async_trait;

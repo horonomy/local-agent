@@ -14,6 +14,7 @@
 //!
 //! Test code, not daemon-path: bare `tokio::spawn` is fine here (the
 //! `zeroclaw_spawn::spawn!` rule is for production daemon tasks).
+#![cfg(feature = "daemon-listeners")]
 #![allow(clippy::disallowed_methods)]
 
 use std::path::Path;

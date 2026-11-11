@@ -12,11 +12,6 @@
 #   ignore_example  optional example blocked sender for the example block
 
 [[channel]]
-key = "matrix"
-sender_desc = "the full Matrix user ID, `@user:server.tld`"
-sender_example = "@user:matrix.example.org"
-
-[[channel]]
 key = "signal"
 sender_desc = "an E.164 phone number or a signal-cli source identifier"
 sender_example = "+15550100"

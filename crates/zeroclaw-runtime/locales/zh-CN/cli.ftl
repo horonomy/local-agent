@@ -254,7 +254,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     管理通信通道。
 
-    添加、删除、列出、发送以及对将 ZeroClaw 连接到消息平台的通道进行健康检查。支持的通道类型：telegram、discord、slack、whatsapp、matrix、imessage、email。
+    添加、删除、列出、发送以及对将 ZeroClaw 连接到消息平台的通道进行健康检查。支持的通道类型：telegram、discord、slack、whatsapp、imessage、email。
 
     示例：
     zeroclaw channel list
@@ -299,19 +299,19 @@ cli-config-long-about =
 
     通过点分路径查看、设置或初始化配置属性。使用 'schema' 转储配置文件的完整 JSON Schema。
 
-    属性通过点分路径寻址（例如 channels.matrix.mention-only）。
+    属性通过点分路径寻址（例如 channels.telegram.mention-only）。
     密钥字段（API 密钥、令牌）会自动使用掩码输入。
     枚举字段在省略值时提供交互式选择。
 
     示例：
     zeroclaw config list                                  # 列出所有属性
     zeroclaw config list --secrets                        # 仅列出密钥
-    zeroclaw config list --filter channels.matrix         # 按前缀过滤
-    zeroclaw config get channels.matrix.mention-only      # 获取值
-    zeroclaw config set channels.matrix.mention-only true # 设置值
-    zeroclaw config set channels.matrix.access-token      # 密钥：掩码输入
-    zeroclaw config set channels.matrix.stream-mode       # 枚举：交互式选择
-    zeroclaw config init channels.matrix                  # 使用默认值初始化部分
+    zeroclaw config list --filter channels.telegram         # 按前缀过滤
+    zeroclaw config get channels.telegram.mention-only      # 获取值
+    zeroclaw config set channels.telegram.mention-only true # 设置值
+    zeroclaw config set channels.telegram.bot-token      # 密钥：掩码输入
+    zeroclaw config set channels.telegram.stream-mode       # 枚举：交互式选择
+    zeroclaw config init channels.telegram                  # 使用默认值初始化部分
     zeroclaw config schema                                # 将 JSON Schema 打印到 stdout
     zeroclaw config schema > schema.json
 
@@ -945,6 +945,7 @@ cli-plugin-list-entry-failed = {$name} v{$version} — {$description}（无法�
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description}（没有可加载的组件）
 cli-config-section-degraded = 警告：{$path} 中的配置部分 `{$section}` 格式不正确，本次运行已重置为默认值。该部分中的值不会生效。请运行 `zeroclaw config migrate` 查看解析错误，然后修复文件。
 cli-config-section-retired-wati = 警告：已弃用的 WATI 频道配置部分 `{$section}` 将被忽略，因为 WATI 支持已移除。请使用 Cloud API 或 WhatsApp Web 迁移到 `[channels.whatsapp.<alias>]`，然后撤销未使用的 WATI API 令牌。
+cli-config-section-retired-matrix = 警告：已弃用的 Matrix 频道配置部分 `{$section}` 将被忽略，因为内置的 Matrix 频道已移除。请撤销 Matrix 访问令牌和设备，并手动删除 `<config_dir>/state/matrix/<alias>/`。
 cli-config-section-retired-node-transport = 警告：已弃用的 `[node_transport]` 配置将被忽略，因为旧版 HMAC 节点传输已移除。请从 config.toml 中删除该部分。
 cli-plugin-removed = 已移除插件“{$name}”。
 cli-plugin-removed-grant-kept = 其配置条目“{$key}”及其出站授权（{$grants}）会被保留：之后以“{$name}”安装的软件包将继承它。删除名为“{$key}”的 [[plugins.entries]] 行即可撤销该授权。

@@ -208,7 +208,6 @@ pub fn render_markdown() -> anyhow::Result<String> {
 
 const WINDOWS_PREBUILT_ZONE: &str = "windows-prebuilt-powershell";
 const UNIX_FAST_COMMAND_ZONE: &str = "unix-fast-command";
-const README_UNIX_FAST_ZONE: &str = "readme-unix-fast";
 
 fn markdown_begin(zone: &str) -> String {
     format!("<!-- >>> generated:{zone} by `cargo generate installers` - do not edit <<< -->")
@@ -262,30 +261,9 @@ fn render_unix_fast_command_block(routes: &[InstallRoute]) -> anyhow::Result<Str
     Ok(format!("```sh\n{command}\n```"))
 }
 
-fn render_readme_unix_fast_block(routes: &[InstallRoute]) -> anyhow::Result<String> {
-    let variant = unix_fast_variant(routes)?;
-    let command = variant
-        .invocation
-        .command()
-        .ok_or_else(|| anyhow::Error::msg("Unix fast route must define an entry command"))?;
-    let quickstart_subcommand = variant
-        .quickstart_command
-        .strip_prefix("zeroclaw ")
-        .filter(|subcommand| !subcommand.is_empty() && !subcommand.contains(char::is_whitespace))
-        .ok_or_else(|| anyhow::Error::msg("Unix Quickstart command must be one subcommand"))?;
-    Ok(format!(
-        "```sh\n{command}\n\"${{CARGO_HOME:-$HOME/.cargo}}/bin/zeroclaw\" {quickstart_subcommand}\n```"
-    ))
-}
-
 pub fn render_unix_fast_command_zone(_root: &Path, current: &str) -> anyhow::Result<String> {
     let body = render_unix_fast_command_block(&spec::install_routes()?)?;
     splice_markdown(current, UNIX_FAST_COMMAND_ZONE, &body)
-}
-
-pub fn render_readme_unix_fast_zone(_root: &Path, current: &str) -> anyhow::Result<String> {
-    let body = render_readme_unix_fast_block(&spec::install_routes()?)?;
-    splice_markdown(current, README_UNIX_FAST_ZONE, &body)
 }
 
 fn render_windows_prebuilt_block(routes: &[InstallRoute]) -> anyhow::Result<String> {
@@ -530,9 +508,6 @@ mod tests {
                 .unwrap()
                 .contains(command)
         );
-        let readme = render_readme_unix_fast_block(&routes).unwrap();
-        assert!(readme.contains(command));
-        assert!(readme.contains("/bin/zeroclaw\" quickstart"));
     }
 
     fn mutate_variant(

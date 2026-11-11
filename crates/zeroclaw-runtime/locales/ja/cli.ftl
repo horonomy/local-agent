@@ -253,7 +253,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     通信チャネルを管理します。
 
-    ZeroClaw をメッセージングプラットフォームに接続するチャネルを追加、削除、一覧表示、送信、およびヘルスチェックします。サポートされるチャネルタイプ: telegram、discord、slack、whatsapp、matrix、imessage、email。
+    ZeroClaw をメッセージングプラットフォームに接続するチャネルを追加、削除、一覧表示、送信、およびヘルスチェックします。サポートされるチャネルタイプ: telegram、discord、slack、whatsapp、imessage、email。
 
     例:
     zeroclaw channel list
@@ -298,19 +298,19 @@ cli-config-long-about =
 
     ドット記法で設定プロパティを表示、設定、または初期化します。「schema」を使用して、設定ファイルの完全な JSON スキーマをダンプします。
 
-    プロパティはドット記法でアドレス指定されます（例: channels.matrix.mention-only）。
+    プロパティはドット記法でアドレス指定されます（例: channels.telegram.mention-only）。
     シークレットフィールド（API キー、トークン）は自動的にマスクされた入力を使用します。
     列挙フィールドは、値が省略された場合、インタラクティブ選択を提供します。
 
     例:
     zeroclaw config list                                  # すべてのプロパティを一覧表示
     zeroclaw config list --secrets                        # シークレットのみを一覧表示
-    zeroclaw config list --filter channels.matrix         # プレフィックスでフィルタリング
-    zeroclaw config get channels.matrix.mention-only      # 値を取得
-    zeroclaw config set channels.matrix.mention-only true # 値を設定
-    zeroclaw config set channels.matrix.access-token      # シークレット: マスクされた入力
-    zeroclaw config set channels.matrix.stream-mode       # 列挙: インタラクティブ選択
-    zeroclaw config init channels.matrix                  # デフォルト値でセクションを初期化
+    zeroclaw config list --filter channels.telegram         # プレフィックスでフィルタリング
+    zeroclaw config get channels.telegram.mention-only      # 値を取得
+    zeroclaw config set channels.telegram.mention-only true # 値を設定
+    zeroclaw config set channels.telegram.bot-token      # シークレット: マスクされた入力
+    zeroclaw config set channels.telegram.stream-mode       # 列挙: インタラクティブ選択
+    zeroclaw config init channels.telegram                  # デフォルト値でセクションを初期化
     zeroclaw config schema                                # JSON Schema を stdout に出力
     zeroclaw config schema > schema.json
 
@@ -944,6 +944,7 @@ cli-plugin-list-entry-failed = {$name} v{$version} — {$description}（読み�
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description}（読み込むコンポーネントなし）
 cli-config-section-degraded = 警告: {$path} の設定セクション `{$section}` は不正なため、この実行ではデフォルト値にリセットされました。そのセクションの値は有効ではありません。`zeroclaw config migrate` を実行して解析エラーを確認し、ファイルを修復してください。
 cli-config-section-retired-wati = 警告: 廃止された WATI チャネル設定セクション `{$section}` は、WATI のサポートが削除されたため無視されます。Cloud API または WhatsApp Web を使用して `[channels.whatsapp.<alias>]` に移行し、未使用の WATI API トークンを失効させてください。
+cli-config-section-retired-matrix = 警告: 廃止された Matrix チャネル設定セクション `{$section}` は、同梱の Matrix チャネルが削除されたため無視されます。Matrix のアクセストークンとデバイスを失効させ、`<config_dir>/state/matrix/<alias>/` を手動で削除してください。
 cli-config-section-retired-node-transport = 警告: 廃止された `[node_transport]` 設定は、レガシー HMAC ノードトランスポートが削除されたため無視されます。config.toml からこのセクションを削除してください。
 cli-plugin-removed = プラグイン '{$name}' を削除しました。
 cli-plugin-removed-grant-kept = 設定エントリ '{$key}' は送信許可 ({$grants}) とともに残ります。後で '{$name}' としてインストールされるパッケージはこれを引き継ぎます。許可を取り消すには '{$key}' という名前の [[plugins.entries]] 行を削除してください。

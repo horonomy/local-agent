@@ -21,27 +21,39 @@
 //! hand-rolled (one fixed route) to keep the runtime free of any gateway-shaped
 //! web-framework dependency.
 
+#[cfg(feature = "daemon-listeners")]
 use std::net::SocketAddr;
+#[cfg(feature = "daemon-listeners")]
 use std::path::PathBuf;
+#[cfg(feature = "daemon-listeners")]
 use std::sync::Arc;
 
+#[cfg(feature = "daemon-listeners")]
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "daemon-listeners")]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+#[cfg(feature = "daemon-listeners")]
 use tokio::net::TcpListener;
+#[cfg(feature = "daemon-listeners")]
 use tokio_util::sync::CancellationToken;
+#[cfg(feature = "daemon-listeners")]
 use zeroclaw_config::pairing::{PairingCodePolicy, PairingGuard};
 
+#[cfg(feature = "daemon-listeners")]
 use crate::security::cert_ledger::{CertLedger, CertStatus, IssuanceActor, LedgerEntry};
 
 mod paircode_admin;
 pub use paircode_admin::{GeneratedEnrollmentPaircode, request_new_paircode};
 
+#[cfg(feature = "daemon-listeners")]
 /// Maximum bytes accepted for an enrollment request (headers + body). A CSR is a
 /// few KiB; this is a generous cap that still bounds a memory-exhaustion attempt.
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
+#[cfg(feature = "daemon-listeners")]
 /// Per-connection deadline for the whole TLS + request/response exchange.
 const CONN_TIMEOUT_SECS: u64 = 15;
+#[cfg(feature = "daemon-listeners")]
 /// Concurrent in-flight enrollment connections (bounds handshake/signing load).
 const MAX_INFLIGHT: usize = 16;
 
@@ -83,6 +95,7 @@ pub fn relay_profile(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The enrollment request body (`POST /enroll`).
 #[derive(Debug, Deserialize)]
 struct EnrollRequest {
@@ -95,6 +108,7 @@ struct EnrollRequest {
     csr_pem: String,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The enrollment response body (200).
 #[derive(Debug, Serialize)]
 struct EnrollResponse {
@@ -120,6 +134,7 @@ struct EnrollResponse {
     fingerprint: String,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// The preflight response body (`GET /enroll/ca`). It intentionally contains only
 /// the daemon CA needed for SAS confirmation; it does not consume or receive a
 /// pairing code.
@@ -128,6 +143,7 @@ struct EnrollTrustResponse {
     ca_chain_pem: String,
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Everything the enrollment endpoint needs to serve requests.
 /// Source ports the in-process relay bridge is dialing the enrollment endpoint
 /// from. The bridge registers each outbound port BEFORE connecting (bind, then
@@ -135,6 +151,7 @@ struct EnrollTrustResponse {
 /// peer in this set is relay-class; every other peer is direct-class.
 pub type BridgePortSet = std::sync::Arc<std::sync::Mutex<std::collections::HashSet<u16>>>;
 
+#[cfg(feature = "daemon-listeners")]
 /// Class-wide attempt budget for relay-routed enrollment. Relay clients share
 /// one network identity (the bridge's loopback), so per-client lockout cannot
 /// apply; this refilling bucket bounds their SUM of pairing attempts instead.
@@ -150,6 +167,7 @@ pub struct RelayAttemptBucket {
     rate_per_sec: f64,
 }
 
+#[cfg(feature = "daemon-listeners")]
 impl RelayAttemptBucket {
     pub fn new(burst: u32, rate_per_sec: f64) -> Self {
         Self {
@@ -176,6 +194,7 @@ impl RelayAttemptBucket {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 impl Default for RelayAttemptBucket {
     /// Burst 5, refill 0.5/s: a legitimate enrollee is untouched, while a
     /// sustained brute force across ALL relay clients is held to ~30/min.
@@ -184,6 +203,7 @@ impl Default for RelayAttemptBucket {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 pub struct EnrollServer {
     pub bind_addr: SocketAddr,
     /// Server-authentication-only TLS acceptor (no client cert; this is the
@@ -223,6 +243,7 @@ pub struct EnrollServer {
     pub paircode_admin_data_dir: Option<PathBuf>,
 }
 
+#[cfg(feature = "daemon-listeners")]
 impl EnrollServer {
     /// Authenticate, sign, record, and build the response. Returns `(status,
     /// json_error)` on any failure so the caller writes a clean HTTP error.
@@ -335,6 +356,7 @@ impl EnrollServer {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Run the enrollment endpoint until `cancel` fires.
 pub async fn serve(server: Arc<EnrollServer>, cancel: CancellationToken) -> Result<()> {
     let listener = TcpListener::bind(server.bind_addr)
@@ -343,6 +365,7 @@ pub async fn serve(server: Arc<EnrollServer>, cancel: CancellationToken) -> Resu
     serve_on(listener, server, cancel).await
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Run the enrollment endpoint on a pre-bound listener (used by tests so they can
 /// bind `127.0.0.1:0` and learn the assigned port).
 pub async fn serve_on(
@@ -418,6 +441,7 @@ pub async fn serve_on(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Reconcile certificates an earlier enrollment left undelivered, logging
 /// rather than failing.
 ///
@@ -438,6 +462,7 @@ fn sweep_undelivered(server: &EnrollServer) {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Which trust class the accepted peer belongs to (see [`BridgePortSet`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PeerClass {
@@ -448,6 +473,7 @@ pub enum PeerClass {
     RelayBridge,
 }
 
+#[cfg(feature = "daemon-listeners")]
 async fn handle_conn(
     server: &EnrollServer,
     tcp: tokio::net::TcpStream,
@@ -500,6 +526,7 @@ async fn handle_conn(
     deliver_enroll_response(server, &mut tls, outcome).await;
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Write the enrollment outcome to `stream` and, for a success, mark the ledger
 /// row delivered - but ONLY if the response write actually succeeded.
 ///
@@ -553,6 +580,7 @@ async fn deliver_enroll_response<S: AsyncWrite + Unpin>(
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Record a delivered enrollment, logging rather than failing.
 ///
 /// The response has already gone out by the time this runs, so there is nothing
@@ -591,6 +619,7 @@ fn mark_enrollment_delivered(server: &EnrollServer, fingerprint: &str) {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn http_reason(status: u16) -> &'static str {
     match status {
         400 => "Bad Request",
@@ -602,6 +631,7 @@ fn http_reason(status: u16) -> &'static str {
     }
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Mint a daemon-controlled stable device id (`dev_<16 hex>`, 64 bits of entropy).
 /// Mint the daemon-assigned device identity.
 ///
@@ -618,6 +648,7 @@ fn mint_device_id() -> Result<String, String> {
     })
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// [`mint_device_id`] with the entropy source injected, so the failure path is
 /// testable without breaking the system CSPRNG.
 fn mint_device_id_with(fill: impl FnOnce(&mut [u8]) -> Result<(), ()>) -> Result<String, String> {
@@ -628,6 +659,7 @@ fn mint_device_id_with(fill: impl FnOnce(&mut [u8]) -> Result<(), ()>) -> Result
     Ok(format!("dev_{}", hex::encode(bytes)))
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -635,6 +667,7 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+#[cfg(feature = "daemon-listeners")]
 /// Read one HTTP/1.1 request: `(method, path, body)`. Bounded by `max` bytes.
 async fn read_request<S: AsyncRead + Unpin>(
     stream: &mut S,
@@ -697,6 +730,7 @@ async fn read_request<S: AsyncRead + Unpin>(
     Ok((method, path, body))
 }
 
+#[cfg(feature = "daemon-listeners")]
 async fn write_json<S: AsyncWrite + Unpin>(
     stream: &mut S,
     status: u16,
@@ -716,6 +750,7 @@ async fn write_json<S: AsyncWrite + Unpin>(
     Ok(())
 }
 
+#[cfg(feature = "daemon-listeners")]
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
@@ -723,6 +758,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+#[cfg(feature = "daemon-listeners")]
 #[cfg(test)]
 mod tests {
     use super::*;

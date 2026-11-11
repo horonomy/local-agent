@@ -115,7 +115,7 @@ pub enum StreamDelta {
 
 impl StreamDelta {
     /// Render structured tool events with the historical conservative policy.
-    /// Non-Matrix consumers must use this instead of serializing arguments.
+    /// Consumers must use this instead of serializing arguments.
     #[must_use]
     pub fn legacy_status(&self) -> Option<String> {
         match self {

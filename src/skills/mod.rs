@@ -11,11 +11,11 @@ use zeroclaw_runtime::skills::{ScaffoldOptions, SkillFrontmatter, SkillsService}
 /// runtime i18n crate is absent, so the English `fallback` is used.
 #[allow(unused_variables)]
 fn mt(key: &str, fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::i18n::get_required_cli_string(key)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }
@@ -24,11 +24,11 @@ fn mt(key: &str, fallback: &str) -> String {
 /// `mt` with `{$name}` arguments.
 #[allow(unused_variables)]
 fn mta(key: &str, args: &[(&str, &str)], fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::i18n::get_required_cli_string_with_args(key, args)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }

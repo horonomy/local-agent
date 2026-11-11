@@ -16,6 +16,7 @@ pub mod tui_identity;
 pub mod turn;
 pub mod types;
 pub mod upload;
+#[cfg(feature = "daemon-listeners")]
 pub mod wss;
 
 /// How long a cancelled listener waits for the connections it accepted to
@@ -53,6 +54,7 @@ impl Clone for ConnectionActivity {
 struct ActivityCount(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 impl ConnectionActivity {
+    #[cfg(any(test, feature = "daemon-listeners"))]
     /// Count one live connection in `count` until every clone of the returned
     /// token has been dropped.
     pub(crate) fn new(count: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {

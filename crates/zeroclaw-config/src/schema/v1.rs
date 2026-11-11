@@ -182,7 +182,7 @@ impl V1Config {
         };
 
         // Rename channels_config → channels and apply the singular→plural
-        // folds V2 needs (matrix.room_id, slack.channel_id).
+        // folds V2 needs (slack.channel_id).
         if let Some(mut channels_value) = channels_config {
             if let Some(channels_table) = channels_value.as_table_mut() {
                 apply_v1_to_v2_channel_folds(channels_table);
@@ -250,19 +250,10 @@ impl V1Config {
     }
 }
 
-/// V2 dropped the singular `matrix.room_id` and `slack.channel_id`
-/// fields in favor of the plural `allowed_rooms[]` / `channel_ids[]`.
-/// Move the V1 singular values into the plural slots so they survive.
+/// V2 dropped the singular `slack.channel_id` field in favor of the plural
+/// `channel_ids[]`. Move the V1 singular value into the plural slot so it
+/// survives.
 fn apply_v1_to_v2_channel_folds(channels: &mut toml::Table) {
-    if let Some(toml::Value::Table(matrix)) = channels.get_mut("matrix")
-        && fold_string_into_array(matrix, "room_id", "allowed_rooms")
-    {
-        ::zeroclaw_log::record!(
-            INFO,
-            ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note),
-            "channels.matrix.room_id folded into channels.matrix.allowed_rooms[]"
-        );
-    }
     if let Some(toml::Value::Table(slack)) = channels.get_mut("slack")
         && fold_string_into_array(slack, "channel_id", "channel_ids")
     {

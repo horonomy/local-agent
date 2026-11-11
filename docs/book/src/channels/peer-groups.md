@@ -1,5 +1,7 @@
 # Peer Groups
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 A **peer group** declares who an agent accepts inbound messages from on a
 channel, and which other agents it can exchange messages with there. It is the
 inbound gate for chat channels and the routing primitive for cross-agent
@@ -116,7 +118,7 @@ to avoid a self-loop. An agent on no peer group runs solo with no cross-agent
 dispatch.
 
 The sender identifier each channel matches against differs by platform (a
-Telegram user ID, a Matrix `@user:server`, an E.164 number, a UUID, …). Each
+Telegram user ID, a Mattermost user ID, an E.164 number, a UUID, …). Each
 channel page states the identifier shape it expects.
 
 ## Example

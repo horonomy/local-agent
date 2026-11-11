@@ -545,7 +545,7 @@ fn config_channels_all_optional_channels_none_by_default() {
     assert!(channels.telegram.is_empty());
     assert!(channels.discord.is_empty());
     assert!(channels.slack.is_empty());
-    assert!(channels.matrix.is_empty());
+    assert!(channels.mattermost.is_empty());
     assert!(channels.lark.is_empty());
     assert!(channels.webhook.is_empty());
 }
@@ -569,19 +569,17 @@ fn config_channels_without_cli_field() {
     let toml_str = r#"
 default_temperature = 0.7
 
-[channels.matrix.default]
-homeserver = "https://matrix.example.com"
-access_token = "syt_test_token"
-allowed_rooms = ["!abc123:example.com"]
-allowed_users = ["@user:example.com"]
+[channels.slack.default]
+bot_token = "xoxb-test-token"
+channel_ids = ["C0123456789"]
 "#;
     let parsed: Config = toml::from_str(toml_str)
-        .expect("channels with only a Matrix section (no explicit cli field) should parse");
+        .expect("channels with only a Slack section (no explicit cli field) should parse");
     assert!(
         parsed.channels.cli,
         "cli should default to true when omitted"
     );
-    assert!(!parsed.channels.matrix.is_empty());
+    assert!(!parsed.channels.slack.is_empty());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

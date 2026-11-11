@@ -2,7 +2,7 @@
 // of each. Consumed by the Cron UI: when an operator picks an agent for a
 // new cron job, the delivery-channel select narrows to that agent's
 // `agents.<alias>.channels` list with the matching identity info visible
-// inline (matrix.<alias> shows the user_id, discord.<alias> shows the
+// inline (mattermost.<alias> shows the channel_ids, discord.<alias> shows the
 // guild_ids, etc.) so the operator doesn't have to remember which
 // composite goes where.
 //
@@ -17,7 +17,7 @@ import { getProp } from './api';
 export interface AgentBoundChannel {
   /** Composite `<type>.<alias>` as it appears in `agents.<alias>.channels`. */
   composite: string;
-  /** Bare channel type (`matrix`, `discord`, ...). */
+  /** Bare channel type (`telegram`, `discord`, ...). */
   type: string;
   /** Operator-chosen alias half of the composite. */
   alias: string;
@@ -40,7 +40,6 @@ interface IdentityField {
 // `ChannelsConfig` and the picker derives from there; this table only
 // names which field to surface alongside the composite.
 const CHANNEL_IDENTITY: Record<string, IdentityField> = {
-  matrix: { field: 'user_id', label: 'user' },
   discord: { field: 'guild_ids', label: 'guilds' },
   slack: { field: 'channel_ids', label: 'channels' },
   mattermost: { field: 'channel_ids', label: 'channels' },
@@ -59,8 +58,8 @@ const CHANNEL_IDENTITY: Record<string, IdentityField> = {
 /** Parse a config-encoded value into a short identity string. The
  *  `/api/config/prop` endpoint serialises arrays and strings as strings;
  *  we strip leading/trailing brackets / quotes / whitespace so the
- *  picker shows `matrix:@clamps-bot:matrix.org` instead of
- *  `matrix:"@clamps-bot:matrix.org"`. */
+ *  picker shows `discord:123456` instead of
+ *  `discord:"123456"`. */
 function shortIdentity(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   const s = raw.trim();

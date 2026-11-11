@@ -255,7 +255,7 @@ cli-cron-long-about =
 cli-channel-long-about =
     Gestiona los canales de comunicación.
 
-    Agrega, elimina, lista, envía y verifica el estado de los canales que conectan ZeroClaw con plataformas de mensajería. Tipos de canal admitidos: telegram, discord, slack, whatsapp, matrix, imessage, email.
+    Agrega, elimina, lista, envía y verifica el estado de los canales que conectan ZeroClaw con plataformas de mensajería. Tipos de canal admitidos: telegram, discord, slack, whatsapp, imessage, email.
 
     Ejemplos:
     zeroclaw channel list
@@ -300,19 +300,19 @@ cli-config-long-about =
 
     Visualiza, establece o inicializa propiedades de configuración mediante una ruta con puntos. Usa 'schema' para volcar el esquema JSON completo del archivo de configuración.
 
-    Las propiedades se direccionan mediante una ruta con puntos (p. ej. channels.matrix.mention-only).
+    Las propiedades se direccionan mediante una ruta con puntos (p. ej. channels.telegram.mention-only).
     Los campos secretos (claves API, tokens) usan automáticamente entrada enmascarada.
     Los campos enum ofrecen selección interactiva cuando se omite el valor.
 
     Ejemplos:
     zeroclaw config list                                  # listar todas las propiedades
     zeroclaw config list --secrets                        # listar solo secretos
-    zeroclaw config list --filter channels.matrix         # filtrar por prefijo
-    zeroclaw config get channels.matrix.mention-only      # obtener un valor
-    zeroclaw config set channels.matrix.mention-only true # establecer un valor
-    zeroclaw config set channels.matrix.access-token      # secreto: entrada enmascarada
-    zeroclaw config set channels.matrix.stream-mode       # enum: selección interactiva
-    zeroclaw config init channels.matrix                  # iniciar sección con valores predeterminados
+    zeroclaw config list --filter channels.telegram         # filtrar por prefijo
+    zeroclaw config get channels.telegram.mention-only      # obtener un valor
+    zeroclaw config set channels.telegram.mention-only true # establecer un valor
+    zeroclaw config set channels.telegram.bot-token      # secreto: entrada enmascarada
+    zeroclaw config set channels.telegram.stream-mode       # enum: selección interactiva
+    zeroclaw config init channels.telegram                  # iniciar sección con valores predeterminados
     zeroclaw config schema                                # imprimir esquema JSON en stdout
     zeroclaw config schema > schema.json
 
@@ -946,6 +946,7 @@ cli-plugin-list-entry-failed = {$name} v{$version} — {$description} [no se car
 cli-plugin-list-entry-no-component = {$name} v{$version} — {$description} [sin componente que cargar]
 cli-config-section-degraded = advertencia: la sección de configuración `{$section}` en {$path} está mal formada y se restableció a los valores predeterminados para esta ejecución. Los valores de esa sección NO están en efecto. Ejecuta `zeroclaw config migrate` para ver el error de análisis y luego repara el archivo.
 cli-config-section-retired-wati = advertencia: la sección de configuración de WATI obsoleta `{$section}` se ignora porque se eliminó la compatibilidad con WATI. Migra a `[channels.whatsapp.<alias>]` mediante Cloud API o WhatsApp Web y, después, revoca el token de API de WATI no utilizado.
+cli-config-section-retired-matrix = advertencia: la sección de configuración del canal Matrix obsoleta `{$section}` se ignora porque se eliminó el canal Matrix integrado. Revoca el token de acceso y el dispositivo de Matrix y elimina manualmente `<config_dir>/state/matrix/<alias>/`.
 cli-config-section-retired-node-transport = advertencia: la configuración obsoleta de `[node_transport]` se ignora porque se eliminó el transporte de nodos HMAC heredado. Elimina la sección de config.toml.
 cli-plugin-removed = Complemento '{$name}' eliminado.
 cli-plugin-removed-grant-kept = Su entrada de configuración '{$key}' se conserva, con su concesión de salida ({$grants}): un paquete instalado después como '{$name}' la hereda. Elimine la fila [[plugins.entries]] llamada '{$key}' para retirar la concesión.

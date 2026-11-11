@@ -139,7 +139,7 @@ body:
     attributes:
       label: Pre-flight checks
       options:
-        - label: I reproduced this on the latest master branch or latest release.
+        - label: I reproduced this on the latest `release/mvp-1.0` branch or latest release.
           required: true
         - label: I redacted secrets, tokens, and personal data from all submitted content.
           required: true

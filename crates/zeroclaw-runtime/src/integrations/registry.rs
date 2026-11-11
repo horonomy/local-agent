@@ -107,9 +107,7 @@ pub fn all_integrations(config: &Config) -> Vec<IntegrationEntry> {
 mod tests {
     use super::*;
     use zeroclaw_config::schema::Config;
-    use zeroclaw_config::schema::{
-        IMessageConfig, MatrixConfig, MatrixStreamMode, StreamMode, TelegramConfig,
-    };
+    use zeroclaw_config::schema::{IMessageConfig, StreamMode, TelegramConfig};
     use zeroclaw_config::traits::ChannelConfig;
 
     #[test]
@@ -318,44 +316,6 @@ mod tests {
         let display_name = <IMessageConfig as ChannelConfig>::name();
         let im = entries.iter().find(|e| e.name == display_name).unwrap();
         assert!(matches!(im.status, IntegrationStatus::Available));
-    }
-
-    #[test]
-    fn matrix_active_when_configured() {
-        let mut config = Config::default();
-        config.channels.matrix.insert(
-            "default".to_string(),
-            MatrixConfig {
-                enabled: true,
-                homeserver: "https://m.org".into(),
-                access_token: Some("tok".into()),
-                user_id: None,
-                device_id: None,
-                allowed_rooms: vec!["!r:m".into()],
-                interrupt_on_new_message: false,
-                stream_mode: MatrixStreamMode::default(),
-                draft_update_interval_ms: 1500,
-                multi_message_delay_ms: 800,
-                stream_draft_lines: 10,
-                message_max_bytes: 48_000,
-                stream_draft_delete: true,
-                stream_reasoning: zeroclaw_config::schema::StreamReasoningMode::Status,
-                stream_tool_arguments: Vec::new(),
-                recovery_key: None,
-                password: None,
-                mention_only: false,
-                approval_timeout_secs: 300,
-                reply_in_thread: true,
-                ack_reactions: Some(true),
-                excluded_tools: vec![],
-                reply_min_interval_secs: 0,
-                reply_queue_depth_max: 0,
-            },
-        );
-        let entries = all_integrations(&config);
-        let display_name = <MatrixConfig as ChannelConfig>::name();
-        let mx = entries.iter().find(|e| e.name == display_name).unwrap();
-        assert!(matches!(mx.status, IntegrationStatus::Active));
     }
 
     /// Look up a toggle integration's status by its descriptor display

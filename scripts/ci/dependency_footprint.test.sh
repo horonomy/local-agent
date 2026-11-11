@@ -378,6 +378,7 @@ done
 case "${package}|${no_default}|${features}" in
     'zeroclaw|true|') profile=foundation ;;
     'zeroclaw|true|agent-runtime') profile=agent-runtime ;;
+    'zeroclaw|true|local-agent-minimal') profile=local-agent-minimal ;;
     'zeroclaw|false|') profile=root-default ;;
     'zeroclaw|true|agent-runtime,channel-matrix') profile=standard-distribution ;;
     'zeroclaw|true|ci-all') profile=ci-all ;;

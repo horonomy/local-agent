@@ -280,11 +280,7 @@ impl Tool for CronAddTool {
                             "enum": ["none", "announce"],
                             "description": "'announce' sends output to the specified channel; 'none' disables delivery"
                         },
-                        "channel": {
-                            "type": "string",
-                            "pattern": cron::cron_delivery_channel_pattern(),
-                            "description": "Channel to deliver output to: either a channel type ('telegram') or a configured instance's composite key ('telegram.work'). Supported types: telegram, discord, slack, mattermost, matrix, qq, whatsapp, webhook, lark, feishu, dingtalk, wechat, signal, email. From a chat turn this resolves to that conversation's own channel instance; pass the composite key to deliver elsewhere."
-                        },
+                        "channel": cron::cron_delivery_channel_schema(&format!("Channel to deliver output to: either a channel type ('telegram') or a configured instance's composite key ('telegram.work'). Supported types: {}. From a chat turn this resolves to that conversation's own channel instance; pass the composite key to deliver elsewhere.", cron::cron_delivery_supported_types())),
                         "to": {
                             "type": "string",
                             "description": "Destination ID: Discord channel ID, Telegram chat ID, Slack channel name, webhook recipient, etc."

@@ -34,60 +34,117 @@
     clippy::unnecessary_wraps
 )]
 
+// The `local-agent-minimal` profile promises no inbound network surface and no
+// messaging adapter. This lists the listener features, the channel bundles and
+// every `channel-*` feature; tests/component/minimal_profile_feature_graph.rs
+// fails when the manifest gains a `channel-*` feature that is missing here.
+#[cfg(all(
+    feature = "local-agent-minimal",
+    any(
+        feature = "daemon-listeners",
+        feature = "gateway",
+        feature = "acp-bridge",
+        feature = "embedded-web",
+        feature = "default-channels",
+        feature = "channels-full",
+        feature = "whatsapp-web",
+        feature = "voice-wake",
+        feature = "channel-acp-server",
+        feature = "channel-amqp",
+        feature = "channel-bluesky",
+        feature = "channel-clawdtalk",
+        feature = "channel-dingtalk",
+        feature = "channel-discord",
+        feature = "channel-email",
+        feature = "channel-feishu",
+        feature = "channel-filesystem",
+        feature = "channel-git",
+        feature = "channel-imessage",
+        feature = "channel-irc",
+        feature = "channel-lark",
+        feature = "channel-line",
+        feature = "channel-linq",
+        feature = "channel-mattermost",
+        feature = "channel-mochat",
+        feature = "channel-mqtt",
+        feature = "channel-nextcloud",
+        feature = "channel-nostr",
+        feature = "channel-notion",
+        feature = "channel-qq",
+        feature = "channel-reddit",
+        feature = "channel-signal",
+        feature = "channel-slack",
+        feature = "channel-telegram",
+        feature = "channel-twitch",
+        feature = "channel-twitter",
+        feature = "channel-voice-call",
+        feature = "channel-webhook",
+        feature = "channel-wechat",
+        feature = "channel-wecom",
+        feature = "channel-wecom-ws",
+        feature = "channel-whatsapp-cloud",
+    )
+))]
+compile_error!(
+    "feature `local-agent-minimal` cannot be combined with gateway, ACP, web, \
+     webhook or messaging-channel features; build with \
+     `--no-default-features --features local-agent-minimal`"
+);
+
 use clap::{Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod agent;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod approval;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod auth;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod channels;
 pub mod commands;
 pub mod config;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod cost;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod cron;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod daemon;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod doctor;
 #[cfg(feature = "gateway")]
 pub mod gateway;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod health;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod heartbeat;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod hooks;
 pub mod memory;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod multimodal;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod observability;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod peripherals;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod platform;
 pub mod providers;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod rag;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod routines;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod security;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod sop;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod tools;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod trust;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) mod tunnel;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub mod verifiable_intent;
 
 #[cfg(feature = "plugins-wasm")]

@@ -5,50 +5,50 @@ use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 use zeroclaw_runtime::i18n::{get_required_cli_string, get_required_cli_string_with_args};
 
 fn update_already_current_message(version: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args("cli-update-already-current", &[("version", version)])
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Already up to date (v{version}).")
     }
 }
 
 fn update_success_message(version: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args("cli-update-success", &[("version", version)])
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Successfully updated to v{version}!")
     }
 }
 
-#[cfg(any(test, not(feature = "agent-runtime")))]
+#[cfg(any(test, not(feature = "agent-core")))]
 const PREBUILT_CHANNEL_NOTE_FALLBACK: &str = "Pre-built updates use the lean standard distribution. Build from source with `./install.sh --source --preset full`, `--features channels-full`, or a specific `channel-*` feature for Slack and other channels outside that distribution.";
 
 fn prebuilt_channel_note_message() -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string("cli-update-prebuilt-channel-note")
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         PREBUILT_CHANNEL_NOTE_FALLBACK.to_string()
     }
 }
 
 fn update_available_message(current: &str, latest: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-available",
@@ -56,14 +56,14 @@ fn update_available_message(current: &str, latest: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Update available: v{current} -> v{latest}")
     }
 }
 
 fn update_forcing_reinstall_message(current: &str, latest: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-forcing-reinstall",
@@ -71,14 +71,14 @@ fn update_forcing_reinstall_message(current: &str, latest: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!("Forcing reinstall: v{current} -> v{latest}")
     }
 }
 
 fn install_dir_not_writable_message(dir: &str, error: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-not-writable",
@@ -86,7 +86,7 @@ fn install_dir_not_writable_message(dir: &str, error: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!(
             "install directory {dir} is not writable ({error}); re-run `zeroclaw update` with \
@@ -98,10 +98,16 @@ fn install_dir_not_writable_message(dir: &str, error: &str) -> String {
 /// Why a CLI-only build updates only with `--standard`: what the standard
 /// build adds, with the gateway's default address, and how to choose.
 fn cli_only_needs_standard_message() -> String {
+    if cfg!(feature = "local-agent-minimal") {
+        // i18n-exempt: profile guidance must not depend on the runtime catalogue.
+        return "this local-agent-minimal build does not self-update to the standard release, \
+                which carries gateway and daemon surfaces; rebuild the profile from source"
+            .to_string();
+    }
     let gateway = zeroclaw_config::schema::GatewayConfig::default();
     let address = format!("{}:{}", gateway.host, gateway.port);
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string_with_args(
             "cli-update-cli-only-needs-standard",
@@ -109,7 +115,7 @@ fn cli_only_needs_standard_message() -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!(
             "This is a CLI-only build, and releases publish only the standard build. The \
@@ -122,12 +128,12 @@ fn cli_only_needs_standard_message() -> String {
 }
 
 fn update_switching_to_standard_message() -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         get_required_cli_string("cli-update-switching-to-standard")
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         "Switching this CLI-only build to the standard build, which adds the dashboard and web \
          gateway."
@@ -467,7 +473,9 @@ fn is_installable_release_asset(name: &str, target: &str, standard: bool) -> boo
 /// build installs nothing unless `--standard` asks to switch to it. A standard
 /// build ignores the flag.
 fn stays_cli_only(standard: bool) -> bool {
-    !cfg!(feature = "gateway") && !standard
+    // The minimal profile must never replace itself with a release archive that
+    // carries gateway and daemon surfaces, even when `--standard` is passed.
+    cfg!(feature = "local-agent-minimal") || (!cfg!(feature = "gateway") && !standard)
 }
 
 /// Whether `name` is the standard archive for `target`. With `stay_cli_only`
@@ -1507,6 +1515,16 @@ async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "local-agent-minimal")]
+    #[test]
+    fn minimal_profile_never_switches_to_the_standard_archive() {
+        assert!(
+            stays_cli_only(true),
+            "--standard must not escape the profile"
+        );
+        assert!(stays_cli_only(false));
+    }
+
     #[test]
     fn should_install_requires_newer_force_or_a_same_version_switch() {
         // (current, latest, force, switching to the standard build) → install
@@ -1599,6 +1617,7 @@ mod tests {
 
     // These pass `true` (`--standard`), with which every build selects the
     // standard archive, so they run in CLI-only builds too.
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_picks_correct_gnu_over_android() {
         let release = make_release(&[
@@ -1621,6 +1640,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_ignores_non_installable_assets() {
         let target = current_target_triple().expect("supported test platform");
@@ -1640,6 +1660,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_skips_matching_asset_with_unusable_url() {
         let target = current_target_triple().expect("supported test platform");
@@ -1664,6 +1685,7 @@ mod tests {
         assert_eq!(url, format!("https://example.com/zeroclaw-{target}.tar.gz"));
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[test]
     fn find_asset_url_ignores_non_zeroclaw_assets() {
         let target = current_target_triple().expect("supported test platform");
@@ -1720,6 +1742,7 @@ mod tests {
         (release, format!("https://example.com/{archive}"))
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[cfg(not(feature = "gateway"))]
     #[test]
     fn this_cli_only_build_selects_nothing_without_standard() {
@@ -1738,6 +1761,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[cfg(not(feature = "gateway"))]
     #[test]
     fn this_cli_only_build_selects_the_standard_archive_with_standard() {
@@ -1840,6 +1864,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "local-agent-minimal"))]
     #[cfg(not(feature = "gateway"))]
     #[tokio::test]
     async fn run_in_a_cli_only_build_with_standard_downloads_the_same_version() {

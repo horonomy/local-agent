@@ -1,5 +1,7 @@
 # Network Deployment
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 Deploying ZeroClaw so it can receive inbound traffic: gateway exposure, webhook channels, tunnels, and LAN-only vs. public-facing configurations. Raspberry Pis and other home-network hosts are first-class targets here.
 
 ## When inbound ports matter
@@ -7,7 +9,7 @@ Deploying ZeroClaw so it can receive inbound traffic: gateway exposure, webhook 
 | Mode | Inbound port? | Notes |
 |---|:---:|---|
 | Telegram (long-poll) | No | ZeroClaw polls `api.telegram.org`, works behind NAT |
-| Matrix / Mattermost / Nextcloud Talk | No | Sync/WebSocket, outbound only |
+| Mattermost / Nextcloud Talk | No | Sync/WebSocket, outbound only |
 | Discord / Slack (Socket Mode) | No | Outbound WebSocket |
 | Signal (`signal-cli-rest-api`) | No | Localhost container |
 | Nostr / IMAP / MQTT | No | All outbound |

@@ -1707,27 +1707,23 @@ mod tests {
     #[test]
     fn channels_select_initializes_subsection_so_set_prop_works() {
         let mut cfg = empty_cfg();
-        assert!(cfg.channels.matrix.is_empty(), "fresh config: matrix unset");
+        assert!(cfg.channels.slack.is_empty(), "fresh config: slack unset");
 
-        cfg.create_map_key("channels.matrix", "mymatrixalias")
-            .expect("create_map_key must succeed for channels.matrix");
+        cfg.create_map_key("channels.slack", "myslackalias")
+            .expect("create_map_key must succeed for channels.slack");
         assert!(
-            cfg.channels.matrix.contains_key("mymatrixalias"),
-            "channels.matrix must have alias after create_map_key",
+            cfg.channels.slack.contains_key("myslackalias"),
+            "channels.slack must have alias after create_map_key",
         );
 
         // The form would issue a PATCH whose set_prop call hits this path.
         cfg.set_prop(
-            "channels.matrix.mymatrixalias.allowed_rooms",
+            "channels.slack.myslackalias.channel_ids",
             r#"["alice","bob"]"#,
         )
-        .expect("set_prop on initialized matrix subsection must succeed");
+        .expect("set_prop on initialized slack subsection must succeed");
         assert_eq!(
-            cfg.channels
-                .matrix
-                .get("mymatrixalias")
-                .unwrap()
-                .allowed_rooms,
+            cfg.channels.slack.get("myslackalias").unwrap().channel_ids,
             vec!["alice".to_string(), "bob".to_string()],
         );
     }
@@ -1844,14 +1840,18 @@ mod tests {
     #[test]
     fn channels_picker_marks_configured_after_create_map_key() {
         let mut cfg = empty_cfg();
-        cfg.create_map_key("channels.matrix", "mymatrixalias")
-            .expect("create_map_key must succeed for channels.matrix");
+        cfg.create_map_key("channels.slack", "myslackalias")
+            .expect("create_map_key must succeed for channels.slack");
         let items = schema_walk_picker(&cfg, "channels");
-        let matrix = items.iter().find(|i| i.key == "matrix").unwrap();
+        let slack = items.iter().find(|i| i.key == "slack").unwrap();
         assert_eq!(
-            matrix.badge.as_deref(),
+            slack.badge.as_deref(),
             Some("configured"),
-            "matrix should be marked configured after create_map_key"
+            "slack should be marked configured after create_map_key"
+        );
+        assert!(
+            items.iter().all(|i| i.key != "matrix"),
+            "the removed Matrix channel must not appear in the channel picker"
         );
     }
 

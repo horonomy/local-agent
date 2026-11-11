@@ -1,5 +1,7 @@
 # Authentication & principals
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 Every RPC connection to the daemon binds a **principal** during the
 `initialize` handshake, and every method call is checked against the grants
 the current configuration assigns that principal. This page covers the

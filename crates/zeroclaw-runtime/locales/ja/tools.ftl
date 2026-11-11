@@ -2,9 +2,9 @@ tool-backup = 共有データディレクトリのバックアップを作成、
 tool-browser = プラグイン可能なバックエンド（agent-browser、rust-native、computer_use）を使用したWeb/ブラウザオートメーション。DOMアクションに加えて、オプションのOSレベルアクション（mouse_move、mouse_click、mouse_drag、key_type、key_press、screen_capture）をコンピュータユースサイドカー経由でサポート。'snapshot'を使用して対話的要素をref（@e1、@e2）にマップします。openアクション向けにbrowser.allowed_domainsを強制します。
 tool-browser-delegate = ブラウザ対応CLIへのブラウザベースのタスクの委譲。Teams、Outlook、Jira、Confluenceなどのウェブアプリケーションと相互作用するため
 tool-browser-open = 承認されたHTTPS URLをシステムブラウザで開く。セキュリティ制約：許可リストのみのドメイン、ローカル/プライベートホストなし、スクレイピングなし。
-tool-channel-room = アクティブなチャンネルを通じてルームを作成し、ユーザーを招待します。'matrix.default' などのチャンネルキー、アクション 'create_room' または 'invite_user'、およびアクション固有のルームフィールドを指定してください。
+tool-channel-room = アクティブなチャンネルを通じてルームを作成し、ユーザーを招待します。'<type>.<alias>' などのチャンネルキー、アクション 'create_room' または 'invite_user'、およびアクション固有のルームフィールドを指定してください。
 tool-channel-room-param-action = 実行するルーム管理アクション。
-tool-channel-room-param-channel = 'matrix.default' などのアクティブなチャンネルキー。
+tool-channel-room-param-channel = '<type>.<alias>' などのアクティブなチャンネルキー。
 tool-channel-room-param-name = create_room 用のオプションのルーム名。
 tool-channel-room-param-topic = create_room 用のオプションのルームトピック。
 tool-channel-room-param-invites = ルーム作成時に招待するオプションのユーザーID。
@@ -28,7 +28,7 @@ tool-cloud-ops = クラウド変換アドバイザリーツール。IaCプラン
 tool-cloud-patterns = クラウドパターンライブラリ。ワークロード説明を指定すると、適用可能なクラウドネイティブアーキテクチャパターン（コンテナ化、サーバーレス、データベース現代化など）を提案します。
 tool-composio = Composio経由で1000以上のアプリ（Gmail、Notion、GitHub、Slack等）でアクションを実行します。action='list'で利用可能なアクション（パラメータ名を含む）を確認します。action='execute'でaction_name/tool_slugとparamsを指定して実行します。正確なparamsが不確実な場合は、'text'に自然言語の説明を記述してください（Composioが正しいパラメータをNLPで解決します）。action='list_accounts'またはaction='connected_accounts'でOAuth接続アカウントを一覧表示します。action='connect'でapp/auth_config_idを指定するとOAuth URLが取得できます。connected_account_idは省略すると自動解決されます。
 tool-content-search = ワークスペース内のregexパターンでファイルコンテンツを検索します。ripgrep（rg）をサポートし、grepまたは内部検索をフォールバックとして使用。出力モード：'content'（マッチ行とコンテキスト）、'files_with_matches'（ファイルパスのみ）、'count'（ファイルごとのマッチ数）。例：pattern='fn main'、include='*.rs'、output_mode='content'。
-tool-cron-add = cron/at/everyスケジュール付きのスケジュール済みcronジョブ（シェルまたはエージェント）を作成します。job_type='agent'でPromptを使用してAIエージェントをスケジュール実行します。出力をチャネル（Discord、Telegram、Slack、Mattermost、Matrix）に配信するには、delivery={"{"}"mode":"announce","channel":"discord","to":"<channel_id_or_chat_id>"{"}"}を設定します。これは、チャネル経由でユーザーにスケジュール/遅延メッセージを送信するための推奨ツールです。
+tool-cron-add = cron/at/everyスケジュール付きのスケジュール済みcronジョブ（シェルまたはエージェント）を作成します。job_type='agent'でPromptを使用してAIエージェントをスケジュール実行します。出力をチャネル（Discord、Telegram、Slack、Mattermost）に配信するには、delivery={"{"}"mode":"announce","channel":"discord","to":"<channel_id_or_chat_id>"{"}"}を設定します。これは、チャネル経由でユーザーにスケジュール/遅延メッセージを送信するための推奨ツールです。
 tool-cron-list = すべてのスケジュール済みcronジョブを一覧表示
 tool-cron-remove = IDでcronジョブを削除
 tool-cron-run = cronジョブを即座に強制実行し、実行履歴を記録
@@ -98,7 +98,7 @@ tool-notion = Notionと相互作用：データベースをクエリ、ページ
 tool-project-intel = プロジェクト配信インテリジェンス：ステータスレポートを生成、リスクを検出、クライアント更新をドラフト、スプリントを要約、作業量を推定。読み取り専用分析ツール。
 tool-proxy-config = ZeroClawプロキシ設定を管理（スコープ：environment | zeroclaw | services）。ランタイムおよびプロセス環境アプリケーション含む
 tool-pushover = Pushover通知をデバイスに送信します。.envファイルにPUSHOVER_TOKENおよびPUSHOVER_USER_KEYが必要。
-tool-schedule = スケジュール済みシェルのみのタスクを管理します。アクション：create/add/once/list/get/cancel/remove/pause/resume。警告：このツールは、出力がログに記録されるのみで、チャネルに配信されないシェルジョブを作成します。Discord/Telegram/Slack/Matrixにスケジュール済みメッセージを送信するには、job_type='agent'とdelivery配信設定（例：{"{"}"mode":"announce","channel":"discord","to":"<channel_id>"{"}"}）付きのcron_addツールを使用してください。
+tool-schedule = スケジュール済みシェルのみのタスクを管理します。アクション：create/add/once/list/get/cancel/remove/pause/resume。警告：このツールは、出力がログに記録されるのみで、チャネルに配信されないシェルジョブを作成します。Discord/Telegram/Slackにスケジュール済みメッセージを送信するには、job_type='agent'とdelivery配信設定（例：{"{"}"mode":"announce","channel":"discord","to":"<channel_id>"{"}"}）付きのcron_addツールを使用してください。
 tool-screenshot = 現在の画面のスクリーンショットをキャプチャします。保存先のファイルパスを返します。
 tool-browser-screenshot-error-path-not-allowed = スクリーンショットのパス「{ $path }」はワークスペースの許可リストに含まれていません
 tool-browser-screenshot-error-parent-not-exist = スクリーンショットのパス「{ $path }」の親ディレクトリ「{ $parent }」が存在しません

@@ -13,9 +13,9 @@ tool-browser-delegate = Delegate browser-based tasks to a browser-capable CLI fo
 
 tool-browser-open = Open an approved HTTPS URL in the system browser. Security constraints: allowlist-only domains, no local/private hosts, no scraping.
 
-tool-channel-room = Create rooms and invite users through an active channel. Provide a channel key such as 'matrix.default', action 'create_room' or 'invite_user', and the action-specific room fields.
+tool-channel-room = Create rooms and invite users through an active channel. Provide a channel key such as '<type>.<alias>', action 'create_room' or 'invite_user', and the action-specific room fields.
 tool-channel-room-param-action = Room-management action to perform.
-tool-channel-room-param-channel = Active channel key such as 'matrix.default'.
+tool-channel-room-param-channel = Active channel key such as '<type>.<alias>'.
 tool-channel-room-param-name = Optional room name for create_room.
 tool-channel-room-param-topic = Optional room topic for create_room.
 tool-channel-room-param-invites = Optional user IDs to invite while creating the room.
@@ -44,7 +44,7 @@ tool-composio = Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHu
 
 tool-content-search = Search file contents by regex pattern within the workspace. Supports ripgrep (rg) with grep or internal fallback. Output modes: 'content' (matching lines with context), 'files_with_matches' (file paths only), 'count' (match counts per file). Example: pattern='fn main', include='*.rs', output_mode='content'.
 
-tool-cron-add = Create a scheduled cron job (shell or agent) with cron/at/every schedules. Use job_type='agent' with a prompt to run the AI agent on schedule. To deliver output to a channel (Discord, Telegram, Slack, Mattermost, Matrix), set delivery={"{"}"mode":"announce","channel":"discord","to":"<channel_id_or_chat_id>"{"}"}. This is the preferred tool for sending scheduled/delayed messages to users via channels.
+tool-cron-add = Create a scheduled cron job (shell or agent) with cron/at/every schedules. Use job_type='agent' with a prompt to run the AI agent on schedule. To deliver output to a channel (Discord, Telegram, Slack, Mattermost), set delivery={"{"}"mode":"announce","channel":"discord","to":"<channel_id_or_chat_id>"{"}"}. This is the preferred tool for sending scheduled/delayed messages to users via channels.
 
 tool-cron-list = List all scheduled cron jobs
 
@@ -192,7 +192,7 @@ tool-pushover = Send a Pushover notification to your device. Requires PUSHOVER_T
 
 tool-read-skill = Read the full source file for an available skill by name. Use this when its prompt entry says the instructions load on demand.
 
-tool-schedule = Manage scheduled shell-only tasks. Actions: create/add/once/list/get/cancel/remove/pause/resume. WARNING: This tool creates shell jobs whose output is only logged, NOT delivered to any channel. To send a scheduled message to Discord/Telegram/Slack/Matrix, use the cron_add tool with job_type='agent' and a delivery config like {"{"}"mode":"announce","channel":"discord","to":"<channel_id>"{"}"}.
+tool-schedule = Manage scheduled shell-only tasks. Actions: create/add/once/list/get/cancel/remove/pause/resume. WARNING: This tool creates shell jobs whose output is only logged, NOT delivered to any channel. To send a scheduled message to Discord/Telegram/Slack, use the cron_add tool with job_type='agent' and a delivery config like {"{"}"mode":"announce","channel":"discord","to":"<channel_id>"{"}"}.
 
 tool-sessions-history-header = Session '{ $session_id }': showing { $shown }/{ $total } messages
 tool-sessions-send = Deprecated legacy compatibility tool. Appends content to an existing Chat session's conversation history as an ordinary 'user' message. This does not notify or run the session and is not live message delivery. Use send_message_to_peer for agent-to-agent messaging.

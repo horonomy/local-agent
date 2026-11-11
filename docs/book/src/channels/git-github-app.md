@@ -1,5 +1,7 @@
 # Creating a GitHub App
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The [Git channel](./git.md) with `provider = "github"` authenticates as a **GitHub App**, not as a user. The app has its own bot identity (`your-app[bot]`), its own permissions, and works on every repository it is installed on. This page walks the one-time app creation and maps each value onto the channel config.
 
 Works for both a **personal account** and an **organization**: the only difference is where the app is owned and who can install it.

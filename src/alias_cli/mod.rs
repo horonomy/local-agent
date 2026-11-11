@@ -15,11 +15,11 @@ mod export;
 /// runtime i18n crate is absent, so the English `fallback` is used.
 #[allow(unused_variables)]
 fn mt(key: &str, fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::i18n::get_required_cli_string(key)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }
@@ -28,11 +28,11 @@ fn mt(key: &str, fallback: &str) -> String {
 /// `mt` with `{$name}` arguments.
 #[allow(unused_variables)]
 fn mta(key: &str, args: &[(&str, &str)], fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         zeroclaw_runtime::i18n::get_required_cli_string_with_args(key, args)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }
@@ -355,13 +355,13 @@ async fn save(config: &mut Config) -> Result<()> {
         .context("failed to persist config")
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) enum AgentMutationRoute {
     Daemon(serde_json::Value),
     Offline(zeroclaw_runtime::live_config_authority::ConfigOwnershipGuard),
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 pub(crate) async fn route_agent_mutation(
     config: &mut Config,
     method: &str,
@@ -404,7 +404,7 @@ pub(crate) async fn route_agent_mutation(
     }
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn print_daemon_create(value: serde_json::Value) -> Result<()> {
     let result: zeroclaw_runtime::rpc::types::ConfigMapKeyCreateResult =
         serde_json::from_value(value).context("decode daemon agent-create response")?;
@@ -436,7 +436,7 @@ fn print_daemon_create(value: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn print_daemon_rename(value: serde_json::Value) -> Result<()> {
     let result: zeroclaw_runtime::rpc::types::ConfigMapKeyRenameResult =
         serde_json::from_value(value).context("decode daemon agent-rename response")?;
@@ -467,7 +467,7 @@ fn print_daemon_rename(value: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn print_daemon_delete_preview(value: serde_json::Value) -> Result<()> {
     let result: zeroclaw_runtime::rpc::types::AgentDeletePreviewResult =
         serde_json::from_value(value).context("decode daemon agent-delete preview")?;
@@ -523,7 +523,7 @@ fn print_daemon_delete_preview(value: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn print_daemon_delete(value: serde_json::Value) -> Result<()> {
     let result: zeroclaw_runtime::rpc::types::AgentDeleteResult =
         serde_json::from_value(value).context("decode daemon agent-delete response")?;
@@ -567,7 +567,7 @@ pub async fn handle_agents(cmd: AgentsCommands, config: &mut Config) -> Result<(
     match cmd {
         AgentsCommands::List => list_section(config, "agents"),
         AgentsCommands::Create { alias } => {
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             let _offline_ownership = match route_agent_mutation(
                 config,
                 "config/map-key-create",
@@ -585,7 +585,7 @@ pub async fn handle_agents(cmd: AgentsCommands, config: &mut Config) -> Result<(
             export::run(config, &alias, &out, force).await
         }
         AgentsCommands::Rename { from, to } => {
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             let _offline_ownership = match route_agent_mutation(
                 config,
                 "config/map-key-rename",
@@ -620,7 +620,7 @@ pub async fn handle_agents(cmd: AgentsCommands, config: &mut Config) -> Result<(
                     )
                 );
             }
-            #[cfg(feature = "agent-runtime")]
+            #[cfg(feature = "agent-core")]
             let _offline_ownership = {
                 let method = if dry_run || !yes {
                     "agents/delete-preview"
@@ -683,16 +683,16 @@ pub async fn handle_agents(cmd: AgentsCommands, config: &mut Config) -> Result<(
 
 /// Memory + optional session-backend handles opened from `data_dir` for the
 /// owned-state cascade.
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 type OwnedStateHandles = (
     std::sync::Arc<dyn zeroclaw_memory::Memory>,
     Option<std::sync::Arc<dyn zeroclaw_infra::session_backend::SessionBackend>>,
 );
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 type OwnedStateHandles = ();
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn build_owned_state_handles(config: &Config) -> Result<OwnedStateHandles> {
     use std::sync::Arc;
     let mem: Arc<dyn zeroclaw_memory::Memory> = if config.agents.is_empty() {
@@ -717,12 +717,12 @@ fn build_owned_state_handles(config: &Config) -> Result<OwnedStateHandles> {
     Ok((mem, session_backend))
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 fn build_owned_state_handles(_config: &Config) -> Result<OwnedStateHandles> {
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 fn agent_delete_precheck(config: &Config, alias: &str) -> Result<()> {
     // Fail closed: refuse if live ACP sessions exist, or if the store can't be
     // read to verify (mirrors the gateway delete gate).
@@ -742,12 +742,12 @@ fn agent_delete_precheck(config: &Config, alias: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 fn agent_delete_precheck(_config: &Config, _alias: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn agent_delete_owned_state(
     config: &Config,
     alias: &str,
@@ -807,7 +807,7 @@ async fn agent_delete_owned_state(
     Ok(())
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 async fn agent_delete_owned_state(
     _config: &Config,
     _alias: &str,
@@ -818,7 +818,7 @@ async fn agent_delete_owned_state(
     Ok(())
 }
 
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 async fn agent_rename_owned_state(
     config: &Config,
     from: &str,
@@ -883,7 +883,7 @@ async fn agent_rename_owned_state(
     Ok(())
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 async fn agent_rename_owned_state(
     _config: &Config,
     _from: &str,
@@ -894,7 +894,7 @@ async fn agent_rename_owned_state(
     Ok(())
 }
 
-#[cfg(not(feature = "agent-runtime"))]
+#[cfg(not(feature = "agent-core"))]
 fn warn_agent_owned_state() {
     eprintln!(
         "{}",
@@ -1093,7 +1093,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[tokio::test]
     async fn agent_mutation_fails_closed_when_owner_has_no_rpc_endpoint() {
         let temp = tempfile::TempDir::new().unwrap();
@@ -1121,7 +1121,7 @@ mod tests {
         assert!(!config.agents.contains_key("blocked"));
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[tokio::test]
     async fn final_agent_delete_retains_the_predelete_memory_backend_for_cleanup() {
         use std::sync::Arc;
@@ -1170,7 +1170,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[test]
     fn agent_delete_precheck_refuses_an_agent_with_a_live_acp_session() {
         let temp = tempfile::TempDir::new().unwrap();
@@ -1192,7 +1192,7 @@ mod tests {
             .expect("an agent with no live ACP session may be deleted");
     }
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[tokio::test]
     async fn agent_delete_removes_the_agents_acp_sessions() {
         let temp = tempfile::TempDir::new().unwrap();

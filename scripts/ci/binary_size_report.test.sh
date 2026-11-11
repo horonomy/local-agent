@@ -98,6 +98,7 @@ agent-runtime|features|agent-runtime||2000
 ci-all|features|ci-all||5000
 foundation|no-default-features|||1000
 hardware-probe|features|agent-runtime,probe,zeroclaw-tools/probe||6000
+local-agent-minimal|features|local-agent-minimal||1500
 root-default|defaults|||3000
 standard-distribution|selection|agent-runtime,channel-matrix|dist|4000
 TXT
@@ -702,7 +703,7 @@ expect_invalid toolchain-mismatch 'report["context"]["rustc_version"] = "rustc 1
 expect_invalid settings-mismatch 'report["cargo_profile"]["settings"]["lto"] = "thin"' \
     'incompatible Cargo profile (release settings differ)' "$test_root/report-b.json"
 expect_failure policy-profile-sets \
-    'incompatible policy profile sets (only before: agent-runtime, ci-all, hardware-probe, root-default, standard-distribution)' \
+    'incompatible policy profile sets (only before: agent-runtime, ci-all, hardware-probe, local-agent-minimal, root-default, standard-distribution)' \
     run_compare "$test_root/report-a.json" "$test_root/report-foundation.json"
 
 # The build environment is recorded, and compare refuses a different one.

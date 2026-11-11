@@ -1,5 +1,7 @@
 # MQTT
 
+> **Upstream documentation, not Local Agent behavior.** This page is kept as a historical record of upstream ZeroClaw. The surface it describes is not part of the `local-agent-minimal` profile, so Local Agent does not offer or support it; see [what is excluded](../setup/local-agent-minimal.md#what-is-excluded).
+
 The `mqtt` channel subscribes to topics on an MQTT broker and feeds each message into the agent loop or the SOP engine. It is gated by the `channel-mqtt` build feature.
 
 > **This is a SOP event source.** For trigger syntax and topic matching, see [SOP Fan-In: MQTT](../sop/fan-in/mqtt.md). This page covers the broker connection.

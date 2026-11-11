@@ -6,7 +6,7 @@ use super::{
 use crate::config::Config;
 use anyhow::{Result, bail};
 use console::style;
-#[cfg(feature = "agent-runtime")]
+#[cfg(feature = "agent-core")]
 use zeroclaw_runtime::i18n;
 
 /// Resolve a `cli-*` Fluent key for memory CLI output. Under `agent-runtime`
@@ -14,11 +14,11 @@ use zeroclaw_runtime::i18n;
 /// the runtime i18n crate is absent, so the English `fallback` is used.
 #[allow(unused_variables)]
 fn mt(key: &str, fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         i18n::get_required_cli_string(key)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }
@@ -27,11 +27,11 @@ fn mt(key: &str, fallback: &str) -> String {
 /// `mt` with `{$name}` arguments.
 #[allow(unused_variables)]
 fn mt_args(key: &str, args: &[(&str, &str)], fallback: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         i18n::get_required_cli_string_with_args(key, args)
     }
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         fallback.to_string() // i18n-exempt: English fallback when Fluent (agent-runtime) is disabled
     }
@@ -296,7 +296,7 @@ async fn handle_stats(config: &Config) -> Result<()> {
 }
 
 fn unsupported_clear_backend_message(backend: &str) -> String {
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     {
         i18n::get_required_cli_string_with_args(
             "cli-memory-clear-unsupported-backend",
@@ -304,7 +304,7 @@ fn unsupported_clear_backend_message(backend: &str) -> String {
         )
     }
 
-    #[cfg(not(feature = "agent-runtime"))]
+    #[cfg(not(feature = "agent-core"))]
     {
         format!(
             "memory clear is unsupported for append-only backend '{backend}'; switch to a deletable backend (sqlite, lucid, or postgres)"
@@ -472,7 +472,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[cfg(feature = "agent-runtime")]
+    #[cfg(feature = "agent-core")]
     #[tokio::test]
     async fn list_does_not_run_hygiene_on_retention_protected_row() {
         use rusqlite::params;
