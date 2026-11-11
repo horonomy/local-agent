@@ -3316,8 +3316,10 @@ while IFS= read -r line; do
     if [ "$mode" = "count" ]; then printf '%s\n' call >> "$2"; fi
     if [ "$mode" = "oversized" ]; then
       case "$line" in *'"name":"echo"'*)
-        head -c 5000000 /dev/zero | tr '\0' 'x'; printf '\n'
         echo "$$" > "$2"
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"' "$id"
+        head -c 5000000 /dev/zero | tr '\0' 'x'
+        printf '"}],"isError":false}}\n'
         exec tail -f /dev/null
         ;;
       esac
@@ -3443,7 +3445,7 @@ done
         let err = server
             .call_tool("echo", json!({}))
             .await
-            .expect_err("a response beyond the line bound must not be accepted");
+            .expect_err("a valid but over-bound response must not be accepted");
         assert!(err.to_string().contains("timed out"), "got: {err}");
 
         let pid: u32 = std::fs::read_to_string(&pid_path)
@@ -3574,7 +3576,18 @@ done
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(!marker.exists(), "a denied agent caused a spawn");
 
+        // Positive control: the same config, once granted, does spawn the
+        // stub, so the absent marker above is not vacuous.
         config.agents.insert("granted".into(), agent(&["grant"]));
-        assert_eq!(config.mcp_servers_for_agent("granted").len(), 1);
+        let granted = config.mcp_servers_for_agent("granted");
+        assert_eq!(granted.len(), 1);
+        let _ = McpRegistry::connect_all(&granted).await;
+        for _ in 0..100 {
+            if marker.exists() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("granted agent did not spawn the stub (control failed)");
     }
 }
