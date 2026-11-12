@@ -517,6 +517,12 @@ pub trait Tool: Send + Sync + crate::attribution::Attributable {
         false
     }
 
+    /// Capability class for policy decisions (ADR-019). The default,
+    /// `Unknown`, is never granted implicitly by the policy engine.
+    fn capability(&self) -> crate::policy::ToolCapability {
+        crate::policy::ToolCapability::Unknown
+    }
+
     /// Tool name (used in LLM function calling)
     fn name(&self) -> &str;
 

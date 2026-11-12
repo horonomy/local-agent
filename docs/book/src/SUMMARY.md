@@ -130,6 +130,7 @@
       - [ADR-016: Holding-crate exceptions](./architecture/decisions/ADR-016-holding-crate-exceptions.md)
       - [ADR-017: Inbound authentication and principals](./architecture/decisions/ADR-017-inbound-authentication-and-principals.md)
       - [ADR-018: Runtime security and provenance](./architecture/decisions/ADR-018-runtime-security-and-provenance.md)
+      - [ADR-019: Policy decision contract](./architecture/decisions/ADR-019-policy-decision-contract.md)
   - [Reference](./reference/index.md)
     - [CLI](./reference/cli.md)
     - [Config](./reference/config.md)
