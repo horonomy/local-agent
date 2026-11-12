@@ -506,6 +506,18 @@ pub fn invocation_trigger_matches(haystack_lower: &str, trigger_lower: &str) -> 
     false
 }
 
+/// What a wrapper tool delegates to, for policy evaluation (ADR-019).
+pub enum DelegationTarget<'a> {
+    /// Another tool instance (a skill wrapping a built-in or MCP tool).
+    Tool(&'a dyn Tool),
+    /// A fixed built-in capability the wrapper implements itself (a skill
+    /// shell tool runs as `shell`, a skill HTTP tool as `http_request`).
+    Builtin {
+        name: &'static str,
+        capability: crate::policy::ToolCapability,
+    },
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync + crate::attribution::Attributable {
     /// True when this tool starts nested execution without carrying the RPC
@@ -521,6 +533,19 @@ pub trait Tool: Send + Sync + crate::attribution::Attributable {
     /// `Unknown`, is never granted implicitly by the policy engine.
     fn capability(&self) -> crate::policy::ToolCapability {
         crate::policy::ToolCapability::Unknown
+    }
+
+    /// MCP server this tool proxies to, when it is an MCP wrapper. Policy
+    /// uses it to check the server grant and exclusions.
+    fn mcp_server(&self) -> Option<&str> {
+        None
+    }
+
+    /// The tool a wrapper (a skill tool) runs on behalf of, if any. Policy
+    /// evaluates a wrapper as its target so a rename cannot change what is
+    /// authorised. Pure forwarders return their inner tool's value.
+    fn delegation_target(&self) -> Option<DelegationTarget<'_>> {
+        None
     }
 
     /// Tool name (used in LLM function calling)
