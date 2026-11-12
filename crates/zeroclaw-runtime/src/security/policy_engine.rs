@@ -68,6 +68,17 @@ pub struct StandalonePolicyEngine {
     parents: BTreeMap<String, PolicyProfile>,
 }
 
+/// Names must already be canonical: the engine does no case or whitespace
+/// folding, so anything that could be folded elsewhere is refused.
+fn is_canonical(name: &str) -> bool {
+    !name.is_empty()
+        && name.trim() == name
+        && name.is_ascii()
+        && !name
+            .bytes()
+            .any(|b| b.is_ascii_uppercase() || b.is_ascii_control())
+}
+
 fn deny(reason: ReasonCode) -> PolicyDecision {
     PolicyDecision::deny(reason, DecisionSource::Local)
 }
@@ -92,13 +103,25 @@ impl PolicyProfile {
 
     fn is_excluded(&self, request: &PolicyRequest) -> bool {
         let hit = |n: &str| self.excluded_tools.contains(n);
+        // Excluding a server name excludes its composed tools, even when the
+        // request does not carry `mcp_server`.
+        let composed_prefix = request
+            .tool_name
+            .split_once(COMPOSE_SEPARATOR)
+            .map(|(prefix, _)| prefix);
         hit(&request.tool_name)
+            || composed_prefix.is_some_and(hit)
             || request.via_skill.as_deref().is_some_and(hit)
             || request.mcp_server.as_deref().is_some_and(hit)
     }
 
     fn evaluate(&self, request: &PolicyRequest) -> PolicyDecision {
-        if request.tool_name.is_empty() {
+        let names = [
+            Some(request.tool_name.as_str()),
+            request.via_skill.as_deref(),
+            request.mcp_server.as_deref(),
+        ];
+        if names.into_iter().flatten().any(|n| !is_canonical(n)) {
             return deny(ReasonCode::LocalDeny);
         }
         if self.is_excluded(request) {
@@ -108,6 +131,26 @@ impl PolicyProfile {
             return deny(ReasonCode::LocalDeny);
         }
         if request.mcp_server.is_some() && request.capability != ToolCapability::Mcp {
+            return deny(ReasonCode::LocalDeny);
+        }
+        // A composed name is only meaningful for MCP; elsewhere it could
+        // smuggle a server-shaped name past a listing.
+        if request.capability != ToolCapability::Mcp
+            && request.tool_name.contains(COMPOSE_SEPARATOR)
+        {
+            return deny(ReasonCode::LocalDeny);
+        }
+        // Read-only sessions keep only observation and agent-internal tools.
+        if request.autonomy == AutonomyLevel::ReadOnly
+            && !matches!(
+                request.capability,
+                ToolCapability::FsRead | ToolCapability::Memory | ToolCapability::AgentInternal
+            )
+            && !matches!(
+                request.capability,
+                ToolCapability::Unknown | ToolCapability::Plugin
+            )
+        {
             return deny(ReasonCode::LocalDeny);
         }
 
@@ -124,11 +167,6 @@ impl PolicyProfile {
                 if let Some(denied) = self.mcp_denial(request) {
                     return denied;
                 }
-            }
-            ToolCapability::FsWrite | ToolCapability::Shell
-                if request.autonomy == AutonomyLevel::ReadOnly =>
-            {
-                return deny(ReasonCode::LocalDeny);
             }
             ToolCapability::FsRead
             | ToolCapability::FsWrite
@@ -157,14 +195,20 @@ impl PolicyProfile {
         let Some(server) = request.mcp_server.as_deref() else {
             return Some(deny(ReasonCode::LocalDeny));
         };
-        let well_formed = !server.is_empty() && !server.contains(COMPOSE_SEPARATOR);
+        // Underscore edges would let `a_` + `__t` collide with `a` + `___t`.
+        let well_formed = !server.is_empty()
+            && !server.contains(COMPOSE_SEPARATOR)
+            && !server.starts_with('_')
+            && !server.ends_with('_');
         let tool = request
             .tool_name
             .strip_prefix(server)
             .and_then(|rest| rest.strip_prefix(COMPOSE_SEPARATOR));
         // A tool part that itself contains `__` could also parse as a longer
         // server name: ambiguous, so rejected.
-        let unambiguous = tool.is_some_and(|t| !t.is_empty() && !t.contains(COMPOSE_SEPARATOR));
+        let unambiguous = tool.is_some_and(|t| {
+            !t.is_empty() && !t.contains(COMPOSE_SEPARATOR) && !t.starts_with('_')
+        });
         if !well_formed || !unambiguous || !self.mcp_grants.contains(server) {
             return Some(deny(ReasonCode::LocalDeny));
         }
