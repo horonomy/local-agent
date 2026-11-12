@@ -1739,30 +1739,34 @@ pub async fn run(
         // (peripherals -> built-in filter -> MCP scope+gate -> skills), identical
         // to the behavior this path hand-rolled. `caller_allowed` carries the
         // run() per-run allowlist; connect_peripherals is true (execution path).
-        let assembled = scoped::ScopedToolRegistry::assemble(scoped::ScopedAssembly {
-            config: &config,
-            agent_alias,
-            security: &security,
-            built: all_tools_result,
-            skills: &skills,
-            runtime: runtime.clone(),
-            caller_allowed: allowed_tools.as_deref(),
-            connect_mcp: true,
-            connect_peripherals: true,
-            // A memory-free run drops the persistent memory tools so the model
-            // cannot read or write memory even though the registry is otherwise
-            // built identically.
-            exclude_memory: memory_free,
-            acp_delivery: false,
-            list_deferred_mcp_specs: false,
-            emit_assembly_logs: true,
-            // Honor the daemon worker's pre-built shared registry so stdio
-            // MCP children live for the daemon's lifetime, not per
-            // `agent::run` call. CLI/one-shot callers leave
-            // `mcp_registry` at its default (`None`) and the seam
-            // falls back to the per-call `connect_all`.
-            mcp_registry: overrides.mcp_registry.as_ref().map(Arc::clone),
-        })
+        // Boxed: assembly's state machine is large and `run`'s future sits on
+        // the caller's stack in unoptimized builds.
+        let assembled = Box::pin(scoped::ScopedToolRegistry::assemble(
+            scoped::ScopedAssembly {
+                config: &config,
+                agent_alias,
+                security: &security,
+                built: all_tools_result,
+                skills: &skills,
+                runtime: runtime.clone(),
+                caller_allowed: allowed_tools.as_deref(),
+                connect_mcp: true,
+                connect_peripherals: true,
+                // A memory-free run drops the persistent memory tools so the model
+                // cannot read or write memory even though the registry is otherwise
+                // built identically.
+                exclude_memory: memory_free,
+                acp_delivery: false,
+                list_deferred_mcp_specs: false,
+                emit_assembly_logs: true,
+                // Honor the daemon worker's pre-built shared registry so stdio
+                // MCP children live for the daemon's lifetime, not per
+                // `agent::run` call. CLI/one-shot callers leave
+                // `mcp_registry` at its default (`None`) and the seam
+                // falls back to the per-call `connect_all`.
+                mcp_registry: overrides.mcp_registry.as_ref().map(Arc::clone),
+            },
+        ))
         .await;
         // run injects one combined MCP prompt block: deferred tool-search listing +
         // pinned resources, composed by the harness.

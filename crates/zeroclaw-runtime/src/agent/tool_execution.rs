@@ -318,20 +318,20 @@ async fn execute_one_tool_with_provenance(
     // The decision made in `prepare_tool_calls` must be for exactly this tool
     // and these arguments; anything else is denied and never executed.
     // A call without an id can hold no ticket; the empty id matches none.
-    let redeemed = dispatch
-        .policy
-        .redeem(&CallFacts {
-            tool,
-            registry: dispatch.tools_registry,
-            args: &call_arguments,
-            call_id: tool_call_id.unwrap_or_default(),
-            turn_id: meta.turn_id,
-            agent_alias: meta.agent_alias,
-            // Correlation only; see `decide_policy` in call_prep.
-            parent_agent_alias: None,
-            interactive: false,
-        })
-        .await;
+    // Boxed to keep the redemption state machine out of this future (stack
+    // depth in unoptimized builds).
+    let redeemed = Box::pin(dispatch.policy.redeem(&CallFacts {
+        tool,
+        registry: dispatch.tools_registry,
+        args: &call_arguments,
+        call_id: tool_call_id.unwrap_or_default(),
+        turn_id: meta.turn_id,
+        agent_alias: meta.agent_alias,
+        // Correlation only; see `decide_policy` in call_prep.
+        parent_agent_alias: None,
+        interactive: false,
+    }))
+    .await;
     if let Err(error) = redeemed {
         let reason = match error {
             RedeemError::NoTicket => ReasonCode::LocalDeny,

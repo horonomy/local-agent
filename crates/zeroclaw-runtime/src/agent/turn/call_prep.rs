@@ -351,7 +351,9 @@ pub(crate) async fn prepare_tool_calls(
             arguments: tool_args.clone(),
             tool_call_id: call.tool_call_id.clone(),
         });
-        let policy_ask = match decide_policy(
+        // Boxed so the decision's state machine stays off this future: the
+        // turn loop's future sits on the caller's stack in unoptimized builds.
+        let policy_ask = match Box::pin(decide_policy(
             ctx,
             tools_registry,
             activated_tools,
@@ -359,7 +361,7 @@ pub(crate) async fn prepare_tool_calls(
             &tool_args,
             &call_id,
             iteration,
-        )
+        ))
         .await
         {
             PolicyStep::Proceed { ask } => ask,
