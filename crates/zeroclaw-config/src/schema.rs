@@ -33402,6 +33402,7 @@ auto_save = true
             degraded_sections: Vec::new(),
             retired_channel_config_sections: Vec::new(),
             retired_node_transport_config: false,
+            governance: Default::default(),
             loaded_from: None,
             schema_version: crate::migration::CURRENT_SCHEMA_VERSION,
             providers: {
@@ -34962,6 +34963,7 @@ default_temperature = 0.7
             degraded_sections: Vec::new(),
             retired_channel_config_sections: Vec::new(),
             retired_node_transport_config: false,
+            governance: Default::default(),
             loaded_from: None,
             schema_version: crate::migration::CURRENT_SCHEMA_VERSION,
             providers,
