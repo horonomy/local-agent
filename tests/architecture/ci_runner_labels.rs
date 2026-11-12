@@ -265,8 +265,8 @@ fn milestone_branches_retain_the_same_quality_gate_triggers() {
     ] {
         let workflow = fs::read_to_string(root.join(".github/workflows").join(name)).unwrap();
         assert!(
-            workflow.contains("branches: [master, 'release/**']"),
-            "{name} must retain master and add milestone release coverage"
+            workflow.contains("branches: [master, 'release/**', 'integration/**']"),
+            "{name} must retain master and add milestone release and integration coverage"
         );
     }
 }
