@@ -2,9 +2,9 @@ name: Quality Gate
 
 on:
   pull_request:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'integration/**']
   push:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'integration/**']
   # Merge queue: GitHub builds a temporary `gh-readonly-queue/<base>/…` branch
   # for master or a milestone release branch. The required `CI Required Gate` reports on that
   # branch or queued PRs stall, so the full gate runs here too.

@@ -3,7 +3,7 @@ run-name: "Windows tests for PR #${{ github.event.pull_request.number }} (${{ gi
 
 on:
   pull_request:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'integration/**']
     types: [opened, synchronize, reopened, labeled]
 
 permissions:

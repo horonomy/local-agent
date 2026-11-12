@@ -23,7 +23,7 @@ name: CodeQL
 
 on:
   push:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'integration/**']
     # Only pushes that change code this workflow analyzes. CodeQL's result
     # depends only on these files, so a docs-, skills-, or policy-only push
     # would reproduce the previous analysis exactly, and under the
