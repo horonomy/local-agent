@@ -10,6 +10,20 @@
 //! standalone. [`ComposedAuthority`] combines the local engine with this
 //! adapter through `strictest`, so AASM can only tighten a local decision.
 //!
+//! Operator requirements for `governance.aasm.socket_path`:
+//! - Put the socket in a `0700` directory owned by the client uid. AASM's own
+//!   default, `/tmp/aa-runtime-<id>.sock`, is refused by design: `/tmp` is
+//!   world-writable (`1777`) and, on macOS, a symlink.
+//! - Every ancestor must be a real directory, owned by root or the client uid
+//!   and not group/world writable. A sticky directory owned by root or the
+//!   client uid is tolerated only as a distant ancestor, never as the
+//!   immediate parent.
+//! - `expected_peer_uid` may only be unset or equal to the client's own
+//!   effective uid: the AASM server accepts connections from its own uid only,
+//!   so any other value could never be served and is rejected at construction.
+//! - The runtime's agent id must match the socket file name
+//!   (`aa-runtime-<agent_id>.sock`); see the handshake note in ADR-019.
+//!
 //! Protocol mirrored from AASM rev `f6b0e2b70` (protocol v0.0.1), not verified
 //! against a live daemon.
 
@@ -229,6 +243,10 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<(u8, Vec<u8>
             .read_u8()
             .await
             .map_err(|e| eof_as(e, WireError::Truncated))?;
+        // The 10th byte carries only bit 63; a larger value overflows u64.
+        if shift == 63 && byte & 0x7F > 1 {
+            return Err(WireError::BadVarint);
+        }
         len |= u64::from(byte & 0x7F) << shift;
         if byte & 0x80 == 0 {
             break;
@@ -428,6 +446,10 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 pub enum AasmAdapterError {
     #[error("governance.aasm.socket_path must be an absolute path")]
     InvalidSocketPath,
+    /// AASM accepts only connections from its own uid, so a client can never
+    /// be served unless `expected_peer_uid` is this process's effective uid.
+    #[error("governance.aasm.expected_peer_uid must equal this process's effective uid")]
+    ExpectedUidMismatch,
     #[error("invalid managed governance configuration: {0}")]
     InvalidConfig(String),
 }
@@ -447,38 +469,64 @@ fn current_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-/// Validate the socket path without following symlinks. The directory check
-/// is what stops another user from swapping the socket between this check and
-/// `connect`; the peer uid check after connect backs it up.
+/// Validate the socket path without following symlinks.
+///
+/// Every ancestor directory must be a real directory (no symlink), owned by
+/// root, the current uid or the expected uid, and not group/world writable;
+/// the one exception is a sticky directory owned by root or the current uid
+/// (for example `/tmp` itself, `1777`), which is accepted only as a distant
+/// ancestor. The immediate parent has no sticky exception. This is what stops
+/// another user from swapping the socket between this check and `connect`;
+/// the peer uid check after connect backs it up.
 fn check_socket_path(
     path: &Path,
     expected_uid: u32,
     current_uid: u32,
 ) -> Result<(), SocketCheckError> {
+    const STICKY: u32 = 0o1000;
+    const GROUP_WORLD_WRITE: u32 = 0o022;
     if !path.is_absolute() {
         return Err(SocketCheckError::Invalid);
     }
-    let mut cursor = PathBuf::from("/");
+    let mut names = Vec::new();
     for component in path.components() {
         match component {
             Component::RootDir => {}
-            Component::Normal(name) => {
-                cursor.push(name);
-                let meta = std::fs::symlink_metadata(&cursor).map_err(|_| SocketCheckError::Io)?;
-                if meta.file_type().is_symlink() {
-                    return Err(SocketCheckError::SymlinkComponent);
-                }
-            }
+            Component::Normal(name) => names.push(name),
             _ => return Err(SocketCheckError::Invalid),
         }
     }
-    let parent = path.parent().ok_or(SocketCheckError::Invalid)?;
-    let parent_meta = std::fs::symlink_metadata(parent).map_err(|_| SocketCheckError::Io)?;
-    let parent_owner_ok = [current_uid, expected_uid, 0].contains(&parent_meta.uid());
-    if !parent_meta.is_dir() || parent_meta.mode() & 0o022 != 0 || !parent_owner_ok {
-        return Err(SocketCheckError::ParentNotSafe);
+    let (socket_name, ancestors) = names.split_last().ok_or(SocketCheckError::Invalid)?;
+    let trusted_owner = |uid: u32| [current_uid, expected_uid, 0].contains(&uid);
+    let mut cursor = PathBuf::from("/");
+    let visit = |cursor: &Path, immediate_parent: bool| -> Result<(), SocketCheckError> {
+        let meta = std::fs::symlink_metadata(cursor).map_err(|_| SocketCheckError::Io)?;
+        if meta.file_type().is_symlink() {
+            return Err(SocketCheckError::SymlinkComponent);
+        }
+        if !meta.is_dir() || !trusted_owner(meta.uid()) {
+            return Err(SocketCheckError::ParentNotSafe);
+        }
+        if meta.mode() & GROUP_WORLD_WRITE != 0 {
+            let sticky_ok = !immediate_parent
+                && meta.mode() & STICKY != 0
+                && [current_uid, 0].contains(&meta.uid());
+            if !sticky_ok {
+                return Err(SocketCheckError::ParentNotSafe);
+            }
+        }
+        Ok(())
+    };
+    visit(&cursor, ancestors.is_empty())?;
+    for (index, name) in ancestors.iter().enumerate() {
+        cursor.push(name);
+        visit(&cursor, index + 1 == ancestors.len())?;
     }
-    let meta = std::fs::symlink_metadata(path).map_err(|_| SocketCheckError::Io)?;
+    cursor.push(socket_name);
+    let meta = std::fs::symlink_metadata(&cursor).map_err(|_| SocketCheckError::Io)?;
+    if meta.file_type().is_symlink() {
+        return Err(SocketCheckError::SymlinkComponent);
+    }
     if !meta.file_type().is_socket() {
         return Err(SocketCheckError::NotASocket);
     }
@@ -507,9 +555,16 @@ impl AasmAdapter {
             .ok_or(AasmAdapterError::InvalidSocketPath)?;
         let identifier =
             agent_identifier(&socket_path).ok_or(AasmAdapterError::InvalidSocketPath)?;
+        let uid = current_uid();
+        if config
+            .expected_peer_uid
+            .is_some_and(|expected| expected != uid)
+        {
+            return Err(AasmAdapterError::ExpectedUidMismatch);
+        }
         Ok(Self {
             socket_path,
-            expected_uid: config.expected_peer_uid.unwrap_or_else(current_uid),
+            expected_uid: uid,
             timeout: Duration::from_millis(config.timeout_ms),
             identifier,
         })
@@ -519,11 +574,18 @@ impl AasmAdapter {
         &self,
         request: &PolicyRequest,
     ) -> Result<wire::CheckActionResponse, WireError> {
-        check_socket_path(&self.socket_path, self.expected_uid, current_uid())
-            .map_err(|_| WireError::Unavailable)?;
         let key = TransportKey::derive(&self.identifier)?;
         let query = build_query(request);
         let work = async {
+            // The filesystem walk blocks, so it runs off the async threads and
+            // inside the query deadline.
+            let (path, expected_uid) = (self.socket_path.clone(), self.expected_uid);
+            tokio::task::spawn_blocking(move || {
+                check_socket_path(&path, expected_uid, current_uid())
+            })
+            .await
+            .map_err(|_| WireError::Unavailable)?
+            .map_err(|_| WireError::Unavailable)?;
             let mut stream = UnixStream::connect(&self.socket_path)
                 .await
                 .map_err(|_| WireError::Unavailable)?;
