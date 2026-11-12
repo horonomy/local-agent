@@ -970,14 +970,74 @@ mod tests {
         std::fs::set_permissions(&double.dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 
+    #[test]
+    fn expected_uid_other_than_own_euid_is_rejected_at_construction() {
+        let cfg = AasmConfig {
+            socket_path: Some("/run/u/aa-runtime-x.sock".into()),
+            expected_peer_uid: Some(current_uid().wrapping_add(1)),
+            ..AasmConfig::default()
+        };
+        assert_eq!(
+            AasmAdapter::new(&cfg).unwrap_err(),
+            AasmAdapterError::ExpectedUidMismatch
+        );
+        let own = AasmConfig {
+            expected_peer_uid: Some(current_uid()),
+            ..cfg
+        };
+        assert!(AasmAdapter::new(&own).is_ok());
+    }
+
     #[tokio::test]
-    async fn socket_owned_by_another_uid_is_refused_before_connect() {
+    async fn socket_owned_by_another_uid_is_refused() {
         let double = Double::start(allow());
         let other = current_uid().wrapping_add(1);
-        let adapter = double.adapter_with(|c| c.expected_peer_uid = Some(other));
-        let decision = adapter.decide(&request()).await;
-        assert_eq!(decision.reason, ReasonCode::AuthorityUnavailable);
-        assert_eq!(double.accepted.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            check_socket_path(&double.socket, other, current_uid()),
+            Err(SocketCheckError::WrongOwner)
+        );
+    }
+
+    fn bind_nested(base: &Path, grandparent_mode: u32, parent_mode: u32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let gp = base.join("gp");
+        let parent = gp.join("p");
+        std::fs::create_dir_all(&parent).unwrap();
+        let socket = parent.join("aa-runtime-x.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        std::mem::forget(listener);
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(parent_mode)).unwrap();
+        std::fs::set_permissions(&gp, std::fs::Permissions::from_mode(grandparent_mode)).unwrap();
+        socket
+    }
+
+    #[test]
+    fn every_ancestor_is_checked_for_group_or_world_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().canonicalize().unwrap();
+        let uid = current_uid();
+        let ok = bind_nested(&base.join("a"), 0o755, 0o700);
+        assert_eq!(check_socket_path(&ok, uid, uid), Ok(()));
+        // Sticky + owned by us is accepted as a distant ancestor (like /tmp).
+        let sticky = bind_nested(&base.join("b"), 0o1777, 0o700);
+        assert_eq!(check_socket_path(&sticky, uid, uid), Ok(()));
+        // World-writable without sticky is not.
+        let open = bind_nested(&base.join("c"), 0o777, 0o700);
+        assert_eq!(
+            check_socket_path(&open, uid, uid),
+            Err(SocketCheckError::ParentNotSafe)
+        );
+        let group = bind_nested(&base.join("d"), 0o775, 0o700);
+        assert_eq!(
+            check_socket_path(&group, uid, uid),
+            Err(SocketCheckError::ParentNotSafe)
+        );
+        // No sticky exception for the immediate parent.
+        let sticky_parent = bind_nested(&base.join("e"), 0o755, 0o1777);
+        assert_eq!(
+            check_socket_path(&sticky_parent, uid, uid),
+            Err(SocketCheckError::ParentNotSafe)
+        );
     }
 
     #[tokio::test]
@@ -1078,6 +1138,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn aasm_deny_of_a_locally_allowed_call_keeps_aasm_attribution() {
+        let double = Double::start(Reply::Decision {
+            code: 2,
+            decision_id: "01-xyz",
+        });
+        let (local, _) = fixed(Verdict::Allow, DecisionSource::Local);
+        let composed = ComposedAuthority::new(local, Arc::new(double.adapter()));
+        let decision = composed.decide(&request()).await;
+        assert_eq!(decision.verdict, Verdict::Deny);
+        assert_eq!(decision.source, DecisionSource::Composed);
+        assert_eq!(decision.reason, ReasonCode::AasmDeny);
+        assert_eq!(decision.authority_ref.as_deref(), Some("01-xyz"));
     }
 
     #[tokio::test]
@@ -1219,6 +1294,8 @@ mod tests {
             ["std::", "env"].concat(),
             ["env", "::var"].concat(),
             ["env", "!("].concat(),
+            ["env", "::"].concat(),
+            ["var", "_os"].concat(),
             ["AASM", "_"].concat(),
             ["AA", "_AGENT"].concat(),
             ["getenv", ""].concat(),
