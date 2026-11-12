@@ -2,7 +2,7 @@
 
 Local Agent is a local-first personal AI agent that runs from a single Rust binary on your own machine. It is an independent derivative of ZeroClaw and is not an official ZeroClaw distribution (see [Provenance and attribution](#provenance-and-attribution)).
 
-MVP 1.0 is published as a pre-release (tag `MVP-1.0`, macOS aarch64 tarball and checksums); MVP 2.0 is in development. There is no installer, the product brand is undecided, and the executable and config directory still use upstream names (`zeroclaw`, `~/.zeroclaw`).
+MVP 2.0 is published as a pre-release (tag `MVP-2.0`, macOS aarch64 tarball and checksums; `MVP-1.0` remains available); MVP 3.0 is next (planned, not started). There is no installer, the product brand is undecided, and the executable and config directory still use upstream names (`zeroclaw`, `~/.zeroclaw`).
 
 ## North star
 

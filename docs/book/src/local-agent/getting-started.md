@@ -1,6 +1,6 @@
 # Getting Started
 
-Local Agent MVP 1.0 is published only as a pre-release tarball (macOS aarch64) with no installer. You can download it from the `MVP-1.0` GitHub release or build the `local-agent-minimal` profile from source and run the resulting `zeroclaw` executable (the executable and config directory still use upstream names).
+Local Agent MVP 2.0 is published only as a pre-release tarball (macOS aarch64, not code-signed or notarized) with no installer. You can download it from the `MVP-2.0` GitHub release or build the `local-agent-minimal` profile from source and run the resulting `zeroclaw` executable (the executable and config directory still use upstream names).
 
 ## Build
 
