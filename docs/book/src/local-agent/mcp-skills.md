@@ -1,5 +1,9 @@
 # MCP and Skills
 
+Guides: [set up a stdio MCP server](./mcp-stdio-setup.md) · [skill origins and trust](./skills-trust.md) · [optional WASM plugin host](./wasm-plugins.md) · [compatibility matrix](./compatibility-matrix.md).
+
+Tested versus planned: stdio MCP, per-agent grants and skill audit are exercised against a real minimal-profile binary (see the guides). WASM plugins are an opt-in build, not part of the minimal profile. Remote MCP transports, community skill and plugin registries, and a frozen plugin ABI are unverified or planned and are not promised.
+
 ## MCP
 
 Local Agent is an MCP client. This page documents servers it spawns over stdio; other transports exist in the code but are not covered here. Access is granted per agent and nothing is granted by default.
@@ -8,6 +12,12 @@ Local Agent is an MCP client. This page documents servers it spawns over stdio; 
 - A bundle `[mcp_bundles.<alias>]` lists the servers it grants in `servers`, with an optional `exclude` list. Deny wins: a name in any referenced bundle's `exclude` is removed.
 - An agent connects to the servers granted by the bundles named in its `agents.<alias>.mcp_bundles`.
 - Granted tools are namespaced `<server>__<tool>`.
+
+A stdio server runs as a child process with a reduced environment: only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TMPDIR`, `TZ`, `SSL_CERT_FILE`, `SSL_CERT_DIR` and the Windows runtime variables (`SystemRoot`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `PATHEXT`, `COMSPEC`, `USERNAME`, `WINDIR`, `SystemDrive`, `ProgramData`, `ProgramFiles`, `HOMEDRIVE`, `HOMEPATH`) are inherited; on Windows names match case-insensitively. Any other variable, including API keys in the parent environment, reaches a server only when it is set in that server's `env`, and a configured value replaces an inherited one.
+
+Limitation: proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`; proxy URLs can embed credentials), toolchain variables (for example `NVM_DIR`) and `XDG_*` are not inherited. A server that needs one must have it set in its own `env`.
+
+Failure behavior for a stdio server, covered by local synthetic-server tests: non-JSON, stale-id and non-response lines are ignored; a server that exits during the handshake fails the connection; a child that crashes during a call fails that call without waiting for its deadline and the call is not replayed; a response line beyond the bounded reader is dropped and the call fails at its deadline; a call that exceeds its deadline fails and the unresponsive child is reaped; a tool-level `isError` result fails the call without disturbing the connection. No listener is opened.
 
 An agent with no bundle is not given the tools of a configured server. The golden-journey cases `granted` and `ungranted` in `docs/local-agent/golden-journeys-runner.md` observe this against a loopback fixture, on a debug build of the minimal profile.
 

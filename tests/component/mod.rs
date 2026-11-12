@@ -30,6 +30,7 @@ mod gemini_capabilities;
 mod hardware_probe_feature_graph;
 mod minimal_profile_cli;
 mod minimal_profile_feature_graph;
+mod minimal_profile_plugins;
 mod minimal_profile_provider_policy;
 mod oidc_enrollment_cli;
 mod otel_dependency_feature_regression;

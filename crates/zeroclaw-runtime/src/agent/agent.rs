@@ -17035,13 +17035,13 @@ mod tests {
     }
 
     #[test]
-    fn from_config_policy_filter_blocks_raw_target_but_keeps_scoped_wrapper() {
+    fn from_config_policy_filter_blocks_raw_target_and_unlisted_scoped_wrapper() {
         use crate::skills::{Skill, SkillTool};
 
         let shell: Arc<dyn Tool> = Arc::new(NamedMockTool::new("shell"));
         let file_read: Arc<dyn Tool> = Arc::new(NamedMockTool::new("file_read"));
-        // The resolution registry retains the raw tool so the wrapper can
-        // delegate to it even after the policy filter removes it below.
+        // The resolution registry retains the raw tool; whether a skill wrapper
+        // may bind it is decided by the same policy that filters built-ins.
         let resolution: Vec<Arc<dyn Tool>> = vec![Arc::clone(&shell), Arc::clone(&file_read)];
 
         let mut tools: Vec<Box<dyn Tool>> = vec![
@@ -17089,20 +17089,36 @@ mod tests {
             always: false,
             location: None,
         };
+        // HORO-2389: a skill cannot re-expose a target the policy removed
+        // unless the operator lists the wrapper in `allowed_tools`.
         tools::register_skill_tools_with_context(
             &mut tools,
-            &[skill],
-            Arc::new(crate::security::SecurityPolicy::default()),
+            std::slice::from_ref(&skill),
+            Arc::new(policy.clone()),
             &resolution,
         );
-
         assert!(
             !tools.iter().any(|t| t.name() == "shell"),
             "raw shell must STILL be unavailable after skill registration"
         );
         assert!(
+            !tools.iter().any(|t| t.name() == "ops__use_shell"),
+            "an unlisted wrapper must not re-expose the policy-removed shell"
+        );
+
+        let granted = crate::security::SecurityPolicy {
+            allowed_tools: Some(vec!["file_read".to_string(), "ops__use_shell".to_string()]),
+            ..policy
+        };
+        tools::register_skill_tools_with_context(
+            &mut tools,
+            &[skill],
+            Arc::new(granted),
+            &resolution,
+        );
+        assert!(
             tools.iter().any(|t| t.name() == "ops__use_shell"),
-            "the scoped elevation wrapper must remain the only callable path to shell"
+            "an operator-listed wrapper is the scoped path to shell"
         );
     }
 

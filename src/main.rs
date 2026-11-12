@@ -4439,6 +4439,7 @@ async fn bind_channel_instance(
             "Plugin not found"
         ));
     };
+    minimal_profile_plugin_refusal(manifest)?;
     let plan = plan_channel_binding(config, manifest, alias, decision).map_err(|refusal| {
         anyhow::Error::msg(binding_refusal_line(&manifest.name, alias, &refusal))
     })?;
@@ -6886,6 +6887,9 @@ async fn update_one_plugin(
         Err(error) => return failed(error.to_string()),
     };
     let candidate = admitted.manifest().clone();
+    if let Err(error) = minimal_profile_plugin_refusal(&candidate) {
+        return failed(error.to_string());
+    }
 
     // Authority the replacement adds needs the operator's say-so, decided
     // before its component is compiled.
@@ -7288,6 +7292,32 @@ struct ChannelBindingRequest {
     egress: Option<crate::plugins::channel_instance::EgressDecision>,
 }
 
+/// The local-agent-minimal profile has no channel runtime: `channel start` and the
+/// daemon are refused, so a plugin that declares a channel capability could never
+/// run. Refuse it where it would be admitted instead of leaving it installed and
+/// silently inert, even when the plugin host is compiled in.
+#[cfg(all(feature = "local-agent-minimal", feature = "plugins-wasm"))]
+fn minimal_profile_plugin_refusal(manifest: &zeroclaw::plugins::PluginManifest) -> Result<()> {
+    if manifest
+        .capabilities
+        .contains(&zeroclaw::plugins::PluginCapability::Channel)
+    {
+        // i18n-exempt: profile refusal must not depend on the runtime catalogue.
+        bail!(
+            "plugin `{}` declares the `channel` capability, which the local-agent-minimal \
+             profile does not provide (no channel runtime, daemon or listener). Install a \
+             tool-only plugin, or use the standard build.",
+            manifest.name
+        );
+    }
+    Ok(())
+}
+
+#[cfg(all(not(feature = "local-agent-minimal"), feature = "plugins-wasm"))]
+fn minimal_profile_plugin_refusal(_manifest: &zeroclaw::plugins::PluginManifest) -> Result<()> {
+    Ok(())
+}
+
 /// Install an admitted source: refuse a channel request the binding ceremony
 /// would refuse, run the install-time load check, then publish and seed as one
 /// transaction ([`publish_and_seed_plugin`]).
@@ -7307,6 +7337,7 @@ async fn install_admitted_source(
     no_verify: bool,
     announce_installed: impl FnOnce(&str),
 ) -> Result<Vec<String>> {
+    minimal_profile_plugin_refusal(admitted.manifest())?;
     if let Some(request) = &channel {
         crate::config::migration::ensure_disk_at_current_version(&config.config_path)?;
         let manifest = admitted.manifest();
@@ -9073,6 +9104,20 @@ fn minimal_profile_config_violations(config: &Config) -> Vec<String> {
     }
     for channel in zeroclaw_channels::listing::configured_uncompiled_channels(&config.channels) {
         violations.push(format!("[channels.{}] configured", channel.config_key));
+    }
+    // With the plugin host compiled in, `[channels.plugin.*]` is not reported as
+    // uncompiled above, but the profile still has no channel runtime to serve it.
+    let mut aliases: Vec<_> = config.channels.plugin.keys().collect();
+    aliases.sort();
+    for alias in aliases {
+        let entry = format!("[channels.plugin.{alias}] configured");
+        if !violations.contains(&entry)
+            && !violations
+                .iter()
+                .any(|v| v == "[channels.plugin] configured")
+        {
+            violations.push(entry);
+        }
     }
     violations
 }

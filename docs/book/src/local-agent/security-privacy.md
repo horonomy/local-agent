@@ -24,3 +24,5 @@ Tools run under the agent's autonomy level and risk profile, `supervised` by def
 - [Autonomy levels](../security/autonomy.md)
 - [Sandboxing](../security/sandboxing.md)
 - [Tool receipts](../security/tool-receipts.md)
+
+Controls specific to MCP, skills and plugins: [MCP tool scopes](./mcp-stdio-setup.md#tool-scopes), [skill trust boundaries](./skills-trust.md#trust-boundaries) and [plugin security controls](./wasm-plugins.md#security-controls).

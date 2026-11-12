@@ -5,8 +5,11 @@ binary on your own machine. It is an independent derivative of
 [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) and is not an official
 ZeroClaw distribution. See [Provenance and attribution](#provenance-and-attribution).
 
-> **Status: MVP 1.0 in development.** There is no published release, installer
-> or package. The product brand is undecided; "Local Agent" is a working name,
+> **Status: MVP 1.0 is released as a pre-release; MVP 2.0 is in development.**
+> The `MVP-1.0` tag is a GitHub pre-release with a macOS aarch64 tarball and
+> checksums for the `local-agent-minimal` profile. MVP 2.0 work lands on
+> `release/mvp-2.0` and is not released. There is no installer or package-manager
+> distribution. The product brand is undecided; "Local Agent" is a working name,
 > and the executable, crates and config directory still use upstream names
 > (`zeroclaw`, `~/.zeroclaw`). Only what is listed under
 > [What works in MVP 1.0](#what-works-in-mvp-10) is claimed.
@@ -55,7 +58,8 @@ design. The exact list and behavior is in the
    `supervised` level runs low-risk tools, asks before medium-risk ones and
    blocks high-risk ones. See [Autonomy levels](docs/book/src/security/autonomy.md).
 3. **Grant an MCP tool server.** An agent with no `mcp_bundles` connects to no
-   MCP server. See [MCP](docs/book/src/tools/mcp.md).
+   MCP server. See [Set up a stdio MCP server](docs/book/src/local-agent/mcp-stdio-setup.md)
+   and [MCP](docs/book/src/tools/mcp.md).
 4. **Check the claims yourself, offline.** The golden-journey runner drives a
    built binary against a loopback-only scripted provider and a stdio MCP
    fixture, with no real model or credential. See
@@ -63,7 +67,8 @@ design. The exact list and behavior is in the
 
 ## Supported platforms, providers and build
 
-- **Build:** from source only, with Rust 1.96.0 or newer (edition 2024).
+- **Build:** from source with Rust 1.96.0 or newer (edition 2024), or the
+  MVP-1.0 pre-release tarball (macOS aarch64).
 - **OS:** exercised on macOS (`aarch64-apple-darwin`) only. The golden-journey
   runner is POSIX-only and the egress probe uses macOS `sandbox-exec`. Linux and
   Windows are **not verified** for this profile.
@@ -148,6 +153,10 @@ endorsement.
 ## Documentation and contributing
 
 - Documentation source: [`docs/book/src`](docs/book/src/introduction.md)
+- Compatibility guides: [stdio MCP setup](docs/book/src/local-agent/mcp-stdio-setup.md),
+  [skill origins and trust](docs/book/src/local-agent/skills-trust.md),
+  [optional WASM plugin host](docs/book/src/local-agent/wasm-plugins.md) and the
+  [compatibility matrix](docs/book/src/local-agent/compatibility-matrix.md)
 - Contributor workflow: [AGENTS.md](AGENTS.md) and the
   [engineering lifecycle](docs/local-agent/engineering-lifecycle.md)
 - Baseline measurement method: [baseline-method.md](docs/local-agent/baseline-method.md)

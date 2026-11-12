@@ -88,7 +88,21 @@ Never exfiltrate secrets, never disable audit logging, and always ask for approv
 
 ## Create a TOML skill
 
-A skill can also be a structured TOML manifest (`SKILL.toml`). The `[skill]` table requires `name` and `description`; `version` defaults to `0.1.0` when omitted; `author`, `tags`, `prompts`, and `always` are optional (`always` defaults to `false`; see above). Tool entries may use `kind = "shell"`, `kind = "http"`, or `kind = "script"`. Keep tool descriptions narrow and concrete so the model knows when to use them.
+A skill can also be a structured TOML manifest (`SKILL.toml`). The `[skill]` table requires `name` and `description`; `version` defaults to `0.1.0` when omitted; `author`, `tags`, `prompts`, and `always` are optional (`always` defaults to `false`; see above). Tool entries may use `kind = "shell"`, `kind = "http"`, `kind = "script"`, or the delegating kinds `kind = "builtin"` and `kind = "mcp"` (which also require `target`; see below). Every tool entry must carry a `command` field for the static audit, so a `builtin` or `mcp` tool must declare `command = ""` or the whole skill is dropped. Keep tool descriptions narrow and concrete so the model knows when to use them.
+
+## Precedence and trust boundary
+
+A skill is data and grants no authority. Loading a skill never changes autonomy, allowed commands, channels or listeners: unknown keys outside the documented schema are ignored, `[skill]` and `[forge]` reject unknown fields, and a tool `kind` the runtime does not implement is not registered.
+
+Names resolve first-wins and case-insensitively, in this order: workspace, open-skills, assigned bundles, built-ins. Within one source the candidates are sorted by name and location, so the result does not depend on directory iteration order. A skill that loses its name is not loaded and is reported as dropped. So is a skill whose name is empty, uses the reserved `plugin:` prefix (checked after trimming), or contains anything other than letters or digits in any script, an ordinary space, and `-` `_` `.` `:`. The name rule is an allowlist so that invisible, combining, private-use and lookalike characters cannot make two components disagree about whether names match.
+
+A skill tool may delegate to another tool with `kind = "builtin"` or `kind = "mcp"`. The target must be admitted by the operator's `allowed_tools` / `excluded_tools`, or the operator must list the skill's composed tool name (`<skill>__<tool>`) in `allowed_tools`. Otherwise the skill tool is not registered. A per-run caller allowlist also applies to skill tools. It narrows the skill tool's own name only; it does not additionally vet the delegation target, which is intentional because the operator-listed wrapper is the grant.
+
+Known limitations:
+
+- Tool names are composed as `<skill>__<tool>` without an injective encoding, so `a/b__c` and `a__b/c` both become `a__b__c` and one `allowed_tools` entry covers both.
+- A `shell`, `http` or `script` skill tool still registers when `shell` is in `excluded_tools`. It is bounded by `allowed_commands` and autonomy, not by the tool exclusion.
+- When `allowed_tools` is non-empty, any name containing `__` (MCP and skill tools) is auto-admitted by the shared access policy.
 
 HTTP skill tools use only `http` and `https` URLs. Arguments are percent-encoded before insertion, redirects and ambient proxies are disabled, and the resolved destination must pass ZeroClaw's public-network egress policy. Private or metadata destinations are rejected, and response bodies larger than one megabyte are truncated before they can expand runtime memory.
 
