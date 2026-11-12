@@ -84,35 +84,22 @@ pub struct AgentPolicyInputs<'a> {
     pub always_ask: &'a [String],
     /// Servers granted through the agent's MCP bundles.
     pub mcp_servers: &'a [String],
-    /// Per-run caller allow-list; it only narrows.
+    /// Per-run caller allow-list; it only removes names, never grants.
     pub caller_allowed: Option<&'a [String]>,
 }
 
 /// Build the engine profile from configured inputs.
 pub fn profile_from_inputs(inputs: &AgentPolicyInputs<'_>) -> PolicyProfile {
-    let policy_allowed = inputs.allowed_tools.map(|list| fold_set(list));
-    let caller_allowed = inputs.caller_allowed.map(|list| fold_set(list));
-    let allowed_tools = match (policy_allowed, caller_allowed) {
-        (None, None) => None,
-        (Some(only), None) | (None, Some(only)) => Some(only),
-        (Some(a), Some(b)) => Some(intersect_allow_lists(&a, &b)),
-    };
+    // The caller list is deliberately not merged in: it may only remove
+    // names (see `Enforcing::caller_allowed`), never become a source of the
+    // explicit grants the engine requires.
+    let allowed_tools = inputs.allowed_tools.map(|list| fold_set(list));
     PolicyProfile {
         allowed_tools,
         excluded_tools: fold_set(inputs.excluded_tools.unwrap_or_default()),
         mcp_grants: fold_set(inputs.mcp_servers),
         ask_tools: fold_set(inputs.always_ask),
         autonomy_ceiling: inputs.autonomy,
-    }
-}
-
-/// Intersection of two allow-lists where `*` admits everything.
-fn intersect_allow_lists(a: &BTreeSet<String>, b: &BTreeSet<String>) -> BTreeSet<String> {
-    match (a.contains(WILDCARD), b.contains(WILDCARD)) {
-        (true, true) => BTreeSet::from([WILDCARD.to_owned()]),
-        (true, false) => b.clone(),
-        (false, true) => a.clone(),
-        (false, false) => a.intersection(b).cloned().collect(),
     }
 }
 
@@ -177,6 +164,9 @@ struct Enforcing {
     authority: Arc<dyn PolicyAuthority>,
     agent_alias: String,
     autonomy: AutonomyLevel,
+    /// Folded per-run caller allow-list. Checked in addition to the engine,
+    /// so it can narrow but never widen.
+    caller_allowed: Option<BTreeSet<String>>,
 }
 
 /// Facts about the call being decided or redeemed.
@@ -254,6 +244,7 @@ impl PolicyGate {
         // on the turn is correlation, not a narrowing signal.
         let own = profile_from_inputs(inputs);
         Self::standalone(agent_alias, inputs.autonomy, own, Vec::new())
+            .with_caller_filter(inputs.caller_allowed)
     }
 
     /// Standalone gate over explicit profiles.
@@ -267,7 +258,16 @@ impl PolicyGate {
             authority: standalone_authority_with_parents(profile, parents),
             agent_alias: agent_alias.to_owned(),
             autonomy,
+            caller_allowed: None,
         })))
+    }
+
+    /// Restrict the gate to a per-run caller list. It can only remove names.
+    pub fn with_caller_filter(mut self, caller: Option<&[String]>) -> Self {
+        if let (Mode::Enforce(enforcing), Some(list)) = (&mut self.mode, caller) {
+            enforcing.caller_allowed = Some(fold_set(list));
+        }
+        self
     }
 
     /// Test-only gate that admits everything. It exists so the many fixtures
@@ -489,6 +489,12 @@ fn build_request(
     facts: &CallFacts<'_>,
 ) -> Result<PolicyRequest, ReasonCode> {
     let identity = resolve_identity(facts.tool, facts.registry)?;
+    if let Some(caller) = &enforcing.caller_allowed {
+        let registered = fold_or_deny(facts.tool.name())?;
+        if !caller.contains(&registered) && !caller.contains(WILDCARD) {
+            return Err(ReasonCode::LocalDeny);
+        }
+    }
     Ok(PolicyRequest {
         contract_version: CONTRACT_VERSION,
         session_id: zeroclaw_api::TOOL_LOOP_SESSION_KEY
