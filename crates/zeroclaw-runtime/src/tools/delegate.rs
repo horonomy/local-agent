@@ -1844,8 +1844,9 @@ impl DelegateTool {
         }
         match policy.allowed_tools.as_ref() {
             None => true,
-            Some(list) if list.is_empty() => false,
-            Some(list) => list.iter().any(|t| t == name) || name.contains("__"),
+            // ADR-019: containing `__` is not a grant; MCP tools under an
+            // allow-list must be listed.
+            Some(list) => list.iter().any(|t| t == name),
         }
     }
 
@@ -11880,7 +11881,7 @@ mod tests {
     }
 
     #[test]
-    fn delegate_admits_with_mcp_auto_admits_double_underscore_mcp_names() {
+    fn delegate_admits_with_mcp_does_not_admit_unlisted_double_underscore_names() {
         let tool = DelegateTool::new(HashMap::new(), None, test_security())
             .with_risk_profiles(agentic_risk_profiles(vec!["shell".to_string()]))
             .with_parent_tools(Arc::new(RwLock::new(Vec::new())));
@@ -11894,12 +11895,11 @@ mod tests {
             DelegateTool::delegate_admits_with_mcp(&policy, "shell"),
             "explicit allow-list entry must be admitted"
         );
-        // A runtime-discovered MCP wrapper (matching `<server>__<tool>`) is
-        // auto-admitted even though it is not in `allowed_tools`. This is
-        // the destructive capability the reviewer called out.
+        // A `<server>__<tool>` name is not a grant: an MCP wrapper missing
+        // from `allowed_tools` is rejected (ADR-019).
         assert!(
-            DelegateTool::delegate_admits_with_mcp(&policy, "filesystem__write_file"),
-            "double-underscore MCP name must be auto-admitted"
+            !DelegateTool::delegate_admits_with_mcp(&policy, "filesystem__write_file"),
+            "double-underscore MCP name must not be auto-admitted"
         );
         // Non-MCP names outside the allow-list still get rejected.
         assert!(

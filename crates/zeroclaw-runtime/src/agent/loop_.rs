@@ -20000,12 +20000,12 @@ Let me check the result."#;
             !super::eager_mcp_tool_allowed("slack__post", access_policy.as_ref()),
             "policy excluded_tools must block eager MCP registration"
         );
-        // `github__search` is in the caller list AND its `__` prefix triggers
-        // the risk-profile MCP auto-admit, so both independent gates pass it.
+        // `github__search` is in the caller list but not in `allowed_tools`:
+        // containing `__` is not a grant (ADR-019), so the risk-profile gate
+        // rejects it even though the caller gate passes it.
         assert!(
-            super::eager_mcp_tool_allowed("github__search", access_policy.as_ref()),
-            "name auto-admitted by risk-profile MCP exception and listed by \
-             the caller must be registered eagerly"
+            !super::eager_mcp_tool_allowed("github__search", access_policy.as_ref()),
+            "an MCP name missing from allowed_tools must not be admitted"
         );
     }
 
@@ -20076,10 +20076,10 @@ Let me check the result."#;
             super::eager_mcp_tool_allowed("fs__read_file", access_policy.as_ref()),
             "process_message eager MCP should use the agent SecurityPolicy allowlist"
         );
-        // github__search contains "__" → auto-admitted even though not in allowed_tools
+        // github__search contains "__" but is not in allowed_tools: not a grant.
         assert!(
-            super::eager_mcp_tool_allowed("github__search", access_policy.as_ref()),
-            "runtime-discovered MCP tools are auto-admitted (subject only to excluded_tools)"
+            !super::eager_mcp_tool_allowed("github__search", access_policy.as_ref()),
+            "an MCP tool missing from allowed_tools must not be admitted (ADR-019)"
         );
     }
 
@@ -20158,8 +20158,8 @@ Let me check the result."#;
             Some(&delegate_handle),
             access_policy.as_ref(),
         ));
-        // github__search contains "__" → auto-admitted
-        assert!(super::register_eager_mcp_tool_if_allowed(
+        // github__search contains "__" but is not listed: not admitted
+        assert!(!super::register_eager_mcp_tool_if_allowed(
             mock_tool_arc("github__search"),
             &mut tools,
             Some(&delegate_handle),
@@ -20173,13 +20173,13 @@ Let me check the result."#;
             access_policy.as_ref(),
         ));
 
-        assert_eq!(tool_names(&tools), vec!["fs__read_file", "github__search"]);
+        assert_eq!(tool_names(&tools), vec!["fs__read_file"]);
         let delegate_names: Vec<String> = delegate_handle
             .read()
             .iter()
             .map(|tool| tool.name().to_string())
             .collect();
-        assert_eq!(delegate_names, vec!["fs__read_file", "github__search"]);
+        assert_eq!(delegate_names, vec!["fs__read_file"]);
     }
 
     // ── agent_provider_composite regression ───────────────────────────────

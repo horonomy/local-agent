@@ -53,13 +53,13 @@ impl ToolAccessPolicy {
             return false;
         }
 
-        // Risk-profile gate: MCP `<server>__<tool>` names are auto-admitted
-        // when the list is non-empty. An explicit empty list (`Some(vec![])`)
-        // still means "deny everything".
+        // Risk-profile gate: a non-empty list admits only the names it
+        // lists, MCP `<server>__<tool>` names included (ADR-019: containing
+        // `__` is not a grant). An empty list (`Some(vec![])`) denies
+        // everything.
         let risk_ok = match self.allowed.as_ref() {
             None => true,
-            Some(list) if list.is_empty() => false,
-            Some(list) => list.iter().any(|t| t == name) || name.contains("__"),
+            Some(list) => list.iter().any(|t| t == name),
         };
         if !risk_ok {
             return false;
