@@ -40,8 +40,8 @@ Profile: all profiles (MCP is part of the minimal closure).
 | # | Sample | Claim | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | M1 | Local `/bin/sh` stdio stub: `initialize`, `tools/list`, `tools/call` | protocol, runtime | works unchanged. Tools appear as `<server>__<tool>`; the client sends `protocolVersion` `2024-11-05` | `mcp_compat_matrix::stdio_sample_discovers_namespaces_and_invokes_unchanged` |
-| M2 | `scripts/local_agent/mcp_fixture.py` (tools `echo`, `fail`; 8 KiB line bound; `2024-11-05`) | protocol, runtime | works unchanged at the fixture-contract level (14 Python subprocess tests). The agent-loop journeys `granted`, `ungranted`, `recovery`, `provider_timeout`, `cancellation` are recorded in `docs/local-agent/golden-journeys-runner.md` and were not re-run for this page | `python3 -m unittest scripts.local_agent.test_mcp_fixture` |
-| M3 | Server that answers `initialize` with a different `protocolVersion` | protocol | unverified. The client does not compare the server's revision to its own; connection succeeds and works only as far as the JSON-RPC subset happens to match. No negotiation exists | `server_claiming_another_protocol_revision_is_not_rejected` (characterization) |
+| M2 | `scripts/local_agent/mcp_fixture.py` (tools `echo`, `fail`; 8 KiB line bound; `2024-11-05`) | protocol, runtime | works unchanged at the fixture-contract level (14 Python subprocess tests). The agent-loop journeys `granted` (2 provider requests), `ungranted` (1), `provider_timeout` (2), `cancellation` (2) and `recovery` (3) all passed against a debug `local-agent-minimal` build (see Reproduce) | `python3 -m unittest scripts.local_agent.test_mcp_fixture` |
+| M3 | Server that answers `initialize` with a different `protocolVersion` | protocol | unverified. Known limitation: `handshake` in `mcp_client.rs` sends `protocolVersion` `2024-11-05` and reads only the server's `capabilities`; the server's `protocolVersion` is never compared, logged or refused, so no revision is negotiated and a mismatch surfaces only as a later call failure. Not changed here because revisions are dates, not majors, and no safe refusal rule is defined | `server_claiming_another_protocol_revision_is_not_rejected` (characterization) |
 | M4 | Server tool/result text containing instructions (`IGNORE ALL PREVIOUS INSTRUCTIONS ...`) | runtime | works unchanged. Description and result are carried as data; the call succeeds and the text is returned verbatim, never interpreted | `injected_text_stays_data_and_approval_flag_is_not_forwarded` |
 | M5 | Caller-supplied `approved` flag on a tool call | runtime | works unchanged. The flag is stripped and never reaches the server | same test |
 | M6 | Call to a tool the server never advertised | runtime | works unchanged. Fails with `unknown MCP tool` naming the tool; nothing is routed | `unknown_tool_name_fails_with_a_named_error` |
@@ -79,7 +79,7 @@ Profile: **plugins opt-in only.** The minimal closure contains no `zeroclaw-plug
 | P3 | `tool-socket-fixture`, `tool-websocket-fixture` (`socket_client`, `websocket_client`) | ABI, runtime | works unchanged on plugins opt-in. Outbound only and host-mediated; the plugin never listens | `socket_plugin_e2e`, `websocket_plugin_e2e` |
 | P4 | `memory-fixture` | ABI, runtime | works unchanged on plugins opt-in | `memory_plugin_e2e` |
 | P5 | `egress-fixture` and a destination outside the operator allow-list | runtime | works unchanged. Deny by default; outside-allow-list, private-address and cloud-metadata destinations and redirects to them are refused. A manifest `[egress]` table is an attestation, never a grant | `egress_plugin_e2e`, `host::tests::valid_egress_declaration_is_admitted_but_confers_no_reach` |
-| P6 | `channel-fixture`, `channel-egress-fixture`, `channel-websocket-fixture` | ABI, runtime | ABI: works at the component level (`channel_plugin_e2e`). Runtime on Local Agent: **unsupported**. Channel plugins are driven only by `channel start` and the daemon, both refused in the minimal profile at startup ("`zeroclaw channel start` is not available in the local-agent-minimal profile ..."). Installing one is not refused at admission, so treat it as inert, not as supported | source-grounded: `src/main.rs` `minimal_profile_refused_surface`; not run on a built binary here |
+| P6 | `channel-fixture`, `channel-egress-fixture`, `channel-websocket-fixture`; any package declaring the `channel` capability | ABI, runtime | ABI: works at the component level (`channel_plugin_e2e`). Runtime on Local Agent: **unsupported, fails closed**. In a `local-agent-minimal` build, even with the plugin host compiled in, `plugin install`, `plugin update` and `plugin bind` refuse such a package ("plugin `<name>` declares the `channel` capability, which the local-agent-minimal profile does not provide ..."), and a `[channels.plugin.<alias>]` config section is refused at startup ("[channels.plugin.<alias>] configured", naming the profile). Tool plugins still install. `channel start` and the daemon are refused as before. Standard builds are unchanged | `component::minimal_profile_plugins::*` (3 tests, minimal+`plugins-wasm-cranelift`), `ingress_commands_are_refused_before_any_setup` |
 | P7 | Component importing another `zeroclaw:plugin/*` version, an unversioned one, or non-`0.2.x` `wasi:*` | ABI | unsupported. Install, `plugin info` and startup fail with `plugin ABI mismatch`, naming the interface and the pinned version; rebuild against this host's `wit/v0` | `abi_pin_*`, `install_gate_*`, `load_component_rejects_a_component_built_for_another_plugin_abi` (HORO-2390) |
 | P8 | Core module, `wasm32-wasip1` build or non-component bytes | ABI | unsupported. Refused with `failed to load WASM component` | `verify_component_loads_accepts_the_fixture_and_rejects_a_non_component` |
 | P9 | Components built for earlier experimental worlds | ABI | unsupported by policy (`wit/VERSIONING.md`); rebuild | doc |
@@ -98,7 +98,7 @@ Instruction for supported use (plugins opt-in build only): build the component f
 | Surface | Behavior | Where it is decided |
 | --- | --- | --- |
 | Messaging channels, gateway, ACP, daemon, relay, tunnels | Not compiled; combining the profile with one is a `compile_error!`; the commands that start them are refused at startup with an actionable message | `src/lib.rs`, `src/main.rs`, [Minimal profile](../setup/local-agent-minimal.md) |
-| Channel plugins | Inert on Local Agent (P6) | see P6 |
+| Channel plugins and `[channels.plugin.*]` config | Refused at install, update, bind and startup in the minimal profile (P6) | `src/main.rs` `minimal_profile_plugin_refusal`, `minimal_profile_config_violations` |
 | Incompatible ABI, non-component, wrong WASI | Refused at install and load with a named interface and the pinned version | P7, P8 |
 | Unapproved egress | Denied by default; the allow-list is operator config | P5 |
 | Privileged or server-side plugin permissions | Do not exist in the manifest vocabulary; install fails | P11 |
@@ -109,7 +109,6 @@ Instruction for supported use (plugins opt-in build only): build the component f
 ## Known gaps
 
 - MCP client does not negotiate or reject by protocol revision (M3).
-- A channel plugin installs without a refusal in a plugins opt-in build; it is inert only because the commands that would run it are refused (P6).
 - Unknown manifest keys are ignored rather than rejected (P14).
 - `signature_mode` defaults to `disabled` (P10).
 
@@ -124,4 +123,22 @@ cargo test -p zeroclaw-runtime --lib skills::
 python3 -m unittest scripts.local_agent.test_mcp_fixture
 ```
 
+```sh
+cargo test --no-default-features --features local-agent-minimal,plugins-wasm-cranelift --test component minimal_profile
+cargo build --no-default-features --features local-agent-minimal --bin zeroclaw
+python3 scripts/local_agent/golden_journey.py --binary target/debug/zeroclaw --fixture scripts/local_agent/mcp_fixture.py --case all --deadline 40
+python3 scripts/local_agent/listener_probe.py --binary target/debug/zeroclaw
+python3 scripts/local_agent/egress_probe.py --binary target/debug/zeroclaw --mode approved
+```
+
+Observed outcomes (macOS aarch64, debug build of `local-agent-minimal`, Python 3.13.5, synthetic loopback provider, no external network):
+
+- `local-agent-minimal` combined with `plugins-wasm-cranelift` compiles; the compile guard does not list the plugin host features, so the combination is legal. Standard features plus `plugins-wasm-cranelift` also compile.
+- `component minimal_profile`: 14 passed (3 new).
+- `golden_journey.py --case all`: `case_pass` true; `granted` 2, `ungranted` 1, `provider_timeout` 2, `cancellation` 2, `recovery` 3 provider requests, all passed.
+- `listener_probe.py`: verdict `no-listener`, positive control seen, `agent_alive` true, no listeners.
+- `egress_probe.py --mode approved`: verdict `PASS`, 3 approved connections, 0 other connections, no outbound attempt inferred.
+
 The plugin fixtures need the `wasm32-wasip2` target. The `skills_compat_matrix` samples read `.claude/skills` in this repository, so a change to those skills can change S1 and S2; update this page with the test.
+
+Link check: `mdbook build` could not run locally (its `peer-groups` preprocessor binary is not built) and no mdbook link-check plugin is installed; the relative links on this page were verified with `lychee --offline` (5 links, 0 errors).
