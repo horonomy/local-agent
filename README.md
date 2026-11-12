@@ -5,15 +5,17 @@ binary on your own machine. It is an independent derivative of
 [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) and is not an official
 ZeroClaw distribution. See [Provenance and attribution](#provenance-and-attribution).
 
-> **Status: MVP 2.0 is released as a pre-release; MVP 3.0 is in development.**
+> **Status: MVP 2.0 is released as a pre-release; MVP 3.0 is next (planned, not started).**
 > The `MVP-2.0` tag is a GitHub pre-release with a macOS aarch64 tarball and
 > checksums for the `local-agent-minimal` profile (`MVP-1.0` remains available).
 > The tarball is not code-signed or notarized. There is no installer or
 > package-manager distribution. The product brand is undecided; "Local Agent" is
 > a working name, and the executable, crates and config directory still use
 > upstream names (`zeroclaw`, `~/.zeroclaw`). Only what is listed under
-> [What works in MVP 1.0](#what-works-in-mvp-10) is claimed; MVP 2.0 adds the
-> MCP, Skills and plugin compatibility hardening described in its release notes.
+> [What works in MVP 1.0](#what-works-in-mvp-10) is claimed; MVP 2.0 adds MCP
+> stdio environment hardening, a Skills trust boundary and a compatibility
+> matrix (see its release notes); the WASM plugin host is not included in this
+> artifact.
 
 ## North star
 
