@@ -53,11 +53,13 @@ Verified: the first install succeeds and prints `Installed into bundle 'ops'`; i
 
 - **No authority.** Skill text that asks to widen autonomy, enable a channel or open a listener is loaded as prompt text and registers nothing (matrix S5).
 - **Scripts off by default.** Shell, PowerShell and shebang files are blocked. `skills.allow_scripts = true` is an explicit opt-in; leave it off unless you have read the scripts (S4). `skills test` runs a skill's own `TEST.sh`: read it first.
-- **Tool delegation is operator-gated.** A `SKILL.toml` tool of kind `builtin` or `mcp` registers only if the operator's `allowed_tools` / `excluded_tools` admit the target, or the operator lists the composed `<skill>__<tool>` name (S6).
+- **Tool delegation is operator-gated.** A `SKILL.toml` tool of kind `builtin` or `mcp` registers only if the operator's `allowed_tools` / `excluded_tools` admit the target, or the operator lists the composed `<skill>__<tool>` name (S6); at call time the policy gate still evaluates it as its target, so the target must be admitted there too.
 - **Names are an allowlist** of letters, digits, space and `- _ . :`, so lookalike or invisible characters cannot make two components disagree about a name.
 - **Prompt injection is not solved.** Skill content reaches the model. Compact prompt mode shrinks the prompt; it is not isolation.
 
-Known limitations, unchanged from the inherited page: composed tool names are not injectively encoded (`a/b__c` and `a__b/c` collide); a `shell`, `http` or `script` skill tool still registers when `shell` is in `excluded_tools` and is bounded by `allowed_commands` and autonomy instead; and under a non-empty `allowed_tools`, any name containing `__` is auto-admitted.
+Skill tools are evaluated as the built-in they wrap: a `shell` or `script` skill tool as `shell`, an `http` skill tool as `http_request`, a `builtin` or `mcp` tool as its target. They are not registered when that built-in is in `excluded_tools`, and the policy gate denies them at call time on the same basis. Under a non-empty `allowed_tools` the operator must list the wrapper's target (`shell`, `http_request` or the target tool), not only the composed skill name; `http_request` additionally needs explicit listing as a network tool. A name containing `__` is not auto-admitted.
+
+Known limitation, unchanged from the inherited page: composed tool names are not injectively encoded (`a/b__c` and `a__b/c` collide).
 
 ## Tested and not tested
 
