@@ -693,6 +693,14 @@ pub fn active_caller_list() -> Option<Vec<String>> {
     ACTIVE_CALLER_LIST.try_with(Clone::clone).ok().flatten()
 }
 
+/// Whether a caller-list scope is active at all. The executor always sets
+/// one, so `false` means the call left the executor's task (a spawned task
+/// loses task-local state) and a tool that must hand the list on cannot know
+/// it: it has to fail closed.
+pub fn caller_scope_active() -> bool {
+    ACTIVE_CALLER_LIST.try_with(|_| ()).is_ok()
+}
+
 /// Model-visible text for a denied call. The reason is a closed code, never
 /// free text, and the message does not suggest how to widen the policy.
 pub fn denial_message(tool_name: &str, reason: ReasonCode) -> String {

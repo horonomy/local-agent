@@ -28,6 +28,11 @@ pub struct SpawnSubagentTool {
     /// `AgentRunOverrides.is_subagent` at registry construction time.
     is_subagent_caller: bool,
     execution_capability: Option<AgentExecutionCapability>,
+    /// Production registries set this: the executor scopes the parent's
+    /// per-run caller list around the call, and a call without that scope
+    /// (it ran in a spawned task) is refused rather than spawning a child
+    /// that might be wider than its parent.
+    require_caller_scope: bool,
 }
 
 impl SpawnSubagentTool {
@@ -46,7 +51,15 @@ impl SpawnSubagentTool {
             security,
             is_subagent_caller: false,
             execution_capability: None,
+            require_caller_scope: false,
         }
+    }
+
+    /// Refuse to run outside the executor's caller-list scope.
+    #[must_use]
+    pub fn requiring_caller_scope(mut self) -> Self {
+        self.require_caller_scope = true;
+        self
     }
 
     /// Mark this tool instance as belonging to a SubAgent's tool
@@ -143,6 +156,18 @@ impl Tool for SpawnSubagentTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
+        if self.require_caller_scope && !crate::security::policy_gate::caller_scope_active() {
+            return Ok(ToolResult {
+                success: false,
+                output: ToolOutput::default(),
+                error: Some(
+                    "spawn_subagent: refused — the caller's tool scope is unavailable \
+                     here, so the child's authority cannot be bounded"
+                        .into(),
+                ),
+            });
+        }
+
         // Depth-1 cap: a SubAgent may not spawn its own subagents.
         // The caller-side flag is set at registry construction time
         // from `AgentRunOverrides.is_subagent`, so the refusal fires
@@ -360,6 +385,48 @@ mod tests {
             },
         );
         config
+    }
+
+    #[tokio::test]
+    async fn spawn_without_the_callers_scope_is_refused() {
+        use crate::security::policy_gate::scope_caller_list;
+        let tool = Arc::new(
+            SpawnSubagentTool::new(
+                Arc::new(config_with_agent("alpha")),
+                "alpha",
+                Arc::new(SecurityPolicy::default()),
+            )
+            .requiring_caller_scope(),
+        );
+        // No scope at all (a direct or lost-context call).
+        let result = tool.execute(json!({"prompt": "hello"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("scope is unavailable"));
+
+        // A task spawned from inside the executor's scope loses the
+        // task-local, so the parallel path cannot smuggle a wide child out.
+        let narrowed = Some(vec!["file_read".to_string()]);
+        let spawned = scope_caller_list(narrowed.clone(), async {
+            let tool = Arc::clone(&tool);
+            tokio::spawn(async move { tool.execute(json!({"prompt": "hello"})).await.unwrap() })
+                .await
+                .unwrap()
+        })
+        .await;
+        assert!(!spawned.success);
+        assert!(spawned.error.unwrap().contains("scope is unavailable"));
+
+        // Inside the scope the guard passes (the call then fails later for
+        // an unrelated reason in this fixture).
+        let inside = scope_caller_list(narrowed, tool.execute(json!({"prompt": "hello"})))
+            .await
+            .unwrap();
+        assert!(
+            !inside
+                .error
+                .unwrap_or_default()
+                .contains("scope is unavailable")
+        );
     }
 
     #[tokio::test]

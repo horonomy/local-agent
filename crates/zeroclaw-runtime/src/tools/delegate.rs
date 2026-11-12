@@ -349,6 +349,9 @@ pub struct DelegateTool {
     /// advertised roster so an agent is never offered itself as a
     /// delegation target. Empty when unset (legacy unit-test constructors).
     caller_alias: String,
+    /// Test fixtures only: let a bounded child without a root config run
+    /// permissively. Never set in production, where the child is denied.
+    permit_unrooted_child: bool,
     /// Aliases of the callers above this tool's `caller_alias`, root first;
     /// empty on a root tool. Combined with `caller_alias` when a background
     /// row is stamped and when a row's visibility is checked.
@@ -511,6 +514,7 @@ impl DelegateTool {
             live_config: None,
             execution_capability: None,
             caller_alias: String::new(),
+            permit_unrooted_child: false,
             originator_chain: Vec::new(),
             task_control_plane: Arc::new(tokio::sync::OnceCell::new()),
             prebuilt_cost_ctx: None,
@@ -569,6 +573,7 @@ impl DelegateTool {
             live_config: None,
             execution_capability: None,
             caller_alias: String::new(),
+            permit_unrooted_child: false,
             originator_chain: Vec::new(),
             task_control_plane: Arc::new(tokio::sync::OnceCell::new()),
             prebuilt_cost_ctx: None,
@@ -685,6 +690,12 @@ impl DelegateTool {
     /// Attach skill bundles for skills-directory resolution.
     pub fn with_skill_bundles(mut self, m: HashMap<String, SkillBundleConfig>) -> Self {
         self.skill_bundles = Arc::new(m);
+        self
+    }
+
+    #[cfg(test)]
+    fn permitting_unrooted_child(mut self) -> Self {
+        self.permit_unrooted_child = true;
         self
     }
 
@@ -1795,18 +1806,14 @@ impl DelegateTool {
 
     /// Gate for a bounded child when no root config is attached. Production
     /// always attaches one (`all_tools_with_runtime`), so absence means a
-    /// misassembled tool and every call is denied. Unit fixtures that build a
-    /// configless `DelegateTool` run permissively; that exists only under
-    /// `cfg(test)`.
-    fn gate_without_root_config() -> crate::security::policy_gate::PolicyGate {
+    /// misassembled tool and every call is denied. A fixture opts out
+    /// explicitly with `permitting_unrooted_child`.
+    fn gate_without_root_config(&self) -> crate::security::policy_gate::PolicyGate {
         #[cfg(test)]
-        {
-            crate::security::policy_gate::PolicyGate::permit_all_for_test()
+        if self.permit_unrooted_child {
+            return crate::security::policy_gate::PolicyGate::permit_all_for_test();
         }
-        #[cfg(not(test))]
-        {
-            crate::security::policy_gate::PolicyGate::deny_all()
-        }
+        crate::security::policy_gate::PolicyGate::deny_all()
     }
 
     /// Policy gate for a bounded child: the target's profile narrowed by this
@@ -1821,7 +1828,7 @@ impl DelegateTool {
         // Without the root config there are no governance mode and no MCP
         // grants to build from; fail closed instead of guessing a default.
         let Some(root_config) = self.root_config.as_ref() else {
-            return Self::gate_without_root_config();
+            return self.gate_without_root_config();
         };
         let governance = root_config.governance.clone();
         let servers: Vec<String> = root_config
@@ -3407,6 +3414,7 @@ impl DelegateTool {
         let execution_capability = self.execution_capability.clone();
         let target_execution_admission = execution_admission;
         let caller_alias = self.caller_alias.clone();
+        let permit_unrooted_child = self.permit_unrooted_child;
         // The background wrapper re-executes the SAME hop as the outer tool
         // (depth ownership comment above), so the rebuilt inner tool carries
         // the outer chain verbatim rather than extending it.
@@ -3491,6 +3499,7 @@ impl DelegateTool {
                 // an unwind; the normal path drops it explicitly below.
                 let progress_stop_guard = progress_stop.drop_guard();
                 let inner = DelegateTool {
+                    permit_unrooted_child,
                     agents,
                     security,
                     global_credential,
@@ -3829,6 +3838,7 @@ impl DelegateTool {
             let execution_capability = self.execution_capability.clone();
             let target_execution_admission = execution_admissions[index].clone();
             let caller_alias = self.caller_alias.clone();
+            let permit_unrooted_child = self.permit_unrooted_child;
             // Same-hop re-executor (see the background spawn): the inherited
             // cost base is carried verbatim from the spawning tool.
             let inherited_cost_tracker = self.inherited_cost_tracker.clone();
@@ -3863,6 +3873,7 @@ impl DelegateTool {
             handles.push(zeroclaw_spawn::spawn!(
                 async move {
                     let inner = DelegateTool {
+                        permit_unrooted_child,
                         agents,
                         security,
                         global_credential,
@@ -5064,6 +5075,7 @@ impl DelegateTool {
                         live_config: self.live_config.clone(),
                         execution_capability: self.execution_capability.clone(),
                         caller_alias: agent_name.to_string(),
+                        permit_unrooted_child: self.permit_unrooted_child,
                         originator_chain: self.lineage(),
                         task_control_plane: nested_task_control_plane,
                         // A second hop arrives through Required admission and
@@ -5122,7 +5134,7 @@ impl DelegateTool {
                 // The child runs the caller's tools, so it is governed by
                 // the target's profile narrowed by the caller's.
                 let mut bounded_registry = assembled_bounded.registry;
-                bounded_registry.replace_policy(self.bounded_child_policy(
+                bounded_registry.bind_bounded_policy(self.bounded_child_policy(
                     agent_name,
                     &target_policy,
                     &tool_policy,
@@ -9520,7 +9532,8 @@ mod tests {
         .with_risk_profiles(profiles)
         .with_parent_tools(Arc::new(RwLock::new(vec![Arc::new(CountingEchoTool {
             executions: Arc::clone(&executions),
-        })])));
+        })])))
+        .permitting_unrooted_child();
         if rooted {
             use zeroclaw_config::autonomy::{DelegationMode, DelegationPolicy};
 
@@ -9591,6 +9604,36 @@ mod tests {
             executions.load(std::sync::atomic::Ordering::SeqCst),
             messages,
         )
+    }
+
+    #[test]
+    fn bounded_child_without_a_root_config_is_denied_in_production() {
+        // Without `permitting_unrooted_child` (never set outside fixtures) the
+        // child's gate is deny-all: this is the production path.
+        let tool = DelegateTool::new(HashMap::new(), None, test_security());
+        let gate = tool.bounded_child_policy(
+            "child",
+            &SecurityPolicy::default(),
+            &SecurityPolicy::default(),
+        );
+        let echo = EchoTool;
+        let outcome = futures_util::FutureExt::now_or_never(gate.decide(
+            &crate::security::policy_gate::CallFacts {
+                tool: &echo,
+                registry: &[],
+                args: &json!({}),
+                call_id: "c",
+                turn_id: "t",
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: true,
+            },
+        ))
+        .expect("deny-all decides without awaiting");
+        assert!(matches!(
+            outcome,
+            crate::security::policy_gate::GateOutcome::Deny { .. }
+        ));
     }
 
     #[tokio::test]
@@ -9688,7 +9731,8 @@ mod tests {
             .with_runtime(Arc::new(NativeRuntime::new()))
             .with_runtime_profiles(agentic_runtime_profiles(10))
             .with_risk_profiles(profiles)
-            .with_parent_tools(Arc::new(RwLock::new(vec![shell])));
+            .with_parent_tools(Arc::new(RwLock::new(vec![shell])))
+            .permitting_unrooted_child();
         let provider = ApprovalProbeModelProvider {
             tool_name: "shell",
             tool_arguments: serde_json::json!({
@@ -10579,7 +10623,8 @@ mod tests {
         let tool = DelegateTool::new(HashMap::new(), None, test_security())
             .with_runtime_profiles(agentic_runtime_profiles(10))
             .with_risk_profiles(agentic_risk_profiles_with_approved_echo())
-            .with_parent_tools(Arc::new(RwLock::new(vec![Arc::new(EchoTool)])));
+            .with_parent_tools(Arc::new(RwLock::new(vec![Arc::new(EchoTool)])))
+            .permitting_unrooted_child();
 
         let collector: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));

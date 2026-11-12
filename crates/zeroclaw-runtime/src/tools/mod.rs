@@ -1814,6 +1814,7 @@ fn all_tools_with_runtime_on_thread(
                 security.clone(),
             )
             .with_subagent_caller(is_subagent_caller)
+            .requiring_caller_scope()
             .with_execution_capability(execution_capability.clone()),
         )
     );

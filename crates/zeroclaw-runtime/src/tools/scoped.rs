@@ -325,11 +325,19 @@ impl ScopedToolRegistry {
         self.2.as_ref()
     }
 
-    /// Replace the gate of an already-sealed registry. Only for a bounded
-    /// child whose registry is assembled from a default policy but must be
-    /// governed by its parent and target profiles.
-    pub(crate) fn replace_policy(&mut self, gate: PolicyGate) {
+    /// Govern an already-sealed registry by `gate` instead of the gate it was
+    /// minted with. Only for a bounded child, whose registry is assembled from
+    /// a default policy but must be governed by its parent and target
+    /// profiles.
+    ///
+    /// The pipeline tool is removed: its child steps are decided by the gate
+    /// captured when it was built (the parent's), and that capture cannot be
+    /// re-pointed from here, so keeping it would let a step run under a wider
+    /// gate than the child's. The child keeps every tool a pipeline would
+    /// have invoked.
+    pub(crate) fn bind_bounded_policy(&mut self, gate: PolicyGate) {
         self.2 = Arc::new(gate);
+        self.retain(|tool| tool.name() != tools::PipelineTool::NAME);
     }
 
     /// Consume the assembled registry into the owned `Vec` for non-turn
@@ -1420,6 +1428,45 @@ mod tests {
     use crate::tools::{ToolOutput, ToolResult};
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn bounded_policy_binding_drops_the_pipeline_and_replaces_the_gate() {
+        let pipeline =
+            tools::PipelineTool::new(zeroclaw_config::schema::PipelineConfig::default(), vec![]);
+        let mut registry = ScopedToolRegistry::from_raw_for_test(vec![
+            Box::new(pipeline),
+            Box::new(CountingTool {
+                name: "alpha",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        ]);
+        assert!(
+            registry
+                .iter()
+                .any(|t| t.name() == tools::PipelineTool::NAME)
+        );
+        registry.bind_bounded_policy(PolicyGate::deny_all());
+        let names: Vec<_> = registry.iter().map(|t| t.name().to_string()).collect();
+        assert_eq!(names, vec!["alpha".to_string()]);
+        let alpha = registry.iter().find(|t| t.name() == "alpha").unwrap();
+        let outcome = futures_util::FutureExt::now_or_never(registry.policy().decide(
+            &crate::security::policy_gate::CallFacts {
+                tool: alpha.as_ref(),
+                registry: &registry,
+                args: &serde_json::json!({}),
+                call_id: "c",
+                turn_id: "t",
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: true,
+            },
+        ))
+        .expect("deny-all decides without awaiting");
+        assert!(matches!(
+            outcome,
+            crate::security::policy_gate::GateOutcome::Deny { .. }
+        ));
+    }
 
     struct MockTool(&'static str);
 
