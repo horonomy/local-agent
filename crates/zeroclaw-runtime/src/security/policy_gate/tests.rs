@@ -733,3 +733,165 @@ async fn a_call_is_decided_on_its_per_call_capability() {
     // Naming the tool is the explicit operator act that grants network class.
     assert!(!denied(g.decide(&facts(list)).await));
 }
+
+struct Runs {
+    name: &'static str,
+    cap: ToolCapability,
+    runs: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Attributable for Runs {
+    fn role(&self) -> Role {
+        Role::System
+    }
+    fn alias(&self) -> &str {
+        "runs"
+    }
+}
+
+#[async_trait]
+impl Tool for Runs {
+    fn capability(&self) -> ToolCapability {
+        self.cap
+    }
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "counts"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({})
+    }
+    async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        self.runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(ToolResult {
+            success: true,
+            output: zeroclaw_api::tool::ToolOutput::default(),
+            error: None,
+        })
+    }
+}
+
+fn pipeline(
+    gate: PolicyGate,
+    runs: &Arc<std::sync::atomic::AtomicUsize>,
+) -> zeroclaw_tools::pipeline::PipelineTool {
+    let tool = |name, cap| -> Arc<dyn Tool> {
+        Arc::new(Runs {
+            name,
+            cap,
+            runs: Arc::clone(runs),
+        })
+    };
+    let config = zeroclaw_config::schema::PipelineConfig {
+        enabled: true,
+        max_steps: 20,
+        allowed_tools: vec!["web_fetch".into(), "file_read".into(), "shell".into()],
+    };
+    zeroclaw_tools::pipeline::PipelineTool::new(
+        config,
+        vec![
+            tool("web_fetch", ToolCapability::Network),
+            tool("file_read", ToolCapability::FsRead),
+            tool("shell", ToolCapability::Shell),
+        ],
+    )
+    .with_step_admission(Arc::new(gate).step_admission())
+}
+
+async fn run_pipeline(
+    pipe: &zeroclaw_tools::pipeline::PipelineTool,
+    steps: &[&str],
+    parallel: bool,
+) -> ToolResult {
+    let steps: Vec<_> = steps
+        .iter()
+        .map(|t| json!({"tool": t, "args": {}}))
+        .collect();
+    pipe.execute(json!({"steps": steps, "parallel": parallel}))
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn pipeline_step_needing_explicit_network_listing_is_denied_by_default() {
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pipe = pipeline(gate(&inputs(None, None, None)), &runs);
+    let out = run_pipeline(&pipe, &["web_fetch"], false).await;
+    assert!(!out.success);
+    assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 0);
+    // An ordinary step passes through the same gate.
+    assert!(run_pipeline(&pipe, &["file_read"], false).await.success);
+    assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn pipeline_step_listed_by_the_operator_runs() {
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let allowed = list(&["web_fetch", "file_read", "shell"]);
+    let pipe = pipeline(gate(&inputs(Some(&allowed), None, None)), &runs);
+    assert!(run_pipeline(&pipe, &["web_fetch"], false).await.success);
+}
+
+#[tokio::test]
+async fn pipeline_step_in_ask_tools_is_denied_not_prompted() {
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ask = list(&["file_read"]);
+    let i = AgentPolicyInputs {
+        always_ask: &ask,
+        ..inputs(None, None, None)
+    };
+    let pipe = pipeline(gate(&i), &runs);
+    let out = run_pipeline(&pipe, &["file_read"], false).await;
+    assert!(!out.success);
+    assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn parallel_pipeline_denies_before_any_step_starts() {
+    let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pipe = pipeline(gate(&inputs(None, None, None)), &runs);
+    let out = run_pipeline(&pipe, &["shell", "web_fetch"], true).await;
+    assert!(!out.success);
+    assert_eq!(
+        runs.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "no step half-runs"
+    );
+}
+
+#[test]
+fn a_tool_named_star_cannot_fold_into_the_wildcard() {
+    assert_eq!(fold_name("*"), None);
+    assert_eq!(fold_name(" * "), None);
+    // As a list entry it still means the wildcard.
+    let profile = profile_from_inputs(&inputs(Some(&list(&["*"])), None, None));
+    assert!(profile.allowed_tools.unwrap().contains("*"));
+}
+
+#[tokio::test]
+async fn deny_all_gate_denies_everything() {
+    let g = PolicyGate::deny_all();
+    assert!(denied(
+        decide(
+            &g,
+            &mock("file_read", ToolCapability::FsRead),
+            &json!({}),
+            "c"
+        )
+        .await
+    ));
+}
+
+#[tokio::test]
+async fn caller_list_is_exposed_to_the_executing_tool_and_cleared_outside() {
+    let caller = list(&["file_read"]);
+    let g = gate(&inputs(None, None, Some(&caller)));
+    assert_eq!(g.caller_list(), Some(caller.clone()));
+    assert_eq!(active_caller_list(), None);
+    let seen = scope_caller_list(g.caller_list(), async { active_caller_list() }).await;
+    assert_eq!(seen, Some(caller));
+    assert_eq!(active_caller_list(), None);
+    assert_eq!(gate(&inputs(None, None, None)).caller_list(), None);
+}

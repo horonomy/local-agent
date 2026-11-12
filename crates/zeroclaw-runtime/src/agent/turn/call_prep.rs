@@ -1266,6 +1266,113 @@ mod tests {
         assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
+    /// Reads the caller list the executor scopes around tool execution.
+    struct CallerListProbe {
+        seen: Arc<std::sync::Mutex<Option<Vec<String>>>>,
+    }
+
+    impl Attributable for CallerListProbe {
+        fn role(&self) -> zeroclaw_api::attribution::Role {
+            zeroclaw_api::attribution::Role::System
+        }
+        fn alias(&self) -> &str {
+            "caller-list-probe"
+        }
+    }
+
+    #[async_trait]
+    impl Tool for CallerListProbe {
+        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+            zeroclaw_api::policy::ToolCapability::FsRead
+        }
+        fn name(&self) -> &str {
+            "file_read"
+        }
+        fn description(&self) -> &str {
+            "probe"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+            *self.seen.lock().unwrap() = crate::security::policy_gate::active_caller_list();
+            Ok(ToolResult {
+                success: true,
+                output: zeroclaw_api::tool::ToolOutput::default(),
+                error: None,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn executor_hands_the_parents_caller_list_to_a_running_tool() {
+        use crate::agent::tool_execution::{ToolDispatchContext, execute_tools_sequential};
+        use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate, profile_from_inputs};
+        let caller = vec!["file_read".to_string()];
+        let inputs = AgentPolicyInputs {
+            autonomy: zeroclaw_config::autonomy::AutonomyLevel::Supervised,
+            allowed_tools: None,
+            excluded_tools: None,
+            always_ask: &[],
+            mcp_servers: &[],
+            caller_allowed: Some(&caller),
+        };
+        let gate = PolicyGate::standalone(
+            "main",
+            inputs.autonomy,
+            profile_from_inputs(&inputs),
+            Vec::new(),
+        )
+        .with_caller_filter(inputs.caller_allowed);
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let registry: Vec<Box<dyn crate::tools::Tool>> = vec![Box::new(CallerListProbe {
+            seen: Arc::clone(&seen),
+        })];
+        let observer = NoopObserver;
+        let pacing = PacingConfig::default();
+        let (tx, _rx) = mpsc::channel(8);
+        let ctx = TurnCtx {
+            policy: &gate,
+            ..lifecycle_ctx(&observer, &pacing, &tx, None, None)
+        };
+        let calls = [parsed_call("file_read", serde_json::json!({}), "call-1")];
+        let (mut seen_sigs, mut prompt_seen) = (HashSet::new(), HashSet::new());
+        let prepared = prepare_tool_calls(
+            &ctx,
+            &registry,
+            None,
+            &calls,
+            &mut seen_sigs,
+            &mut prompt_seen,
+            0,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(prepared.executable_calls.len(), 1);
+        let dispatch = ToolDispatchContext {
+            tools_registry: &registry,
+            activated_tools: None,
+            excluded_tools: &[],
+            model_switch_callback: None,
+            policy: &gate,
+        };
+        let meta = ctx.meta();
+        let slots = execute_tools_sequential(
+            &prepared.executable_calls,
+            dispatch,
+            &meta,
+            &observer,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(slots[0].as_ref().unwrap().outcome.success);
+        assert_eq!(*seen.lock().unwrap(), Some(caller));
+    }
+
     async fn prepare_file_read(
         gate: &crate::security::policy_gate::PolicyGate,
         approval: Option<&crate::approval::ApprovalManager>,

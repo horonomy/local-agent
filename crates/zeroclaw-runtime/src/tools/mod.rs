@@ -8047,6 +8047,39 @@ permissions = ["http_client"]
                 assert_eq!(tool.capability(), expected, "{name}");
             }
         }
+        // Audited for egress and process spawn: every remaining local class.
+        // `deliver_file` hands a file to the requesting ACP client only;
+        // `content_search` spawns a read-only `rg`; neither reaches the network.
+        {
+            use zeroclaw_api::policy::ToolCapability::{
+                AgentInternal, FsRead, FsWrite, Memory, Subagent,
+            };
+            for (name, expected) in [
+                ("deliver_file", FsRead),
+                ("content_search", FsRead),
+                ("glob_search", FsRead),
+                ("canvas", AgentInternal),
+                ("vi_verify", AgentInternal),
+                ("report_template", AgentInternal),
+                ("sop_execute", Subagent),
+                ("sop_approve", Subagent),
+                ("sop_advance", Subagent),
+                ("sop_workshop", FsWrite),
+                ("sop_list", AgentInternal),
+                ("sop_status", AgentInternal),
+                ("memory_store", Memory),
+                ("memory_forget", Memory),
+                ("memory_purge", Memory),
+                ("sessions_delete", Memory),
+                ("cron_remove", AgentInternal),
+                ("model_routing_config", FsWrite),
+                ("proxy_config", FsWrite),
+            ] {
+                if let Some(tool) = assembled.registry.iter().find(|t| t.name() == name) {
+                    assert_eq!(tool.capability(), expected, "{name}");
+                }
+            }
+        }
         if let Some(tool) = assembled
             .registry
             .iter()

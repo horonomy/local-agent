@@ -1215,7 +1215,7 @@ mod tests {
     }
 
     #[test]
-    fn caller_allowed_per_run_gate_narrows_after_risk_profile_auto_admit() {
+    fn caller_allowed_per_run_gate_narrows_and_never_widens_the_risk_profile() {
         let policy = ToolAccessPolicy::from_security(
             Some(&["shell".to_string()]),
             None,
@@ -1225,16 +1225,13 @@ mod tests {
 
         // `shell`: in risk allow + in caller list → admitted.
         assert!(policy.is_tool_allowed("shell"));
-        // `github__search`: auto-admitted by risk MCP exception + in caller
-        // list → admitted.
-        assert!(policy.is_tool_allowed("github__search"));
-        // `filesystem__write_file`: auto-admitted by risk MCP exception
-        // (would pass the risk gate) but NOT in caller list → rejected.
-        // This is the per-run narrowing the bug used to break.
+        // `github__search`: in the caller list but not in the risk list. A
+        // `__` name is not a grant (ADR-019), and the caller list can only
+        // narrow, so it is rejected.
+        assert!(!policy.is_tool_allowed("github__search"));
         assert!(
             !policy.is_tool_allowed("filesystem__write_file"),
-            "MCP wrapper not in caller list must be rejected even when \
-             the risk-profile auto-admit would let it through"
+            "an MCP wrapper missing from both lists must be rejected"
         );
         // Non-MCP outside both lists: rejected.
         assert!(!policy.is_tool_allowed("memory_recall"));
