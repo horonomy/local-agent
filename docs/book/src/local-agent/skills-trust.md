@@ -35,7 +35,7 @@ Verified outcomes on a directory with a `SKILL.md` and nothing else, one with an
 | --- | --- |
 | `SKILL.md` only | `Skill audit passed (2 files scanned)`, exit 0 |
 | plus `install.sh` | `install.sh: script-like files are blocked by skill security policy.`, exit non-zero |
-| link such as `[x](../other/SKILL.md)` | `SKILL.md: markdown link escapes skill root`, exit non-zero |
+| a Markdown link to a path outside the skill directory (for example `../other/SKILL.md`) | `SKILL.md: markdown link escapes skill root`, exit non-zero |
 
 Install runs the audit and refuses on failure:
 
