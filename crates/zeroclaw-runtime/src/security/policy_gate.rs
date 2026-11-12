@@ -538,3 +538,6 @@ static PERMIT_ALL_FOR_TEST: PolicyGate = PolicyGate::permit_all_for_test();
 pub fn test_permit_all() -> &'static PolicyGate {
     &PERMIT_ALL_FOR_TEST
 }
+
+#[cfg(test)]
+mod tests;

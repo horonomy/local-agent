@@ -7703,6 +7703,15 @@ permissions = ["http_client"]
     /// placeholder credentials, and the MCP registry is a test stub whose one
     /// server is never contacted.
     async fn maximal_registry_names(tmp: &TempDir) -> std::collections::BTreeSet<String> {
+        maximal_assembled(tmp)
+            .await
+            .registry
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect()
+    }
+
+    async fn maximal_assembled(tmp: &TempDir) -> scoped::ScopedAssembled {
         use zeroclaw_config::schema::{
             DiscordConfig, McpBundleConfig, McpServerConfig, McpTransport, Microsoft365Config,
             OpenAIModelProviderConfig, SkillsPromptInjectionMode,
@@ -7885,10 +7894,6 @@ permissions = ["http_client"]
         })
         .await;
         assembled
-            .registry
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect()
     }
 
     #[tokio::test]
@@ -7921,6 +7926,93 @@ permissions = ["http_client"]
             uncompiled.is_empty(),
             "the registry registers tools outside their canonical compilation groups: {uncompiled:?}"
         );
+    }
+
+    /// Built-ins that stay `Unknown` (and are therefore denied by policy) on
+    /// purpose. Empty today: every tool the maximal registry registers is
+    /// classified. Add a row only with a reason.
+    const UNCLASSIFIED_ALLOWLIST: &[(&str, &str)] = &[];
+
+    #[tokio::test]
+    async fn every_registered_builtin_has_a_capability() {
+        use zeroclaw_api::policy::ToolCapability;
+        let tmp = TempDir::new().unwrap();
+        let assembled = maximal_assembled(&tmp).await;
+        assert!(
+            assembled.registry.iter().any(|t| t.name() == "shell"),
+            "positive control: the maximal registry must be populated"
+        );
+        let unclassified: Vec<String> = assembled
+            .registry
+            .iter()
+            .filter(|tool| tool.capability() == ToolCapability::Unknown)
+            .map(|tool| tool.name().to_string())
+            .filter(|name| !UNCLASSIFIED_ALLOWLIST.iter().any(|(n, _)| n == name))
+            .collect();
+        assert!(
+            unclassified.is_empty(),
+            "built-in tools without a capability are denied by policy; override \
+             `Tool::capability` or allowlist with a reason: {unclassified:?}"
+        );
+        let stale: Vec<&str> = UNCLASSIFIED_ALLOWLIST
+            .iter()
+            .map(|(n, _)| *n)
+            .filter(|n| {
+                assembled
+                    .registry
+                    .iter()
+                    .all(|t| t.name() != *n || t.capability() != ToolCapability::Unknown)
+            })
+            .collect();
+        assert!(stale.is_empty(), "stale allowlist rows: {stale:?}");
+    }
+
+    #[tokio::test]
+    async fn built_in_capabilities_match_their_authority() {
+        use zeroclaw_api::policy::ToolCapability::{
+            Browser, FsRead, FsWrite, Mcp, Network, Shell, Subagent,
+        };
+        let tmp = TempDir::new().unwrap();
+        let assembled = maximal_assembled(&tmp).await;
+        let capability = |name: &str| {
+            assembled
+                .registry
+                .iter()
+                .find(|t| t.name() == name)
+                .unwrap_or_else(|| panic!("`{name}` not registered"))
+                .capability()
+        };
+        // Wrapped built-ins keep their class through RateLimited/PathGuarded.
+        for (name, expected) in [
+            ("shell", Shell),
+            ("cron_run", Shell),
+            ("cron_add", Shell),
+            ("cron_update", Shell),
+            ("schedule", Shell),
+            ("file_read", FsRead),
+            ("file_write", FsWrite),
+            ("file_edit", FsWrite),
+            ("web_fetch", Network),
+            ("http_request", Network),
+            ("delegate", Subagent),
+        ] {
+            assert_eq!(capability(name), expected, "{name}");
+        }
+        // Browser tools register only under some browser configs.
+        for name in ["browser_open", "browser"] {
+            if let Some(tool) = assembled.registry.iter().find(|t| t.name() == name) {
+                assert_eq!(tool.capability(), Browser, "{name}");
+            }
+        }
+        // The MCP wrapper is classified through the real wrapper type.
+        let mcp = assembled
+            .registry
+            .iter()
+            .find(|t| t.name().starts_with("inventory__"));
+        if let Some(mcp) = mcp {
+            assert_eq!(mcp.capability(), Mcp);
+            assert_eq!(mcp.mcp_server(), Some("inventory"));
+        }
     }
 
     #[tokio::test]
