@@ -1396,6 +1396,10 @@ impl BrowserTool {
 
 #[async_trait]
 impl Tool for BrowserTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Browser
+    }
+
     fn name(&self) -> &str {
         "browser"
     }

@@ -96,6 +96,10 @@ impl ::zeroclaw_api::attribution::Attributable for SopWorkshopTool {
 
 #[async_trait]
 impl Tool for SopWorkshopTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "sop_workshop"
     }

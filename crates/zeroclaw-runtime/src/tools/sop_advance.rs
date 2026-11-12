@@ -36,6 +36,10 @@ impl SopAdvanceTool {
 
 #[async_trait]
 impl Tool for SopAdvanceTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "sop_advance"
     }

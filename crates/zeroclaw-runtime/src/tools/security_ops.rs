@@ -401,6 +401,10 @@ fn expand_tilde(path: &str) -> PathBuf {
 
 #[async_trait]
 impl Tool for SecurityOpsTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Shell
+    }
+
     fn name(&self) -> &str {
         "security_ops"
     }

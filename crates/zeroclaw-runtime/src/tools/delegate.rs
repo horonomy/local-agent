@@ -2361,6 +2361,10 @@ impl DelegateTool {
 
 #[async_trait]
 impl Tool for DelegateTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Subagent
+    }
+
     fn requires_unrestricted_principal(&self) -> bool {
         true
     }
@@ -5354,6 +5358,18 @@ impl ::zeroclaw_api::attribution::Attributable for ToolArcRef {
 
 #[async_trait]
 impl Tool for ToolArcRef {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability()
+    }
+
+    fn mcp_server(&self) -> Option<&str> {
+        self.inner.mcp_server()
+    }
+
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        self.inner.delegation_target()
+    }
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.inner.requires_unrestricted_principal()
     }

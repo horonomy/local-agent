@@ -508,6 +508,10 @@ fn env_secret_reference(raw_secret: &str) -> anyhow::Result<Option<&str>> {
 
 #[async_trait]
 impl Tool for HttpRequestTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Network
+    }
+
     fn name(&self) -> &str {
         "http_request"
     }

@@ -755,6 +755,10 @@ impl GitForgeTool {
 
 #[async_trait]
 impl Tool for GitForgeTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Network
+    }
+
     fn name(&self) -> &str {
         "git_forge"
     }

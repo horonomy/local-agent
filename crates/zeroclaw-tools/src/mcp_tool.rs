@@ -54,6 +54,18 @@ impl McpToolWrapper {
 
 #[async_trait]
 impl Tool for McpToolWrapper {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Mcp
+    }
+
+    /// The server is the part of the prefixed name before the first `__`.
+    /// Policy rejects ambiguous names (a server containing `__`).
+    fn mcp_server(&self) -> Option<&str> {
+        self.prefixed_name
+            .split_once("__")
+            .map(|(server, _)| server)
+    }
+
     fn name(&self) -> &str {
         &self.prefixed_name
     }

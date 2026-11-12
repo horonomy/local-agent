@@ -18,6 +18,10 @@ impl MemoryRecallTool {
 
 #[async_trait]
 impl Tool for MemoryRecallTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Memory
+    }
+
     fn name(&self) -> &str {
         "memory_recall"
     }

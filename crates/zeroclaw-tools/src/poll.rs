@@ -134,6 +134,10 @@ fn duration_minutes_or_default(args: &serde_json::Value) -> u64 {
 
 #[async_trait]
 impl Tool for PollTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "poll"
     }

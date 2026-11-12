@@ -75,6 +75,10 @@ pub fn parse_entries(args: &Value) -> anyhow::Result<Vec<PlanEntry>> {
 
 #[async_trait]
 impl Tool for TodoWriteTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "TodoWrite"
     }

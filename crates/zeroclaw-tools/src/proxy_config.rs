@@ -444,6 +444,10 @@ impl ProxyConfigTool {
 
 #[async_trait]
 impl Tool for ProxyConfigTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::FsWrite
+    }
+
     fn name(&self) -> &str {
         "proxy_config"
     }

@@ -20,6 +20,10 @@ impl CloudOpsTool {
 
 #[async_trait]
 impl Tool for CloudOpsTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Network
+    }
+
     fn name(&self) -> &str {
         "cloud_ops"
     }

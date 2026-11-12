@@ -31,6 +31,10 @@ pub struct SetDeviceTool {
 
 #[async_trait]
 impl Tool for SetDeviceTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Desktop
+    }
+
     fn name(&self) -> &str {
         "set_device"
     }
@@ -100,6 +104,10 @@ pub struct ReadDeviceTool {
 
 #[async_trait]
 impl Tool for ReadDeviceTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Desktop
+    }
+
     fn name(&self) -> &str {
         "read_device"
     }

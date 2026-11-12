@@ -27,6 +27,10 @@ impl GpioWriteTool {
 
 #[async_trait]
 impl Tool for GpioWriteTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Desktop
+    }
+
     fn name(&self) -> &str {
         "gpio_write"
     }
@@ -153,6 +157,10 @@ impl GpioReadTool {
 
 #[async_trait]
 impl Tool for GpioReadTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Desktop
+    }
+
     fn name(&self) -> &str {
         "gpio_read"
     }

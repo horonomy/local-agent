@@ -123,6 +123,10 @@ impl SubprocessTool {
 
 #[async_trait]
 impl Tool for SubprocessTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Plugin
+    }
+
     fn name(&self) -> &str {
         &self.manifest.tool.name
     }

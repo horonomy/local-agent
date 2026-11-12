@@ -41,6 +41,10 @@ impl CloudPatternsTool {
 
 #[async_trait]
 impl Tool for CloudPatternsTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "cloud_patterns"
     }

@@ -41,6 +41,10 @@ zeroclaw_api::tool_attribution!(
 
 #[async_trait]
 impl Tool for McpResourcesTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "mcp_resources"
     }

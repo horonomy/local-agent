@@ -98,6 +98,10 @@ impl ModelSwitchTool {
 
 #[async_trait]
 impl Tool for ModelSwitchTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         Self::NAME
     }

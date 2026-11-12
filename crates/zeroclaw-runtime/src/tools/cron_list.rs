@@ -23,6 +23,10 @@ impl CronListTool {
 
 #[async_trait]
 impl Tool for CronListTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "cron_list"
     }

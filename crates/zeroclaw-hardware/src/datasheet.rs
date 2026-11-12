@@ -459,6 +459,10 @@ impl Default for DatasheetTool {
 
 #[async_trait]
 impl Tool for DatasheetTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::FsRead
+    }
+
     fn name(&self) -> &str {
         "datasheet"
     }

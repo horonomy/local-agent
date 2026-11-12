@@ -38,6 +38,10 @@ impl SopStatusTool {
 
 #[async_trait]
 impl Tool for SopStatusTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "sop_status"
     }

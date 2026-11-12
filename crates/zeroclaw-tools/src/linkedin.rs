@@ -85,6 +85,10 @@ impl LinkedInTool {
 
 #[async_trait]
 impl Tool for LinkedInTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Network
+    }
+
     fn name(&self) -> &str {
         "linkedin"
     }

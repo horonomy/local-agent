@@ -48,6 +48,10 @@ fn format_question(question: &str, choices: Option<&[String]>) -> String {
 
 #[async_trait]
 impl Tool for AskUserTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::AgentInternal
+    }
+
     fn name(&self) -> &str {
         "ask_user"
     }

@@ -277,6 +277,20 @@ fn encode_url_component(value: &str) -> String {
 
 #[async_trait]
 impl Tool for SkillHttpTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Network
+    }
+
+    /// A skill HTTP tool makes the same outbound request `http_request`
+    /// does, so policy evaluates it as `http_request`: network access must
+    /// be granted to that tool explicitly.
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        Some(zeroclaw_api::tool::DelegationTarget::Builtin {
+            name: "http_request",
+            capability: zeroclaw_api::policy::ToolCapability::Network,
+        })
+    }
+
     fn name(&self) -> &str {
         &self.tool_name
     }

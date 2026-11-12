@@ -1976,6 +1976,10 @@ impl GitOperationsTool {
 
 #[async_trait]
 impl Tool for GitOperationsTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Shell
+    }
+
     fn name(&self) -> &str {
         "git_operations"
     }

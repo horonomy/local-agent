@@ -51,6 +51,10 @@ fn detect_search_backend() -> SearchBackend {
 
 #[async_trait]
 impl Tool for ContentSearchTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::FsRead
+    }
+
     fn name(&self) -> &str {
         "content_search"
     }

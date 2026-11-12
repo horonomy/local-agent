@@ -36,6 +36,18 @@ impl<T: Tool> Attributable for RateLimitedTool<T> {
 
 #[async_trait]
 impl<T: Tool> Tool for RateLimitedTool<T> {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability()
+    }
+
+    fn mcp_server(&self) -> Option<&str> {
+        self.inner.mcp_server()
+    }
+
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        self.inner.delegation_target()
+    }
+
     fn name(&self) -> &str {
         self.inner.name()
     }
@@ -146,6 +158,18 @@ impl<T: Tool> Attributable for PathGuardedTool<T> {
 
 #[async_trait]
 impl<T: Tool> Tool for PathGuardedTool<T> {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability()
+    }
+
+    fn mcp_server(&self) -> Option<&str> {
+        self.inner.mcp_server()
+    }
+
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        self.inner.delegation_target()
+    }
+
     fn name(&self) -> &str {
         self.inner.name()
     }

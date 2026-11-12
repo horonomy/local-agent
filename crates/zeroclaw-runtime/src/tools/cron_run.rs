@@ -112,6 +112,10 @@ impl CronRunTool {
 
 #[async_trait]
 impl Tool for CronRunTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Shell
+    }
+
     fn name(&self) -> &str {
         "cron_run"
     }

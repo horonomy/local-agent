@@ -184,6 +184,10 @@ fn get_session_id() -> Option<String> {
 
 #[async_trait]
 impl Tool for ShellTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        zeroclaw_api::policy::ToolCapability::Shell
+    }
+
     fn name(&self) -> &str {
         "shell"
     }

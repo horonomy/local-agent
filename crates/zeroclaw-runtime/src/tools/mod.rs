@@ -222,6 +222,18 @@ pub struct ArcToolRef(pub Arc<dyn Tool>);
 
 #[async_trait]
 impl Tool for ArcToolRef {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        self.0.capability()
+    }
+
+    fn mcp_server(&self) -> Option<&str> {
+        self.0.mcp_server()
+    }
+
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        self.0.delegation_target()
+    }
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.0.requires_unrestricted_principal()
     }
@@ -360,6 +372,18 @@ impl ::zeroclaw_api::attribution::Attributable for ArcDelegatingTool {
 
 #[async_trait]
 impl Tool for ArcDelegatingTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability()
+    }
+
+    fn mcp_server(&self) -> Option<&str> {
+        self.inner.mcp_server()
+    }
+
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        self.inner.delegation_target()
+    }
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.inner.requires_unrestricted_principal()
     }
