@@ -146,17 +146,22 @@ impl PolicyProfile {
                 request.capability,
                 ToolCapability::FsRead | ToolCapability::Memory | ToolCapability::AgentInternal
             )
-            && !matches!(
-                request.capability,
-                ToolCapability::Unknown | ToolCapability::Plugin
-            )
+            && request.capability != ToolCapability::Unknown
         {
             return deny(ReasonCode::LocalDeny);
         }
 
         match request.capability {
-            ToolCapability::Unknown | ToolCapability::Plugin => {
+            ToolCapability::Unknown => {
                 return deny(ReasonCode::UnknownCapability);
+            }
+            // An extension tool (WASM, node, subprocess) needs the same
+            // explicit operator listing as network access; a wildcard or an
+            // unrestricted list never grants it.
+            ToolCapability::Plugin => {
+                if !self.lists(&request.tool_name) {
+                    return deny(ReasonCode::UnknownCapability);
+                }
             }
             ToolCapability::Network | ToolCapability::Browser | ToolCapability::Desktop => {
                 if !self.lists(&request.tool_name) {
@@ -317,15 +322,38 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_plugin_are_denied_even_under_full_and_wildcard() {
+    fn unknown_is_denied_even_under_full_listing_and_wildcard() {
         let mut p = profile(Some(&["*", "x"]));
         p.autonomy_ceiling = AutonomyLevel::Full;
-        for cap in [ToolCapability::Unknown, ToolCapability::Plugin] {
-            let mut r = req(cap, "x");
-            r.autonomy = AutonomyLevel::Full;
-            assert_deny(eval(&p, &r), ReasonCode::UnknownCapability);
-            assert_deny(eval(&profile(None), &r), ReasonCode::UnknownCapability);
-        }
+        let mut r = req(ToolCapability::Unknown, "x");
+        r.autonomy = AutonomyLevel::Full;
+        assert_deny(eval(&p, &r), ReasonCode::UnknownCapability);
+        assert_deny(eval(&profile(None), &r), ReasonCode::UnknownCapability);
+    }
+
+    #[test]
+    fn plugin_needs_explicit_listing_like_network() {
+        let mut r = req(ToolCapability::Plugin, "x");
+        r.autonomy = AutonomyLevel::Full;
+        let full = |allowed: Option<&[&str]>| {
+            let mut p = profile(allowed);
+            p.autonomy_ceiling = AutonomyLevel::Full;
+            p
+        };
+        // Unrestricted or wildcard lists never grant it.
+        assert_deny(eval(&full(None), &r), ReasonCode::UnknownCapability);
+        assert_deny(eval(&full(Some(&["*"])), &r), ReasonCode::UnknownCapability);
+        // Naming it is the operator's grant.
+        assert_eq!(eval(&full(Some(&["x"])), &r).verdict, Verdict::Allow);
+        // Excluded still wins, and ReadOnly never admits it.
+        let mut excluded = full(Some(&["x"]));
+        excluded.excluded_tools = set(&["x"]);
+        assert_deny(eval(&excluded, &r), ReasonCode::Excluded);
+        let mut read_only = req(ToolCapability::Plugin, "x");
+        read_only.autonomy = AutonomyLevel::ReadOnly;
+        let mut p = profile(Some(&["x"]));
+        p.autonomy_ceiling = AutonomyLevel::ReadOnly;
+        assert_deny(eval(&p, &read_only), ReasonCode::LocalDeny);
     }
 
     #[test]

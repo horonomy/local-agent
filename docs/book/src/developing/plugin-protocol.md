@@ -1115,7 +1115,9 @@ Limits that hold for every artifact with the host:
   operator approval unless the agent's risk profile pre-approves it
   (`auto_approve`, including the `*` wildcard, or `level = "full"`) or the
   operator answered Always for that tool earlier in the same CLI session or
-  channel turn; tools in `always_ask` prompt every time.
+  channel turn; tools in `always_ask` prompt every time. A plugin tool must
+  also be named in the risk profile's `allowed_tools`: the policy gate denies an
+  unlisted extension tool before any approval is asked.
 
 ### Interrupted installation recovery
 

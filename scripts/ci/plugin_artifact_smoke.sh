@@ -373,7 +373,10 @@ enable_and_discover() {
     configure plugins.auto_discover true
 }
 
+# A plugin tool needs two operator acts: naming it in allowed_tools (the policy
+# gate denies an extension tool that is not listed, ADR-019) and approving it.
 approve() {
+    configure risk_profiles.default.allowed_tools "[\"$1\"]" || return 1
     configure risk_profiles.default.auto_approve "[\"$1\"]"
 }
 
@@ -544,10 +547,11 @@ a_discovered_tool_waits_for_approval() {
     case "$turn_result" in
         *"text="*) fail "the plugin ran without approval: $turn_result" || return 1 ;;
     esac
-    # The runtime words the denial by whether an operator answered or none was
-    # available; both mean the call did not run.
+    # An unlisted extension tool is denied by policy before any approval is
+    # asked; a listed one is worded by whether an operator answered or none was
+    # available. All mean the call did not run.
     case "$turn_result" in
-        *"the call did not run"* | *"no operator decision was available"*) ;;
+        *"denied by policy"* | *"the call did not run"* | *"no operator decision was available"*) ;;
         *) fail "the tool result does not report a denied call: $turn_result" ;;
     esac
 }
