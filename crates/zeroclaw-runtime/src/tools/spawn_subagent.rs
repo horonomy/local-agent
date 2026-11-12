@@ -387,6 +387,9 @@ mod tests {
         config
     }
 
+    // Plain `tokio::spawn` is the point: it models a task that does not inherit
+    // the executor's task-local scope.
+    #[allow(clippy::disallowed_methods)]
     #[tokio::test]
     async fn spawn_without_the_callers_scope_is_refused() {
         use crate::security::policy_gate::scope_caller_list;
