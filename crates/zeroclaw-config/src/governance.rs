@@ -49,6 +49,7 @@ pub struct AasmConfig {
     /// Optional file holding a credential token. Presence-only: this build
     /// never reads it.
     #[serde(default)]
+    #[credential_class = "path_only_reference"]
     pub credential_token_file: Option<String>,
 }
 
