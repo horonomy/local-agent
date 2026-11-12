@@ -7,6 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::approval::ApprovalManager;
 use crate::observability::{Observer, ObserverEvent};
+use crate::security::policy_contract::ReasonCode;
+use crate::security::policy_gate::{CallFacts, PolicyGate, RedeemError, denial_message};
 use crate::tools::{ActivatedToolSet, Tool};
 use tokio::sync::mpsc::Sender;
 use zeroclaw_api::agent::{ToolArtifact, TurnEvent};
@@ -39,13 +41,13 @@ pub fn find_tool<'a>(tools: &'a [Box<dyn Tool>], name: &str) -> Option<&'a dyn T
     tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
 }
 
-enum ResolvedTool<'a> {
+pub(crate) enum ResolvedTool<'a> {
     Static(&'a dyn Tool),
     Activated(Arc<dyn Tool>),
 }
 
 impl ResolvedTool<'_> {
-    fn tool(&self) -> &dyn Tool {
+    pub(crate) fn tool(&self) -> &dyn Tool {
         match self {
             Self::Static(tool) => *tool,
             Self::Activated(tool) => tool.as_ref(),
@@ -53,7 +55,7 @@ impl ResolvedTool<'_> {
     }
 }
 
-fn resolve_tool<'a>(
+pub(crate) fn resolve_tool<'a>(
     tools_registry: &'a [Box<dyn Tool>],
     activated_tools: Option<&Arc<std::sync::Mutex<ActivatedToolSet>>>,
     name: &str,
@@ -97,6 +99,9 @@ pub(crate) struct ToolDispatchContext<'a> {
     pub activated_tools: Option<&'a std::sync::Arc<std::sync::Mutex<ActivatedToolSet>>>,
     pub excluded_tools: &'a [String],
     pub model_switch_callback: Option<&'a ModelSwitchCallback>,
+    /// The registry's policy gate; every call must redeem its ticket here
+    /// before the tool runs.
+    pub policy: &'a PolicyGate,
 }
 
 fn is_excluded_tool(name: &str, excluded_tools: &[String]) -> bool {
@@ -309,6 +314,56 @@ async fn execute_one_tool_with_provenance(
         }
     };
     let tool = resolved.tool();
+
+    // The decision made in `prepare_tool_calls` must be for exactly this tool
+    // and these arguments; anything else is denied and never executed.
+    // A call without an id can hold no ticket; the empty id matches none.
+    let redeemed = dispatch
+        .policy
+        .redeem(&CallFacts {
+            tool,
+            registry: dispatch.tools_registry,
+            args: &call_arguments,
+            call_id: tool_call_id.unwrap_or_default(),
+            turn_id: meta.turn_id,
+            agent_alias: meta.agent_alias,
+            // Correlation only; see `decide_policy` in call_prep.
+            parent_agent_alias: None,
+            interactive: false,
+        })
+        .await;
+    if let Err(error) = redeemed {
+        let reason = match error {
+            RedeemError::NoTicket => ReasonCode::LocalDeny,
+            RedeemError::Denied(reason) => reason,
+        };
+        let message = denial_message(call_name, reason);
+        let duration = start.elapsed();
+        observer.record_event(&ObserverEvent::ToolCall {
+            tool: call_name.to_string(),
+            tool_call_id: tool_call_id_owned,
+            duration,
+            success: false,
+            arguments: Some(full_args),
+            result: Some(scrub_credentials(&message)),
+            channel: Some(meta.channel_name.to_string()),
+            agent_alias: meta.agent_alias.map(|s| s.to_string()),
+            parent_agent_alias: meta.parent_agent_alias.map(|s| s.to_string()),
+            turn_id: Some(meta.turn_id.to_string()),
+        });
+        return Ok(CompletedToolExecution {
+            executed_tool_name: None,
+            outcome: ToolExecutionOutcome {
+                output: message.clone(),
+                success: false,
+                error_reason: Some(message),
+                duration,
+                receipt: None,
+                output_data: None,
+                attachments: Vec::new(),
+            },
+        });
+    }
 
     use ::zeroclaw_log::Instrument;
     let tool_span = ::zeroclaw_log::info_span!(
@@ -701,6 +756,7 @@ pub(crate) async fn execute_tools_sequential(
                 .as_deref()
                 .unwrap_or(dispatch.excluded_tools),
             model_switch_callback: dispatch.model_switch_callback,
+            policy: dispatch.policy,
         };
         let outcome = match execute_one_tool_with_provenance(
             &call.name,
@@ -851,6 +907,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &crate::tools::scoped::ScopedToolRegistry::from_raw_for_test(
                     vec![],
                 ), // no static tools - force activated-tools path
@@ -971,6 +1028,7 @@ mod tests {
             super::execute_tools_sequential(
                 &calls,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &registry,
                     activated_tools: Some(&activated),
                     excluded_tools: &excluded,
@@ -1029,6 +1087,7 @@ mod tests {
             serde_json::json!({}),
             Some("call-1"),
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &crate::tools::scoped::ScopedToolRegistry::from_raw_for_test(
                     vec![],
                 ),
@@ -1171,6 +1230,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1221,6 +1281,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1315,6 +1376,7 @@ mod tests {
                 }),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -1410,6 +1472,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1495,6 +1558,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1568,6 +1632,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1693,6 +1758,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1875,6 +1941,7 @@ mod tests {
                 serde_json::json!({}),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -1993,6 +2060,7 @@ mod tests {
                 serde_json::json!({}),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -2108,6 +2176,7 @@ mod tests {
                 }),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -2176,6 +2245,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2222,6 +2292,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2274,6 +2345,7 @@ mod tests {
             serde_json::json!({}),
             Some("call-1"),
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2709,6 +2781,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &registry,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2756,6 +2829,7 @@ mod tests {
             args,
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &registry,
                 activated_tools: None,
                 excluded_tools: &[],

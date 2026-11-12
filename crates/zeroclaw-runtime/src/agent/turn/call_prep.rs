@@ -9,6 +9,8 @@ use super::events::{ProgressEvent, StreamDelta, emit_tool_call_pair, send_progre
 use super::outcome::ToolLoopCancelled;
 use super::redact::scrub_credentials;
 use crate::agent::tool_execution::ToolExecutionOutcome;
+use crate::security::policy_contract::ReasonCode;
+use crate::security::policy_gate::{CallFacts, GateOutcome, denial_message};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use std::collections::HashSet;
@@ -125,6 +127,113 @@ pub(crate) async fn abandon_unexecuted_prepared_contexts(
     }
 }
 
+enum PolicyStep {
+    Proceed { ask: bool },
+    Deny(ToolExecutionOutcome),
+}
+
+async fn policy_denial_outcome(
+    ctx: &TurnCtx<'_>,
+    tool_name: &str,
+    tool_args: &serde_json::Value,
+    iteration: usize,
+    reason: ReasonCode,
+) -> ToolExecutionOutcome {
+    let denied = denial_message(tool_name, reason);
+    ::zeroclaw_log::record!(
+        WARN,
+        ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Reject)
+            .with_category(::zeroclaw_log::EventCategory::Tool)
+            .with_outcome(::zeroclaw_log::EventOutcome::Failure)
+            .with_attrs(::serde_json::json!({
+                "model": ctx.model,
+                "iteration": iteration + 1,
+                "tool": tool_name,
+                "arguments": scrub_credentials(&tool_args.to_string()),
+                "result": denied,
+                "policy_reason": reason,
+                "trace_id": ctx.turn_id,
+            })),
+        "tool_call_result"
+    );
+    if let Some(tx) = ctx.on_delta {
+        let _ = tx
+            .send(StreamDelta::Status(format!(
+                "\u{274c} {tool_name}: {denied}\n"
+            )))
+            .await;
+    }
+    ToolExecutionOutcome {
+        output: denied.clone(),
+        attachments: Vec::new(),
+        success: false,
+        error_reason: Some(denied),
+        duration: Duration::ZERO,
+        receipt: None,
+        output_data: None,
+    }
+}
+
+/// Exact registry name the call resolves to, as bound in its ticket.
+fn resolved_policy_name(
+    tools_registry: &[Box<dyn crate::tools::Tool>],
+    activated_tools: Option<&Arc<std::sync::Mutex<crate::tools::ActivatedToolSet>>>,
+    tool_name: &str,
+    call_id: &str,
+) -> String {
+    crate::agent::tool_execution::resolve_tool(
+        tools_registry,
+        activated_tools,
+        tool_name,
+        Some(call_id),
+    )
+    .map(|resolved| resolved.tool().name().to_owned())
+    .unwrap_or_else(|| tool_name.to_owned())
+}
+
+/// Ask the registry's policy gate about one prepared call, resolving the tool
+/// with the executor's own resolver so both agree on what runs.
+async fn decide_policy(
+    ctx: &TurnCtx<'_>,
+    tools_registry: &[Box<dyn crate::tools::Tool>],
+    activated_tools: Option<&Arc<std::sync::Mutex<crate::tools::ActivatedToolSet>>>,
+    tool_name: &str,
+    tool_args: &serde_json::Value,
+    call_id: &str,
+    iteration: usize,
+) -> PolicyStep {
+    let Some(resolved) = crate::agent::tool_execution::resolve_tool(
+        tools_registry,
+        activated_tools,
+        tool_name,
+        Some(call_id),
+    ) else {
+        // Not resolvable yet (a deferred tool an earlier call of this batch
+        // activates), or unknown. The executor decides it when it resolves.
+        ctx.policy.note_unresolved(call_id, tool_args);
+        return PolicyStep::Proceed { ask: false };
+    };
+    let facts = CallFacts {
+        tool: resolved.tool(),
+        registry: tools_registry,
+        args: tool_args,
+        call_id,
+        turn_id: ctx.turn_id,
+        agent_alias: ctx.agent_alias,
+        // `ctx.parent_agent_alias` is correlation for independent delegates
+        // and cross-agent SOP steps, which run under their own profile and
+        // gate; it is not an authority-narrowing signal.
+        parent_agent_alias: None,
+        interactive: ctx.approval.is_some_and(|mgr| !mgr.is_non_interactive()),
+    };
+    match ctx.policy.decide(&facts).await {
+        GateOutcome::Proceed { ask } => PolicyStep::Proceed { ask },
+        GateOutcome::Deny { reason } => PolicyStep::Deny(
+            policy_denial_outcome(ctx, tool_name, tool_args, iteration, reason).await,
+        ),
+    }
+}
+
 /// Run per-call preparation over this round's parsed tool calls (upstream
 /// loop body, per-call prep loop).
 pub(crate) async fn prepare_tool_calls(
@@ -231,10 +340,45 @@ pub(crate) async fn prepare_tool_calls(
 
         crate::agent::set_runtime_approved_arg(&tool_name, &mut tool_args, false);
 
-        let requires_prompt = ctx
-            .approval
-            .map(|mgr| mgr.needs_approval(&tool_name))
-            .unwrap_or(false);
+        // ── Policy decision (ADR-019) ───────────────────
+        // After the hook and delivery defaults have settled the call, so the
+        // decision covers the arguments that will run, and before any
+        // approval prompt, so a call that is never admissible never prompts.
+        // The id is pinned here and reused for the executable call, so the
+        // ticket the executor redeems is keyed on the final id.
+        let call_id = super::events::resolve_tool_call_id(&ParsedToolCall {
+            name: tool_name.clone(),
+            arguments: tool_args.clone(),
+            tool_call_id: call.tool_call_id.clone(),
+        });
+        let policy_ask = match decide_policy(
+            ctx,
+            tools_registry,
+            activated_tools,
+            &tool_name,
+            &tool_args,
+            &call_id,
+            iteration,
+        )
+        .await
+        {
+            PolicyStep::Proceed { ask } => ask,
+            PolicyStep::Deny(outcome) => {
+                abandon_prepared_context(ctx, &hook_context, &tool_name).await;
+                if let Some(tx) = ctx.event_tx {
+                    emit_tool_call_pair(tx, call, &outcome).await;
+                }
+                ordered_results[idx] =
+                    Some((tool_name.clone(), call.tool_call_id.clone(), outcome));
+                continue;
+            }
+        };
+
+        let requires_prompt = policy_ask
+            || ctx
+                .approval
+                .map(|mgr| mgr.needs_approval(&tool_name))
+                .unwrap_or(false);
         let reentrant_agent_tool =
             crate::tools::REENTRANT_AGENT_TOOLS.contains(&tool_name.as_str());
         // Signature this call holds in the turn-scoped guard while its
@@ -300,7 +444,9 @@ pub(crate) async fn prepare_tool_calls(
             total: u32::try_from(tool_calls.len()).unwrap_or(u32::MAX),
         };
         let approved =
-            match gate_tool_approval(ctx, &tool_name, &tool_args, iteration, position).await {
+            match gate_tool_approval(ctx, &tool_name, &tool_args, iteration, position, policy_ask)
+                .await
+            {
                 ApprovalGateOutcome::Proceed { approved } => approved,
                 ApprovalGateOutcome::Deny(outcome) | ApprovalGateOutcome::Replace(outcome) => {
                     // The before phase ran but this call will never execute:
@@ -333,6 +479,31 @@ pub(crate) async fn prepare_tool_calls(
         // still aborts the turn before the operator is asked again. The
         // same-round set keeps its entry, so an identical call in this same
         // batch is still deduplicated instead of prompting twice.
+        if policy_ask {
+            // A policy Ask is only redeemable once an operator said yes.
+            if !approved {
+                abandon_prepared_context(ctx, &hook_context, &tool_name).await;
+                let outcome = policy_denial_outcome(
+                    ctx,
+                    &tool_name,
+                    &tool_args,
+                    iteration,
+                    ReasonCode::LocalDeny,
+                )
+                .await;
+                if let Some(tx) = ctx.event_tx {
+                    emit_tool_call_pair(tx, call, &outcome).await;
+                }
+                ordered_results[idx] =
+                    Some((tool_name.clone(), call.tool_call_id.clone(), outcome));
+                continue;
+            }
+            ctx.policy.approve(
+                &call_id,
+                &resolved_policy_name(tools_registry, activated_tools, &tool_name, &call_id),
+                &tool_args,
+            );
+        }
         if approved && let Some(signature) = pending_prompt_signature.as_ref() {
             prompt_approval_tool_signatures.remove(signature);
         }
@@ -404,11 +575,6 @@ pub(crate) async fn prepare_tool_calls(
         // responsibility: the after hook on completion, or abandonment if the
         // execution phase aborts before post-execution handling.
         retained_hook_contexts.push((hook_context, tool_name.clone()));
-        let call_id = super::events::resolve_tool_call_id(&ParsedToolCall {
-            name: tool_name.clone(),
-            arguments: tool_args.clone(),
-            tool_call_id: call.tool_call_id.clone(),
-        });
         // Pin the resolved id onto the executable call so the pending ToolCall
         // and the terminal ToolResult (both emitted by the executor at dispatch
         // and completion) share one correlation id, even for id-less
@@ -496,6 +662,7 @@ mod tests {
         on_delta: &'a mpsc::Sender<DraftEvent>,
     ) -> TurnCtx<'a> {
         TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             observer,
             provider_name: "test",
             model: "test-model",
@@ -703,6 +870,7 @@ mod tests {
         hooks: Option<&'a crate::hooks::HookRunner>,
     ) -> TurnCtx<'a> {
         TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             approval,
             hooks,
             ..test_ctx(observer, pacing, on_delta)
@@ -867,6 +1035,7 @@ mod tests {
         );
         let cancel = CancellationToken::new();
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             channel: Some(&channel),
             channel_reply_target: Some("operator"),
             cancellation_token: Some(&cancel),
@@ -1090,6 +1259,7 @@ mod tests {
         let approval = crate::approval::ApprovalManager::for_non_interactive(&risk_profile);
         let channel = ReplacingChannel;
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             approval: Some(&approval),
             hooks: Some(&runner),
             channel: Some(&channel),

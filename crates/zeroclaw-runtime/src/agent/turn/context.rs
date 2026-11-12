@@ -6,6 +6,7 @@ use super::events::DraftEvent;
 use crate::approval::ApprovalManager;
 use crate::hooks::HookRunner;
 use crate::observability::Observer;
+use crate::security::policy_gate::PolicyGate;
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 use zeroclaw_api::agent::TurnEvent;
@@ -19,6 +20,9 @@ pub(crate) struct TurnCtx<'a> {
     pub(crate) context_limits: ResolvedContextLimits,
     pub(crate) temperature: Option<f64>,
     pub(crate) approval: Option<&'a ApprovalManager>,
+    /// The registry's policy gate (ADR-019). Not optional: no turn can run
+    /// without one.
+    pub(crate) policy: &'a PolicyGate,
     pub(crate) channel_name: &'a str,
     pub(crate) channel_reply_target: Option<&'a str>,
     pub(crate) cancellation_token: Option<&'a CancellationToken>,
@@ -85,6 +89,7 @@ impl<'a> TurnCtx<'a> {
             context_limits,
             temperature: self.temperature,
             approval: self.approval,
+            policy: self.policy,
             channel_name: self.channel_name,
             channel_reply_target: self.channel_reply_target,
             cancellation_token: self.cancellation_token,

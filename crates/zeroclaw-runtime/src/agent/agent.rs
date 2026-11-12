@@ -2230,6 +2230,7 @@ impl Agent {
             args,
             Some("principal-test-call"),
             super::tool_execution::ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &self.tools,
                 activated_tools: self.activated_tools.as_ref(),
                 excluded_tools: &[],
@@ -9670,6 +9671,10 @@ mod tests {
 
         #[async_trait]
         impl Tool for DeferredSchemaProbeTool {
+            fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+                zeroclaw_api::policy::ToolCapability::AgentInternal
+            }
+
             fn name(&self) -> &str {
                 "builtin_probe"
             }

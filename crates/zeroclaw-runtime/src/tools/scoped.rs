@@ -19,6 +19,7 @@ use crate::agent::loop_::{
     mcp_allowed_tool_count, mcp_tool_access_policy, preactivate_always_filter_groups,
     register_eager_mcp_tool_if_allowed,
 };
+use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
 use crate::skills::Skill;
 use crate::tools::skill_tool::{PreparedSkill, PreparedSkillBuiltin, SlotId, TargetRef};
 use crate::tools::{
@@ -300,9 +301,14 @@ impl BuildRegistry {
 /// registry is a compile error, not a review-checklist item. Read sites are
 /// unchanged: the registry [`std::ops::Deref`]s to the same `[Box<dyn Tool>]`
 /// slice the raw `Vec` used to expose.
+///
+/// The registry also carries the [`PolicyGate`] (ADR-019): the one authority
+/// that decides which of its tools a call may run, so a turn loop cannot be
+/// handed tools without the gate that governs them.
 pub struct ScopedToolRegistry(
     Vec<Box<dyn Tool>>,
     Option<Arc<std::sync::Mutex<ActivatedToolSet>>>,
+    PolicyGate,
 );
 
 impl std::ops::Deref for ScopedToolRegistry {
@@ -313,6 +319,12 @@ impl std::ops::Deref for ScopedToolRegistry {
 }
 
 impl ScopedToolRegistry {
+    /// The policy gate that decides and ticket-checks every call against
+    /// this registry.
+    pub fn policy(&self) -> &PolicyGate {
+        &self.2
+    }
+
     /// Consume the assembled registry into the owned `Vec` for non-turn
     /// consumers such as the gateway's listing-only registry. Turn carriers
     /// accept only the sealed type.
@@ -411,7 +423,7 @@ impl ScopedToolRegistry {
     /// in shipped builds and the seal holds where it matters.
     #[cfg(any(test, feature = "test-util"))]
     pub fn from_raw_for_test(tools: Vec<Box<dyn Tool>>) -> Self {
-        Self(tools, None)
+        Self(tools, None, PolicyGate::permit_all_for_test())
     }
 }
 
@@ -1343,10 +1355,33 @@ impl ScopedToolRegistry {
             }
         }
 
+        // The gate is built from the same policy inputs that scoped the
+        // registry above, so decision and registry cannot drift apart.
+        let granted_mcp_servers: Vec<String> = agent_mcp_servers
+            .iter()
+            .map(|server| server.name.clone())
+            .collect();
+        let policy = PolicyGate::for_agent(
+            config,
+            agent_alias,
+            &AgentPolicyInputs {
+                autonomy: security.autonomy,
+                allowed_tools: security.allowed_tools.as_deref(),
+                excluded_tools: security.excluded_tools.as_deref(),
+                always_ask: &security.always_ask,
+                mcp_servers: &granted_mcp_servers,
+                caller_allowed,
+            },
+        );
+
         #[cfg(all(test, feature = "plugins-wasm-cranelift"))]
         tools::late_tool_search_observer::record("phase", "seal", 7, 0);
         ScopedAssembled {
-            registry: ScopedToolRegistry(tools_registry.seal(pipeline_id), builtin_schema_handle),
+            registry: ScopedToolRegistry(
+                tools_registry.seal(pipeline_id),
+                builtin_schema_handle,
+                policy,
+            ),
             delegate_handle,
             ask_user_handle,
             reaction_handle,
@@ -2717,7 +2752,7 @@ mod tests {
 
     fn assembled_with_sections(deferred: &str, pinned: &str) -> ScopedAssembled {
         ScopedAssembled {
-            registry: ScopedToolRegistry(Vec::new(), None),
+            registry: ScopedToolRegistry(Vec::new(), None, PolicyGate::permit_all_for_test()),
             delegate_handle: None,
             ask_user_handle: None,
             reaction_handle: Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new())),
