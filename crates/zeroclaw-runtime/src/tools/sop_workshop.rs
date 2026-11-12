@@ -96,8 +96,9 @@ impl ::zeroclaw_api::attribution::Attributable for SopWorkshopTool {
 
 #[async_trait]
 impl Tool for SopWorkshopTool {
+    /// Its apply action writes SOP.toml and SOP.md, so it is not admitted under ReadOnly.
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::AgentInternal
+        zeroclaw_api::policy::ToolCapability::FsWrite
     }
 
     fn name(&self) -> &str {

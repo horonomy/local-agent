@@ -38,8 +38,9 @@ impl SopApproveTool {
 
 #[async_trait]
 impl Tool for SopApproveTool {
+    /// Releases a SOP run to execute tools and has no autonomy check of its own, so it is not admitted under ReadOnly.
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::AgentInternal
+        zeroclaw_api::policy::ToolCapability::Subagent
     }
 
     fn name(&self) -> &str {
