@@ -315,6 +315,12 @@ pub struct Config {
     #[group = "Operations"]
     pub backup: BackupConfig,
 
+    /// Tool-call policy authority configuration (`[governance]`).
+    #[serde(default)]
+    #[nested]
+    #[group = "Operations"]
+    pub governance: crate::governance::GovernanceConfig,
+
     /// Data retention and purge configuration (`[data_retention]`).
     #[serde(default)]
     #[nested]
@@ -20899,6 +20905,7 @@ impl Default for Config {
             trust: crate::scattered_types::TrustConfig::default(),
             tools: crate::builtin_tools::BuiltinToolsConfig::default(),
             backup: BackupConfig::default(),
+            governance: crate::governance::GovernanceConfig::default(),
             data_retention: DataRetentionConfig::default(),
             cloud_ops: CloudOpsConfig::default(),
             conversational_ai: ConversationalAiConfig::default(),
@@ -23980,6 +23987,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         validate_memory_rerank_config(&self.memory)?;
         self.cost.rates.validate()?;
+        self.governance.validate()?;
 
         for (profile_alias, profile) in &self.runtime_profiles {
             if profile.max_execution_tree_iterations == Some(0) {
