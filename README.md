@@ -67,8 +67,8 @@ design. The exact list and behavior is in the
 
 ## Supported platforms, providers and build
 
-- **Build:** from source with Rust 1.96.0 or newer (edition 2024). The MVP-1.0
-  pre-release tarball was not re-verified for this documentation.
+- **Build:** from source with Rust 1.96.0 or newer (edition 2024), or the
+  MVP-1.0 pre-release tarball (macOS aarch64).
 - **OS:** exercised on macOS (`aarch64-apple-darwin`) only. The golden-journey
   runner is POSIX-only and the egress probe uses macOS `sandbox-exec`. Linux and
   Windows are **not verified** for this profile.
