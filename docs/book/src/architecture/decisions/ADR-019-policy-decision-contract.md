@@ -67,7 +67,7 @@ Decide in `prepare_tool_calls`, after hook rewrite and delivery defaults, before
 | `mode` | `standalone` | `standalone` or `managed`; managed is rejected on non-Unix |
 | `aasm.socket_path` | none | required in managed mode, absolute |
 | `aasm.expected_peer_uid` | current uid | |
-| `aasm.timeout_ms` | 2000 | 100..=10000 |
+| `aasm.timeout_ms` | 2000 | 100..=10000, checked in every mode |
 | `aasm.credential_token_file` | none | presence-only |
 | `audit.enabled` | true | |
 | `audit.max_size_mb` | 8 | at least 1 |
