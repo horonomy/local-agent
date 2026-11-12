@@ -14,6 +14,10 @@
 //! - Put the socket in a `0700` directory owned by the client uid. AASM's own
 //!   default, `/tmp/aa-runtime-<id>.sock`, is refused by design: `/tmp` is
 //!   world-writable (`1777`) and, on macOS, a symlink.
+//! - Give the path in canonical, non-symlinked form. On macOS `/var` and
+//!   `/tmp` are symlinks, so the directory must be written as
+//!   `/private/var/folders/...` (or another path with no symlink component);
+//!   a path through a symlink is refused.
 //! - Every ancestor must be a real directory, owned by root or the client uid
 //!   and not group/world writable. A sticky directory owned by root or the
 //!   client uid is tolerated only as a distant ancestor, never as the
