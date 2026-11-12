@@ -274,7 +274,11 @@ mod tests {
     fn managed_is_refused_when_the_build_lacks_the_transport() {
         assert!(managed().validate_for_build(false).is_err());
         assert!(managed().validate_for_build(true).is_ok());
-        assert!(GovernanceConfig::default().validate_for_build(false).is_ok());
+        assert!(
+            GovernanceConfig::default()
+                .validate_for_build(false)
+                .is_ok()
+        );
         assert!(managed().validate().is_err());
     }
 
