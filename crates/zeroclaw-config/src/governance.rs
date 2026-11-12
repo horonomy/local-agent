@@ -122,10 +122,29 @@ pub struct GovernanceConfig {
     pub audit: GovernanceAuditConfig,
 }
 
+/// Whether this build contains the AASM managed transport. False until the
+/// `aasm-managed` transport lands (HORO-2395), which flips it. While false,
+/// a managed configuration is refused at validation, so a session can never
+/// start in a mode this binary cannot honour.
+pub const MANAGED_TRANSPORT_COMPILED: bool = false;
+
 impl GovernanceConfig {
-    /// Validate against the current platform.
+    /// Validate against the current platform and build.
     pub fn validate(&self) -> Result<()> {
-        self.validate_for_platform(cfg!(unix))
+        self.validate_for_platform(cfg!(unix))?;
+        self.validate_for_build(MANAGED_TRANSPORT_COMPILED)
+    }
+
+    /// Pure form of the build check so both outcomes are testable.
+    pub fn validate_for_build(&self, managed_transport_compiled: bool) -> Result<()> {
+        if self.mode == GovernanceMode::Managed && !managed_transport_compiled {
+            validation_bail!(
+                ValidationFailed,
+                "governance.mode".to_string(),
+                "governance.mode = \"managed\" needs a build with the aasm-managed transport; this build has none, and there is no fallback to standalone"
+            );
+        }
+        Ok(())
     }
 
     /// Pure form of [`Self::validate`] so non-unix rules are testable anywhere.
@@ -249,6 +268,14 @@ mod tests {
     fn absent_section_deserializes_to_standalone() {
         let cfg: crate::schema::Config = toml::from_str("").unwrap();
         assert_eq!(cfg.governance, GovernanceConfig::default());
+    }
+
+    #[test]
+    fn managed_is_refused_when_the_build_lacks_the_transport() {
+        assert!(managed().validate_for_build(false).is_err());
+        assert!(managed().validate_for_build(true).is_ok());
+        assert!(GovernanceConfig::default().validate_for_build(false).is_ok());
+        assert!(managed().validate().is_err());
     }
 
     #[test]
