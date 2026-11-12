@@ -1250,6 +1250,24 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn tenth_varint_byte_above_one_is_malformed_via_the_decoder() {
+        let frame = |last: u8| {
+            let mut bytes = vec![TAG_POLICY_RESPONSE];
+            bytes.extend([0xFF; 9]);
+            bytes.push(last);
+            bytes
+        };
+        assert_eq!(
+            read_frame(&mut frame(0x02).as_slice()).await,
+            Err(WireError::BadVarint)
+        );
+        assert_eq!(
+            read_frame(&mut frame(0x01).as_slice()).await,
+            Err(WireError::Oversize)
+        );
+    }
+
     fn golden_request() -> wire::CheckActionRequest {
         build_query(&request())
     }
