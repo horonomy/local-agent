@@ -549,6 +549,119 @@ mod tests {
         }
     }
 
+    #[test]
+    fn server_exclusion_applies_via_composed_prefix() {
+        let mut p = profile(None);
+        p.excluded_tools = set(&["gh"]);
+        p.mcp_grants = set(&["gh"]);
+        // Without `mcp_server` the prefix still excludes.
+        assert_deny(
+            eval(&p, &req(ToolCapability::Mcp, "gh__search")),
+            ReasonCode::Excluded,
+        );
+        assert_deny(eval(&p, &mcp_req("gh", "gh__search")), ReasonCode::Excluded);
+        // Non-MCP composed names are denied even with no allow-list.
+        for allowed in [None, Some(&["gh__search"][..]), Some(&["*"][..])] {
+            assert_deny(
+                eval(
+                    &profile(allowed),
+                    &req(ToolCapability::FsRead, "gh__search"),
+                ),
+                ReasonCode::LocalDeny,
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_underscore_edges_and_empty_segments_are_ambiguous() {
+        let mut q = profile(None);
+        q.mcp_grants = set(&["a", "a_", "_a", "gh"]);
+        for (server, name) in [
+            ("a_", "a___t"),
+            ("a", "a___t"),
+            ("a_", "a___"),
+            ("_a", "_a__t"),
+            ("gh", "gh___t"),
+            ("gh", "gh____"),
+            ("gh", "__t"),
+            ("gh", "gh__"),
+        ] {
+            assert_deny(eval(&q, &mcp_req(server, name)), ReasonCode::LocalDeny);
+        }
+        q.mcp_grants = set(&["gh"]);
+        assert_eq!(eval(&q, &mcp_req("gh", "gh__a_b")).verdict, Verdict::Allow);
+    }
+
+    #[test]
+    fn read_only_keeps_only_observation_tools() {
+        let mut p = profile(Some(&["*", "t", "gh__t", "web_fetch"]));
+        p.mcp_grants = set(&["gh"]);
+        for cap in [
+            ToolCapability::Mcp,
+            ToolCapability::Browser,
+            ToolCapability::Desktop,
+            ToolCapability::Network,
+            ToolCapability::Subagent,
+            ToolCapability::FsWrite,
+            ToolCapability::Shell,
+        ] {
+            let mut r = if cap == ToolCapability::Mcp {
+                mcp_req("gh", "gh__t")
+            } else {
+                req(cap, "t")
+            };
+            r.autonomy = AutonomyLevel::ReadOnly;
+            for list in [None, Some(&["*", "t", "gh__t"][..])] {
+                let mut q = p.clone();
+                q.allowed_tools = list.map(set);
+                assert_deny(eval(&q, &r), ReasonCode::LocalDeny);
+            }
+        }
+        for cap in [
+            ToolCapability::FsRead,
+            ToolCapability::Memory,
+            ToolCapability::AgentInternal,
+        ] {
+            let mut r = req(cap, "t");
+            r.autonomy = AutonomyLevel::ReadOnly;
+            assert_eq!(eval(&p, &r).verdict, Verdict::Allow);
+        }
+    }
+
+    #[test]
+    fn non_canonical_names_are_denied() {
+        let p = profile(None);
+        for bad in [
+            "File_Read",
+            " file_read",
+            "file_read ",
+            "file_read\n",
+            "file\u{0}read",
+            "fïle_read",
+            "file_read\u{200b}",
+        ] {
+            assert_deny(
+                eval(&p, &req(ToolCapability::FsRead, bad)),
+                ReasonCode::LocalDeny,
+            );
+        }
+        // Variants of an excluded name are denied, not treated as a different tool.
+        let mut e = profile(None);
+        e.excluded_tools = set(&["shell"]);
+        for bad in ["Shell", "shell ", " shell"] {
+            assert_deny(
+                eval(&e, &req(ToolCapability::Shell, bad)),
+                ReasonCode::LocalDeny,
+            );
+        }
+        let mut skill = req(ToolCapability::FsRead, "file_read");
+        skill.via_skill = Some("Sk".into());
+        assert_deny(eval(&p, &skill), ReasonCode::LocalDeny);
+        let mut m = profile(None);
+        m.mcp_grants = set(&["gh"]);
+        assert_deny(eval(&m, &mcp_req("GH", "GH__t")), ReasonCode::LocalDeny);
+    }
+
     #[tokio::test]
     async fn trait_decide_matches_evaluate() {
         let engine = StandalonePolicyEngine::new(profile(None));
