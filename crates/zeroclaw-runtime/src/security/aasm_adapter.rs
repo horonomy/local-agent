@@ -669,11 +669,11 @@ mod tests {
             let accepted = Arc::new(AtomicUsize::new(0));
             let proofs_valid = Arc::new(AtomicUsize::new(0));
             let (q, a, p) = (queries.clone(), accepted.clone(), proofs_valid.clone());
-            tokio::spawn(async move {
+            zeroclaw_spawn::spawn!(async move {
                 while let Ok((mut stream, _)) = listener.accept().await {
                     a.fetch_add(1, Ordering::SeqCst);
                     let (q, p, reply) = (q.clone(), p.clone(), reply.clone());
-                    tokio::spawn(async move {
+                    zeroclaw_spawn::spawn!(async move {
                         serve(&mut stream, q, p, reply).await;
                     });
                 }
