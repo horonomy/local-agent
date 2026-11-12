@@ -317,13 +317,23 @@ fn agent_identifier(socket: &Path) -> Option<String> {
 fn build_query(request: &PolicyRequest) -> wire::CheckActionRequest {
     // The context carries a digest, never raw arguments (ADR-019 D4).
     // UNVERIFIED: AASM policy rules cannot inspect fields inside the digest.
-    let args_json = serde_json::to_vec(&serde_json::json!({
-        "args_sha256": request.args_sha256,
-        "capability": request.capability,
-        "session_id": request.session_id,
-        "via_skill": request.via_skill,
-        "mcp_server": request.mcp_server,
-    }))
+    #[derive(serde::Serialize)]
+    struct ArgsDigest<'a> {
+        args_sha256: &'a str,
+        capability: zeroclaw_api::policy::ToolCapability,
+        session_id: &'a str,
+        via_skill: Option<&'a str>,
+        mcp_server: Option<&'a str>,
+    }
+    // A struct (not a JSON map) so field order is fixed regardless of
+    // serde_json's `preserve_order` feature, keeping the golden vectors stable.
+    let args_json = serde_json::to_vec(&ArgsDigest {
+        args_sha256: &request.args_sha256,
+        capability: request.capability,
+        session_id: &request.session_id,
+        via_skill: request.via_skill.as_deref(),
+        mcp_server: request.mcp_server.as_deref(),
+    })
     .unwrap_or_default();
     // UNVERIFIED: org/team ids are unknown to Local Agent and left empty;
     // `agent_alias` stands in for the AASM agent id.
