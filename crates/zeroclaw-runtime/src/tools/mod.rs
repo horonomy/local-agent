@@ -7876,7 +7876,7 @@ permissions = ["http_client"]
 
         // The scoped assembly mints `execute_pipeline` and the MCP capability
         // tools. `acp_delivery` keeps `deliver_file`, which only ACP turns admit.
-        let assembled = scoped::ScopedToolRegistry::assemble(scoped::ScopedAssembly {
+        scoped::ScopedToolRegistry::assemble(scoped::ScopedAssembly {
             config: &cfg,
             agent_alias: "test-agent",
             security: &security,
@@ -7892,8 +7892,7 @@ permissions = ["http_client"]
             emit_assembly_logs: false,
             mcp_registry: Some(Arc::new(McpRegistry::for_test_with_server_count(1))),
         })
-        .await;
-        assembled
+        .await
     }
 
     #[tokio::test]

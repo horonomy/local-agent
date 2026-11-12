@@ -244,7 +244,7 @@ async fn mcp_name_only_in_caller_list_is_denied() {
         ..inputs(Some(&allowed), None, Some(&caller))
     };
     assert!(denied(
-        decide(&gate(&i), &mock_mcp(&mcp), &json!({}), "c").await
+        decide(&gate(&i), mock_mcp(&mcp), &json!({}), "c").await
     ));
     // Listed by the operator and the caller: allowed.
     let both = list(&["file_read", "gh__search"]);
@@ -253,7 +253,7 @@ async fn mcp_name_only_in_caller_list_is_denied() {
         ..inputs(Some(&both), None, Some(&caller))
     };
     assert!(!denied(
-        decide(&gate(&i), &mock_mcp(&mcp), &json!({}), "c").await
+        decide(&gate(&i), mock_mcp(&mcp), &json!({}), "c").await
     ));
 }
 

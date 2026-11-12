@@ -93,7 +93,7 @@ pub fn profile_from_inputs(inputs: &AgentPolicyInputs<'_>) -> PolicyProfile {
     // The caller list is deliberately not merged in: it may only remove
     // names (see `Enforcing::caller_allowed`), never become a source of the
     // explicit grants the engine requires.
-    let allowed_tools = inputs.allowed_tools.map(|list| fold_set(list));
+    let allowed_tools = inputs.allowed_tools.map(fold_set);
     PolicyProfile {
         allowed_tools,
         excluded_tools: fold_set(inputs.excluded_tools.unwrap_or_default()),
