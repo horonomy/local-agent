@@ -161,7 +161,30 @@ Real aa-runtime interoperability (UNVERIFIED: the wire layout above is read from
 
 ## Test vectors
 
-Golden hex vectors for `CheckActionRequest`, `CheckActionResponse` and the handshake proof are not recorded here. They must be generated from the mirrored prost types, and the proof needs an Ed25519 implementation. TODO owned by HORO-2395.
+Generated from the implemented codec (`security/aasm_adapter.rs`) and pinned by the unit test `golden_vectors_are_pinned`. Each vector is a complete frame: tag byte, varint length, prost payload. They show what this adapter writes and reads; they were not compared with bytes produced by AASM.
+
+Fixed inputs: the `PolicyRequest` built by the test helper `request()` (agent alias `main`, parent `parent`, capability `shell`, session `sess-1`, turn `turn-1`, call `call-1`, `args_sha256` of `{"command":"ls"}`); handshake nonce = bytes `00..1f`; socket file name `aa-runtime-test-agent.sock`, so the transport key seed is `SHA-256("test-agent")` and `sdk_version` is `local-agent-aasm-adapter/1`.
+
+| Frame | Hex |
+| --- | --- |
+| `CheckActionRequest` (tag 1) | `01de010a061a046d61696e1a067475726e2d31220663616c6c2d31280232b70112b4010a057368656c6c120866756e6374696f6e1aa0017b22617267735f736861323536223a2234636632393631316136363933343836326632396163666363383137653330623930356331616237336435653635383331343133656236623435346434396462222c226361706162696c697479223a227368656c6c222c2273657373696f6e5f6964223a22736573732d31222c227669615f736b696c6c223a6e756c6c2c226d63705f736572766572223a6e756c6c7d3a081a06706172656e74` |
+| `CheckActionResponse` (tag 1; `decision` ALLOW, `reason` "ok", `decision_id` "01-abc") | `010e080112026f6b420630312d616263` |
+| `HandshakeProof` (tag 5) | `05da010a386469643a6b65793a7a364d6b75674466666b646478615576554a6967485332694a4a6b546b786547314e70697250596f73694d36647869701240653233313261363666303761646262656636366161616464333465323262346435306335613935336434393430656466356638383630623430626366616365351a404ef43312301d1d71d7558f5d50761b6928d2a533b0ae43575d49a79301e9efdd4dac22aac06094bd4027321cd366370f25d605645fad53ad3d0a27566d7d7408221a6c6f63616c2d6167656e742d6161736d2d616461707465722f31` |
+
+The Ed25519 signature is deterministic (RFC 8032, `ring`), so the proof vector is reproducible. The test double in the same module verifies each proof with an independent `ring` verification call.
+
+## Implementation notes (HORO-2395)
+
+Verified by tests against an in-process double, not against AASM: protocol mirrored from rev `f6b0e2b70`, not verified against a live daemon.
+
+- One connection per query: connect, read challenge, send proof and query, read one response, close. The socket checks therefore run before every query. The whole exchange (connect, handshake, reply) is bounded by `governance.aasm.timeout_ms`.
+- Checks before connecting: absolute path without `..`; no symlink in any path component (`lstat` walk); parent directory not group/world writable and owned by the current uid, `expected_peer_uid` or root; socket is a socket owned by the expected uid. After connecting, the peer uid from the kernel (`peer_cred`) must equal the expected uid. Any failure is `Deny` / `authority_unavailable`. A path swapped between check and connect is covered by the directory permission rule and the peer uid check; the peer uid check itself has no automated test (it needs a second uid).
+- Reason mapping: connect/IO failure or a peer that closes before sending a frame byte is `authority_unavailable`; deadline is `timeout`; truncated frame, oversize frame, bad varint, unknown tag, undecodable payload or a missing or bad challenge is `malformed_response`; any verdict other than `ALLOW` (including `PENDING`, `REDACT`, `UNSPECIFIED`, unknown codes) is `aasm_deny`. `ReasonCode` has no allow code for AASM, so an AASM `ALLOW` is `local_allow` with `source = aasm`.
+- Composition (`ComposedAuthority`): the local engine decides first; a local `Deny` is returned without consulting AASM. Otherwise the stricter verdict wins and the source is `composed`. Because AASM has no Ask verdict, an Ask can only come from the local engine.
+- Request mapping (a Local Agent choice, UNVERIFIED against AASM policy semantics): `action_type = TOOL_CALL`, `agent_id.agent_id = agent_alias` with empty `org_id`/`team_id`, `caller_agent_id = parent_agent_alias`, `trace_id = turn_id`, `span_id = call_id`, empty `credential_token`, and `ToolCallContext.args_json` carrying only the digest and classification (`args_sha256`, `capability`, `session_id`, `via_skill`, `mcp_server`). AASM policies that inspect argument fields cannot match them.
+- Handshake agent id (UNVERIFIED): AASM derives its expected key from the agent id that is part of its socket file name (`aa-runtime-<agent_id>.sock`, read from `aa-runtime/src/ipc/server.rs`). The adapter derives the same id from the configured `socket_path` file name; a socket named differently uses its stem. If the runtime was configured with another agent id, its handshake will reject the proof and every call is denied. There is no configuration key for the agent id in this build.
+- Ed25519 uses `ring`, already a dependency of `zeroclaw-runtime`; `prost` became an optional dependency of the same crate (already in `Cargo.lock` as a dev-dependency). `Cargo.lock` is unchanged.
+- Not in this build: reading `credential_token_file`, persistent connections, event reports, approvals, heartbeat.
 
 ## Consequences
 
