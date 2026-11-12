@@ -579,3 +579,157 @@ async fn bounded_child_cannot_widen_network_the_parent_never_listed() {
         .await
     ));
 }
+
+/// A generic MCP tool (resources/prompts): the server comes from arguments.
+struct ArgsMcp;
+
+impl Attributable for ArgsMcp {
+    fn role(&self) -> Role {
+        Role::System
+    }
+    fn alias(&self) -> &str {
+        "args-mcp"
+    }
+}
+
+#[async_trait]
+impl Tool for ArgsMcp {
+    fn capability(&self) -> ToolCapability {
+        ToolCapability::Mcp
+    }
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        Some(
+            args.get("server")
+                .and_then(|v| v.as_str())
+                .map(|s| vec![s.to_owned()])
+                .unwrap_or_default(),
+        )
+    }
+    fn name(&self) -> &str {
+        "mcp_resources"
+    }
+    fn description(&self) -> &str {
+        "mock"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({})
+    }
+    async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        unreachable!("the gate never executes tools")
+    }
+}
+
+async fn decide_args_mcp(g: &PolicyGate, args: &serde_json::Value) -> GateOutcome {
+    let registry: Vec<Box<dyn Tool>> = Vec::new();
+    g.decide(&CallFacts {
+        tool: &ArgsMcp,
+        registry: &registry,
+        args,
+        call_id: "c",
+        turn_id: "t",
+        agent_alias: None,
+        parent_agent_alias: None,
+        interactive: true,
+    })
+    .await
+}
+
+#[tokio::test]
+async fn generic_mcp_tool_honours_server_grants_and_exclusions() {
+    let servers = list(&["gh", "slack"]);
+    let excluded = list(&["slack"]);
+    let i = AgentPolicyInputs {
+        mcp_servers: &servers,
+        ..inputs(None, Some(&excluded), None)
+    };
+    let g = gate(&i);
+    // Granted and not excluded.
+    assert!(!denied(decide_args_mcp(&g, &json!({"server": "gh"})).await));
+    // Excluded by name, even though a bundle granted it.
+    assert!(denied(
+        decide_args_mcp(&g, &json!({"server": "slack"})).await
+    ));
+    // Never granted.
+    assert!(denied(
+        decide_args_mcp(&g, &json!({"server": "other"})).await
+    ));
+    // An all-server call cannot be filtered, so it is refused while a granted
+    // server is excluded.
+    assert!(denied(decide_args_mcp(&g, &json!({})).await));
+}
+
+#[tokio::test]
+async fn generic_mcp_tool_all_server_call_passes_when_nothing_is_excluded() {
+    let servers = list(&["gh"]);
+    let i = AgentPolicyInputs {
+        mcp_servers: &servers,
+        ..inputs(None, None, None)
+    };
+    assert!(!denied(decide_args_mcp(&gate(&i), &json!({})).await));
+    // No grants at all: a named server is denied.
+    assert!(denied(
+        decide_args_mcp(&gate(&inputs(None, None, None)), &json!({"server": "gh"})).await
+    ));
+}
+
+struct ModelSwitchLike;
+
+impl Attributable for ModelSwitchLike {
+    fn role(&self) -> Role {
+        Role::System
+    }
+    fn alias(&self) -> &str {
+        "model-switch-like"
+    }
+}
+
+#[async_trait]
+impl Tool for ModelSwitchLike {
+    fn capability(&self) -> ToolCapability {
+        ToolCapability::AgentInternal
+    }
+    fn capability_for_call(&self, args: &serde_json::Value) -> ToolCapability {
+        match args.get("action").and_then(|v| v.as_str()) {
+            Some("list_models") => ToolCapability::Network,
+            _ => ToolCapability::AgentInternal,
+        }
+    }
+    fn name(&self) -> &str {
+        "model_switch"
+    }
+    fn description(&self) -> &str {
+        "mock"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({})
+    }
+    async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        unreachable!("the gate never executes tools")
+    }
+}
+
+#[tokio::test]
+async fn a_call_is_decided_on_its_per_call_capability() {
+    let registry: Vec<Box<dyn Tool>> = Vec::new();
+    let g = gate(&inputs(None, None, None));
+    let facts = |args: &'static serde_json::Value| CallFacts {
+        tool: &ModelSwitchLike,
+        registry: &[] as &[Box<dyn Tool>],
+        args,
+        call_id: "c",
+        turn_id: "t",
+        agent_alias: None,
+        parent_agent_alias: None,
+        interactive: true,
+    };
+    let _ = &registry;
+    let set: &'static serde_json::Value = Box::leak(Box::new(json!({"action": "set"})));
+    let list: &'static serde_json::Value = Box::leak(Box::new(json!({"action": "list_models"})));
+    assert!(!denied(g.decide(&facts(set)).await));
+    // Live provider catalog request: network class, default-deny.
+    assert!(denied(g.decide(&facts(list)).await));
+    let allowed = vec!["model_switch".to_owned()];
+    let g = gate(&inputs(Some(&allowed), None, None));
+    // Naming the tool is the explicit operator act that grants network class.
+    assert!(!denied(g.decide(&facts(list)).await));
+}
