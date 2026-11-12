@@ -1,5 +1,9 @@
 # MCP and Skills
 
+Guides: [set up a stdio MCP server](./mcp-stdio-setup.md) · [skill origins and trust](./skills-trust.md) · [optional WASM plugin host](./wasm-plugins.md) · [compatibility matrix](./compatibility-matrix.md).
+
+Tested versus planned: stdio MCP, per-agent grants and skill audit are exercised against a real minimal-profile binary (see the guides). WASM plugins are an opt-in build, not part of the minimal profile. Remote MCP transports, community skill and plugin registries, and a frozen plugin ABI are unverified or planned and are not promised.
+
 ## MCP
 
 Local Agent is an MCP client. This page documents servers it spawns over stdio; other transports exist in the code but are not covered here. Access is granted per agent and nothing is granted by default.
