@@ -167,6 +167,9 @@ struct Enforcing {
     /// Folded per-run caller allow-list. Checked in addition to the engine,
     /// so it can narrow but never widen.
     caller_allowed: Option<BTreeSet<String>>,
+    /// Parent of a bounded child: every decision is also narrowed by this
+    /// parent's profile, registered with the authority.
+    bounded_parent: Option<String>,
 }
 
 /// Facts about the call being decided or redeemed.
@@ -259,7 +262,35 @@ impl PolicyGate {
             agent_alias: agent_alias.to_owned(),
             autonomy,
             caller_allowed: None,
+            bounded_parent: None,
         })))
+    }
+
+    /// Gate for a bounded delegate: a child that runs the parent's tools under
+    /// a target profile. Each call is decided against the child's profile and
+    /// the parent's, so the strictest wins and the child cannot escalate. Its
+    /// autonomy may not exceed the parent's.
+    pub fn bounded_child(
+        governance: &GovernanceConfig,
+        child_alias: &str,
+        child: &AgentPolicyInputs<'_>,
+        parent_alias: &str,
+        parent: &AgentPolicyInputs<'_>,
+    ) -> Self {
+        if governance.mode == GovernanceMode::Managed {
+            return Self::with_mode(Mode::Unavailable);
+        }
+        let mut gate = Self::standalone(
+            child_alias,
+            child.autonomy,
+            profile_from_inputs(child),
+            vec![(parent_alias.to_owned(), profile_from_inputs(parent))],
+        )
+        .with_caller_filter(child.caller_allowed);
+        if let Mode::Enforce(enforcing) = &mut gate.mode {
+            enforcing.bounded_parent = Some(parent_alias.to_owned());
+        }
+        gate
     }
 
     /// Restrict the gate to a per-run caller list. It can only remove names.
@@ -509,7 +540,10 @@ fn build_request(
             .agent_alias
             .unwrap_or(enforcing.agent_alias.as_str())
             .to_owned(),
-        parent_agent_alias: facts.parent_agent_alias.map(str::to_owned),
+        parent_agent_alias: facts
+            .parent_agent_alias
+            .map(str::to_owned)
+            .or_else(|| enforcing.bounded_parent.clone()),
         capability: identity.capability,
         tool_name: identity.tool_name,
         via_skill: identity.via_skill,

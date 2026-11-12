@@ -1793,6 +1793,56 @@ impl DelegateTool {
         resolved
     }
 
+    /// Policy gate for a bounded child: the target's profile narrowed by this
+    /// (calling) tool's own, with MCP grants taken from the caller.
+    fn bounded_child_policy(
+        &self,
+        child_alias: &str,
+        target: &SecurityPolicy,
+        target_tool_lists: &SecurityPolicy,
+    ) -> crate::security::policy_gate::PolicyGate {
+        use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
+        let governance = self
+            .root_config
+            .as_ref()
+            .map(|config| config.governance.clone())
+            .unwrap_or_default();
+        let servers: Vec<String> = self
+            .root_config
+            .as_ref()
+            .map(|config| {
+                config
+                    .mcp_servers_for_agent(&self.caller_alias)
+                    .into_iter()
+                    .map(|server| server.name)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let child = AgentPolicyInputs {
+            autonomy: target.autonomy,
+            allowed_tools: target_tool_lists.allowed_tools.as_deref(),
+            excluded_tools: target_tool_lists.excluded_tools.as_deref(),
+            always_ask: &target.always_ask,
+            mcp_servers: &servers,
+            caller_allowed: None,
+        };
+        let parent = AgentPolicyInputs {
+            autonomy: self.security.autonomy,
+            allowed_tools: self.security.allowed_tools.as_deref(),
+            excluded_tools: self.security.excluded_tools.as_deref(),
+            always_ask: &self.security.always_ask,
+            mcp_servers: &servers,
+            caller_allowed: None,
+        };
+        PolicyGate::bounded_child(
+            &governance,
+            child_alias,
+            &child,
+            &self.caller_alias,
+            &parent,
+        )
+    }
+
     fn resolve_tool_policy(&self, risk_profile: &str) -> Option<SecurityPolicy> {
         if risk_profile.is_empty() {
             return None;
@@ -5057,7 +5107,16 @@ impl DelegateTool {
                     },
                 )
                 .await;
-                assembled_bounded.registry
+                // `assemble` built the gate from the default policy above.
+                // The child runs the caller's tools, so it is governed by
+                // the target's profile narrowed by the caller's.
+                let mut bounded_registry = assembled_bounded.registry;
+                bounded_registry.replace_policy(self.bounded_child_policy(
+                    agent_name,
+                    &target_policy,
+                    &tool_policy,
+                ));
+                bounded_registry
             }
         };
 

@@ -325,6 +325,13 @@ impl ScopedToolRegistry {
         &self.2
     }
 
+    /// Replace the gate of an already-sealed registry. Only for a bounded
+    /// child whose registry is assembled from a default policy but must be
+    /// governed by its parent and target profiles.
+    pub(crate) fn replace_policy(&mut self, gate: PolicyGate) {
+        self.2 = gate;
+    }
+
     /// Consume the assembled registry into the owned `Vec` for non-turn
     /// consumers such as the gateway's listing-only registry. Turn carriers
     /// accept only the sealed type.
