@@ -481,3 +481,101 @@ fn fold_rule() {
     assert_eq!(fold_name("a\u{e9}"), None);
     assert_eq!(fold_name("a\nb"), None);
 }
+
+#[tokio::test]
+async fn deferred_call_that_decides_ask_is_denied_not_allowed() {
+    let ask = list(&["shell"]);
+    let i = AgentPolicyInputs {
+        always_ask: &ask,
+        ..inputs(None, None, None)
+    };
+    let g = gate(&i);
+    let shell = mock("shell", ToolCapability::Shell);
+    g.note_unresolved("c", &json!({}));
+    assert!(matches!(
+        redeem(&g, &shell, &json!({}), "c").await,
+        Err(RedeemError::Denied(_))
+    ));
+    // The marker is consumed: a second attempt has nothing to redeem.
+    assert_eq!(
+        redeem(&g, &shell, &json!({}), "c").await,
+        Err(RedeemError::NoTicket)
+    );
+}
+
+fn bounded(child: &AgentPolicyInputs<'_>, parent: &AgentPolicyInputs<'_>) -> PolicyGate {
+    PolicyGate::bounded_child(
+        &GovernanceConfig::default(),
+        "child",
+        child,
+        "parent",
+        parent,
+    )
+}
+
+#[tokio::test]
+async fn bounded_child_is_narrowed_by_its_parent_without_a_per_call_parent() {
+    let parent_excluded = list(&["shell"]);
+    let g = bounded(
+        &inputs(None, None, None),
+        &inputs(None, Some(&parent_excluded), None),
+    );
+    // The child's own profile allows shell; the parent's exclusion wins.
+    assert!(denied(
+        decide(&g, &mock("shell", ToolCapability::Shell), &json!({}), "a").await
+    ));
+    assert!(!denied(
+        decide(
+            &g,
+            &mock("file_read", ToolCapability::FsRead),
+            &json!({}),
+            "b"
+        )
+        .await
+    ));
+}
+
+#[tokio::test]
+async fn bounded_child_cannot_exceed_the_parent_autonomy() {
+    let child = AgentPolicyInputs {
+        autonomy: AutonomyLevel::Full,
+        ..inputs(None, None, None)
+    };
+    let g = bounded(&child, &inputs(None, None, None));
+    assert!(denied(
+        decide(
+            &g,
+            &mock("file_read", ToolCapability::FsRead),
+            &json!({}),
+            "a"
+        )
+        .await
+    ));
+    // A read-only parent makes shell unreachable for a Supervised child.
+    let read_only = AgentPolicyInputs {
+        autonomy: AutonomyLevel::ReadOnly,
+        ..inputs(None, None, None)
+    };
+    let g = bounded(&inputs(None, None, None), &read_only);
+    assert!(denied(
+        decide(&g, &mock("shell", ToolCapability::Shell), &json!({}), "b").await
+    ));
+}
+
+#[tokio::test]
+async fn bounded_child_cannot_widen_network_the_parent_never_listed() {
+    let child_allowed = list(&["web_fetch"]);
+    let g = bounded(
+        &inputs(Some(&child_allowed), None, None),
+        &inputs(None, None, None),
+    );
+    assert!(denied(
+        decide(
+            &g,
+            &mock("web_fetch", ToolCapability::Network),
+            &json!({}),
+            "a"
+        )
+        .await
+    ));
+}
