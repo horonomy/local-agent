@@ -51,6 +51,8 @@ fn detect_search_backend() -> SearchBackend {
 
 #[async_trait]
 impl Tool for ContentSearchTool {
+    // FsRead: it only reads; the optional `multiline` ripgrep path spawns a
+    // read-only search process and writes nothing.
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
         zeroclaw_api::policy::ToolCapability::FsRead
     }

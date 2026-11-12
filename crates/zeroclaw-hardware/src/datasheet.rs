@@ -459,8 +459,10 @@ impl Default for DatasheetTool {
 
 #[async_trait]
 impl Tool for DatasheetTool {
+    /// Downloads datasheets over HTTP and writes them to disk, so it is
+    /// network-class.
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::FsRead
+        zeroclaw_api::policy::ToolCapability::Network
     }
 
     fn name(&self) -> &str {
@@ -955,5 +957,18 @@ mod tests {
 
         assert_eq!(std::fs::read_dir(&moved).unwrap().count(), 0);
         assert!(!outside.path().join("lm75.pdf").exists());
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    #[test]
+    fn datasheet_is_network_class_because_it_downloads() {
+        assert_eq!(
+            DatasheetTool::new().capability(),
+            zeroclaw_api::policy::ToolCapability::Network
+        );
     }
 }

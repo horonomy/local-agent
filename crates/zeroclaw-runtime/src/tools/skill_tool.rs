@@ -456,6 +456,17 @@ impl Tool for SkillBuiltinTool {
         self.target_tool.mcp_server()
     }
 
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.target_tool.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.target_tool.mcp_servers_for_call(args)
+    }
+
     fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
         Some(zeroclaw_api::tool::DelegationTarget::Tool(
             self.target_tool.as_ref(),

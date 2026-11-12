@@ -5422,6 +5422,17 @@ impl Tool for ToolArcRef {
         self.inner.capability()
     }
 
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.inner.mcp_servers_for_call(args)
+    }
+
     fn mcp_server(&self) -> Option<&str> {
         self.inner.mcp_server()
     }

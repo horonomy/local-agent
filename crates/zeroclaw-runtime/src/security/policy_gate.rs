@@ -170,6 +170,9 @@ struct Enforcing {
     /// Parent of a bounded child: every decision is also narrowed by this
     /// parent's profile, registered with the authority.
     bounded_parent: Option<String>,
+    /// Own profile followed by every registered parent profile, for the
+    /// per-server checks of tools that name MCP servers in their arguments.
+    guards: Vec<PolicyProfile>,
 }
 
 /// Facts about the call being decided or redeemed.
@@ -257,12 +260,16 @@ impl PolicyGate {
         profile: PolicyProfile,
         parents: Vec<(String, PolicyProfile)>,
     ) -> Self {
+        let guards = std::iter::once(profile.clone())
+            .chain(parents.iter().map(|(_, p)| p.clone()))
+            .collect();
         Self::with_mode(Mode::Enforce(Box::new(Enforcing {
             authority: standalone_authority_with_parents(profile, parents),
             agent_alias: agent_alias.to_owned(),
             autonomy,
             caller_allowed: None,
             bounded_parent: None,
+            guards,
         })))
     }
 
@@ -464,6 +471,8 @@ struct Identity {
     capability: ToolCapability,
     mcp_server: Option<String>,
     via_skill: Option<String>,
+    /// Servers a generic MCP tool addresses through its arguments.
+    servers_in_args: Option<Vec<String>>,
 }
 
 fn fold_or_deny(name: &str) -> Result<String, ReasonCode> {
@@ -477,7 +486,11 @@ fn collides(registry: &[Box<dyn Tool>], exact: &str, folded: &str) -> bool {
         .any(|t| t.name() != exact && fold_name(t.name()).as_deref() == Some(folded))
 }
 
-fn resolve_identity(tool: &dyn Tool, registry: &[Box<dyn Tool>]) -> Result<Identity, ReasonCode> {
+fn resolve_identity(
+    tool: &dyn Tool,
+    registry: &[Box<dyn Tool>],
+    args: &serde_json::Value,
+) -> Result<Identity, ReasonCode> {
     let mut via_skill: Option<String> = None;
     let mut current = tool;
     for _ in 0..=MAX_DELEGATION_DEPTH {
@@ -488,8 +501,9 @@ fn resolve_identity(tool: &dyn Tool, registry: &[Box<dyn Tool>]) -> Result<Ident
             }
             return Ok(Identity {
                 tool_name: name,
-                capability: current.capability(),
+                capability: current.capability_for_call(args),
                 mcp_server: current.mcp_server().map(fold_or_deny).transpose()?,
+                servers_in_args: current.mcp_servers_for_call(args),
                 via_skill,
             });
         };
@@ -506,6 +520,7 @@ fn resolve_identity(tool: &dyn Tool, registry: &[Box<dyn Tool>]) -> Result<Ident
                     tool_name: fold_or_deny(name)?,
                     capability,
                     mcp_server: None,
+                    servers_in_args: None,
                     via_skill,
                 });
             }
@@ -515,11 +530,45 @@ fn resolve_identity(tool: &dyn Tool, registry: &[Box<dyn Tool>]) -> Result<Ident
     Err(ReasonCode::LocalDeny)
 }
 
+fn check_servers(guards: &[PolicyProfile], servers: &[String]) -> Result<(), ReasonCode> {
+    for profile in guards {
+        if servers.is_empty() {
+            if profile
+                .mcp_grants
+                .iter()
+                .any(|g| profile.excluded_tools.contains(g))
+            {
+                return Err(ReasonCode::Excluded);
+            }
+            continue;
+        }
+        for server in servers {
+            let folded = fold_or_deny(server)?;
+            if profile.excluded_tools.contains(&folded) {
+                return Err(ReasonCode::Excluded);
+            }
+            if !profile.mcp_grants.contains(&folded) {
+                return Err(ReasonCode::LocalDeny);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn build_request(
     enforcing: &Enforcing,
     facts: &CallFacts<'_>,
 ) -> Result<PolicyRequest, ReasonCode> {
-    let identity = resolve_identity(facts.tool, facts.registry)?;
+    let mut identity = resolve_identity(facts.tool, facts.registry, facts.args)?;
+    if let Some(servers) = identity.servers_in_args.take() {
+        // A generic MCP tool (resources, prompts) is not bound to one server:
+        // each server named in its arguments must be granted and not excluded,
+        // and an all-server call is refused when any granted server is
+        // excluded, since its results cannot be filtered. The call itself is
+        // then decided as a local introspection tool.
+        check_servers(&enforcing.guards, &servers)?;
+        identity.capability = ToolCapability::AgentInternal;
+    }
     if let Some(caller) = &enforcing.caller_allowed {
         let registered = fold_or_deny(facts.tool.name())?;
         if !caller.contains(&registered) && !caller.contains(WILDCARD) {

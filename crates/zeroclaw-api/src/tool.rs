@@ -535,6 +535,21 @@ pub trait Tool: Send + Sync + crate::attribution::Attributable {
         crate::policy::ToolCapability::Unknown
     }
 
+    /// Capability of one specific call, for tools whose class depends on the
+    /// arguments (an action that stays local versus one that reaches a
+    /// provider). Defaults to [`Self::capability`]; policy decides on this.
+    fn capability_for_call(&self, _args: &serde_json::Value) -> crate::policy::ToolCapability {
+        self.capability()
+    }
+
+    /// For a tool that addresses MCP servers named in its arguments rather
+    /// than being bound to one: the servers this call touches (empty means
+    /// every connected server). `None` for every other tool. Policy checks
+    /// each named server against grants and exclusions.
+    fn mcp_servers_for_call(&self, _args: &serde_json::Value) -> Option<Vec<String>> {
+        None
+    }
+
     /// MCP server this tool proxies to, when it is an MCP wrapper. Policy
     /// uses it to check the server grant and exclusions.
     fn mcp_server(&self) -> Option<&str> {

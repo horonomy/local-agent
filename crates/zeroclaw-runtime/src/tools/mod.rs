@@ -226,6 +226,17 @@ impl Tool for ArcToolRef {
         self.0.capability()
     }
 
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.0.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.0.mcp_servers_for_call(args)
+    }
+
     fn mcp_server(&self) -> Option<&str> {
         self.0.mcp_server()
     }
@@ -374,6 +385,17 @@ impl ::zeroclaw_api::attribution::Attributable for ArcDelegatingTool {
 impl Tool for ArcDelegatingTool {
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
         self.inner.capability()
+    }
+
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.inner.mcp_servers_for_call(args)
     }
 
     fn mcp_server(&self) -> Option<&str> {
@@ -7996,6 +8018,48 @@ permissions = ["http_client"]
             ("delegate", Subagent),
         ] {
             assert_eq!(capability(name), expected, "{name}");
+        }
+        // Outbound channel traffic and MCP introspection. Each registers only
+        // under some configs, so pin the ones present and require the
+        // positive control above. Hardware (`Desktop`, `datasheet` is
+        // `Network`) and plugin (`Plugin`) classes are not registered by this
+        // maximal config; they are pinned by focused tests in their crates.
+        for (name, expected) in [
+            ("escalate_to_human", Network),
+            ("poll", Network),
+            ("reaction", Network),
+            ("mcp_resources", Mcp),
+            ("mcp_prompts", Mcp),
+            (
+                "model_switch",
+                zeroclaw_api::policy::ToolCapability::AgentInternal,
+            ),
+            (
+                "tool_search",
+                zeroclaw_api::policy::ToolCapability::AgentInternal,
+            ),
+            (
+                "ask_user",
+                zeroclaw_api::policy::ToolCapability::AgentInternal,
+            ),
+        ] {
+            if let Some(tool) = assembled.registry.iter().find(|t| t.name() == name) {
+                assert_eq!(tool.capability(), expected, "{name}");
+            }
+        }
+        if let Some(tool) = assembled
+            .registry
+            .iter()
+            .find(|t| t.name() == "model_switch")
+        {
+            assert_eq!(
+                tool.capability_for_call(&serde_json::json!({"action": "list_models"})),
+                Network
+            );
+            assert_eq!(
+                tool.capability_for_call(&serde_json::json!({"action": "set"})),
+                zeroclaw_api::policy::ToolCapability::AgentInternal
+            );
         }
         // Browser tools register only under some browser configs.
         for name in ["browser_open", "browser"] {

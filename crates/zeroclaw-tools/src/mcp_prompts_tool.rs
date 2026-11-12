@@ -42,7 +42,27 @@ zeroclaw_api::tool_attribution!(
 #[async_trait]
 impl Tool for McpPromptsTool {
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::AgentInternal
+        zeroclaw_api::policy::ToolCapability::Mcp
+    }
+
+    /// `list` names its server in `server` (none means every server); `get`
+    /// carries it as the `<server>__` prefix of `name`. An unparsable `name`
+    /// yields an empty name, which policy denies.
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        Some(match args.get("action").and_then(|v| v.as_str()) {
+            Some("get") => vec![
+                args.get("name")
+                    .and_then(|v| v.as_str())
+                    .and_then(McpRegistry::split_prefixed)
+                    .map(|(server, _)| server)
+                    .unwrap_or_default(),
+            ],
+            _ => args
+                .get("server")
+                .and_then(|v| v.as_str())
+                .map(|s| vec![s.to_owned()])
+                .unwrap_or_default(),
+        })
     }
 
     fn name(&self) -> &str {

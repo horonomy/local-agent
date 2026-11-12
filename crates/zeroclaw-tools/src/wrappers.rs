@@ -40,6 +40,17 @@ impl<T: Tool> Tool for RateLimitedTool<T> {
         self.inner.capability()
     }
 
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.inner.mcp_servers_for_call(args)
+    }
+
     fn mcp_server(&self) -> Option<&str> {
         self.inner.mcp_server()
     }
@@ -160,6 +171,17 @@ impl<T: Tool> Attributable for PathGuardedTool<T> {
 impl<T: Tool> Tool for PathGuardedTool<T> {
     fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
         self.inner.capability()
+    }
+
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.inner.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.inner.mcp_servers_for_call(args)
     }
 
     fn mcp_server(&self) -> Option<&str> {
