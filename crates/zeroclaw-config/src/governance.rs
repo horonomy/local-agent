@@ -149,6 +149,25 @@ impl GovernanceConfig {
             );
         }
 
+        let aasm = &self.aasm;
+        if !AASM_TIMEOUT_MS_RANGE.contains(&aasm.timeout_ms) {
+            let (lo, hi) = (AASM_TIMEOUT_MS_RANGE.start(), AASM_TIMEOUT_MS_RANGE.end());
+            validation_bail!(
+                InvalidNumericRange,
+                "governance.aasm.timeout_ms".to_string(),
+                "governance.aasm.timeout_ms must be between {lo} and {hi}"
+            );
+        }
+        if let Some(path) = aasm.credential_token_file.as_deref()
+            && !path.starts_with('/')
+        {
+            validation_bail!(
+                ValidationFailed,
+                "governance.aasm.credential_token_file".to_string(),
+                "governance.aasm.credential_token_file must be an absolute path"
+            );
+        }
+
         if self.mode != GovernanceMode::Managed {
             return Ok(());
         }
@@ -159,7 +178,6 @@ impl GovernanceConfig {
                 "governance.mode = \"managed\" is supported on Unix only"
             );
         }
-        let aasm = &self.aasm;
         match aasm.socket_path.as_deref() {
             None | Some("") => validation_bail!(
                 ValidationFailed,
@@ -172,14 +190,6 @@ impl GovernanceConfig {
                 "governance.aasm.socket_path must be an absolute path"
             ),
             Some(_) => {}
-        }
-        if !AASM_TIMEOUT_MS_RANGE.contains(&aasm.timeout_ms) {
-            let (lo, hi) = (AASM_TIMEOUT_MS_RANGE.start(), AASM_TIMEOUT_MS_RANGE.end());
-            validation_bail!(
-                InvalidNumericRange,
-                "governance.aasm.timeout_ms".to_string(),
-                "governance.aasm.timeout_ms must be between {lo} and {hi}"
-            );
         }
         Ok(())
     }
@@ -198,6 +208,27 @@ mod tests {
             },
             ..GovernanceConfig::default()
         }
+    }
+
+    #[test]
+    fn partial_aasm_section_keeps_defaults() {
+        let cfg: GovernanceConfig =
+            toml::from_str("[aasm]\nsocket_path = \"/run/aasm/runtime.sock\"\n").unwrap();
+        assert_eq!(cfg.aasm.timeout_ms, 2000);
+        assert_eq!(cfg.aasm.credential_token_file, None);
+        assert_eq!(cfg.mode, GovernanceMode::Standalone);
+    }
+
+    #[test]
+    fn timeout_and_token_path_are_validated_in_standalone_too() {
+        let mut cfg = GovernanceConfig::default();
+        cfg.aasm.timeout_ms = 0;
+        assert!(cfg.validate_for_platform(true).is_err());
+        cfg.aasm.timeout_ms = 2000;
+        cfg.aasm.credential_token_file = Some("relative/token".into());
+        assert!(cfg.validate_for_platform(true).is_err());
+        cfg.aasm.credential_token_file = Some("/etc/aasm/token".into());
+        assert!(cfg.validate_for_platform(true).is_ok());
     }
 
     #[test]
