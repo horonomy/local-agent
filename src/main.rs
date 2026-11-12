@@ -7296,7 +7296,7 @@ struct ChannelBindingRequest {
 /// daemon are refused, so a plugin that declares a channel capability could never
 /// run. Refuse it where it would be admitted instead of leaving it installed and
 /// silently inert, even when the plugin host is compiled in.
-#[cfg(feature = "local-agent-minimal")]
+#[cfg(all(feature = "local-agent-minimal", feature = "plugins-wasm"))]
 fn minimal_profile_plugin_refusal(manifest: &zeroclaw::plugins::PluginManifest) -> Result<()> {
     if manifest
         .capabilities
@@ -7313,7 +7313,7 @@ fn minimal_profile_plugin_refusal(manifest: &zeroclaw::plugins::PluginManifest) 
     Ok(())
 }
 
-#[cfg(not(feature = "local-agent-minimal"))]
+#[cfg(all(not(feature = "local-agent-minimal"), feature = "plugins-wasm"))]
 fn minimal_profile_plugin_refusal(_manifest: &zeroclaw::plugins::PluginManifest) -> Result<()> {
     Ok(())
 }
