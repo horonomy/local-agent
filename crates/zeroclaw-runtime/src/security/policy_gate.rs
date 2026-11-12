@@ -57,7 +57,13 @@ const WILDCARD: &str = "*";
 /// requires: trimmed ASCII lowercase. `None` when it cannot be folded.
 pub fn fold_name(name: &str) -> Option<String> {
     let trimmed = name.trim();
-    if trimmed.is_empty() || !trimmed.is_ascii() || trimmed.bytes().any(|b| b.is_ascii_control()) {
+    // `*` is the wildcard in policy lists; a tool literally named `*` must
+    // never be able to match it.
+    if trimmed == WILDCARD
+        || trimmed.is_empty()
+        || !trimmed.is_ascii()
+        || trimmed.bytes().any(|b| b.is_ascii_control())
+    {
         return None;
     }
     Some(trimmed.to_ascii_lowercase())
@@ -167,6 +173,8 @@ struct Enforcing {
     /// Folded per-run caller allow-list. Checked in addition to the engine,
     /// so it can narrow but never widen.
     caller_allowed: Option<BTreeSet<String>>,
+    /// The caller list as configured, for children that must inherit it.
+    caller_list: Option<Vec<String>>,
     /// Parent of a bounded child: every decision is also narrowed by this
     /// parent's profile, registered with the authority.
     bounded_parent: Option<String>,
@@ -268,6 +276,7 @@ impl PolicyGate {
             agent_alias: agent_alias.to_owned(),
             autonomy,
             caller_allowed: None,
+            caller_list: None,
             bounded_parent: None,
             guards,
         })))
@@ -304,8 +313,23 @@ impl PolicyGate {
     pub fn with_caller_filter(mut self, caller: Option<&[String]>) -> Self {
         if let (Mode::Enforce(enforcing), Some(list)) = (&mut self.mode, caller) {
             enforcing.caller_allowed = Some(fold_set(list));
+            enforcing.caller_list = Some(list.to_vec());
         }
         self
+    }
+
+    /// A gate that denies every call. For a path that cannot build the policy
+    /// it needs and must fail closed rather than fall back to a default.
+    pub const fn deny_all() -> Self {
+        Self::with_mode(Mode::Unavailable)
+    }
+
+    /// The per-run caller list this gate enforces, if any.
+    pub fn caller_list(&self) -> Option<Vec<String>> {
+        match &self.mode {
+            Mode::Enforce(enforcing) => enforcing.caller_list.clone(),
+            _ => None,
+        }
     }
 
     /// Test-only gate that admits everything. It exists so the many fixtures
@@ -386,6 +410,52 @@ impl PolicyGate {
         });
         let overflow = book.live.len().saturating_sub(MAX_LIVE_TICKETS);
         book.live.drain(..overflow);
+    }
+
+    /// Decide a pipeline step, which runs inside the pipeline tool with no
+    /// way to prompt: only an outright `Allow` passes, so an `Ask` (a tool in
+    /// `always_ask`) and any `Deny` refuse the step. No ticket is minted; the
+    /// pipeline tool itself already holds one. The collision check is skipped
+    /// because the step registry is not visible here.
+    pub async fn decide_step(
+        &self,
+        tool: &dyn Tool,
+        args: &serde_json::Value,
+    ) -> Result<(), String> {
+        let facts = CallFacts {
+            tool,
+            registry: &[],
+            args,
+            call_id: "pipeline-step",
+            turn_id: "pipeline-step",
+            agent_alias: None,
+            parent_agent_alias: None,
+            interactive: false,
+        };
+        let outcome = match &self.mode {
+            Mode::Enforce(_) => self.decide_without_ticket(&facts).await,
+            Mode::Unavailable => GateOutcome::Deny {
+                reason: ReasonCode::AuthorityUnavailable,
+            },
+            #[cfg(any(test, feature = "test-util"))]
+            Mode::PermitAll => return Ok(()),
+        };
+        match outcome {
+            GateOutcome::Proceed { ask: false } => Ok(()),
+            GateOutcome::Proceed { ask: true } => {
+                Err(denial_message(tool.name(), ReasonCode::LocalDeny))
+            }
+            GateOutcome::Deny { reason } => Err(denial_message(tool.name(), reason)),
+        }
+    }
+
+    /// Admission callback for the pipeline tool, sharing this gate.
+    pub fn step_admission(self: &Arc<Self>) -> zeroclaw_tools::pipeline::StepAdmission {
+        let gate = Arc::clone(self);
+        Arc::new(move |tool, args| {
+            let gate = Arc::clone(&gate);
+            Box::pin(async move { gate.decide_step(tool.as_ref(), &args).await })
+        })
     }
 
     /// An operator approved this Ask call; its ticket becomes redeemable.
@@ -601,6 +671,26 @@ fn build_request(
         autonomy: enforcing.autonomy,
         interactive: facts.interactive,
     })
+}
+
+tokio::task_local! {
+    static ACTIVE_CALLER_LIST: Option<Vec<String>>;
+}
+
+/// Run `future` with the calling gate's per-run caller list visible to
+/// [`active_caller_list`]. The executor wraps every tool execution in it, so a
+/// tool that starts a child agent can hand the list on and the child cannot be
+/// wider than its parent.
+pub async fn scope_caller_list<F: std::future::Future>(
+    list: Option<Vec<String>>,
+    future: F,
+) -> F::Output {
+    ACTIVE_CALLER_LIST.scope(list, future).await
+}
+
+/// The caller list of the tool call currently executing, if any.
+pub fn active_caller_list() -> Option<Vec<String>> {
+    ACTIVE_CALLER_LIST.try_with(Clone::clone).ok().flatten()
 }
 
 /// Model-visible text for a denied call. The reason is a closed code, never

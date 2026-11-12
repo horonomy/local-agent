@@ -1793,6 +1793,22 @@ impl DelegateTool {
         resolved
     }
 
+    /// Gate for a bounded child when no root config is attached. Production
+    /// always attaches one (`all_tools_with_runtime`), so absence means a
+    /// misassembled tool and every call is denied. Unit fixtures that build a
+    /// configless `DelegateTool` run permissively; that exists only under
+    /// `cfg(test)`.
+    fn gate_without_root_config() -> crate::security::policy_gate::PolicyGate {
+        #[cfg(test)]
+        {
+            crate::security::policy_gate::PolicyGate::permit_all_for_test()
+        }
+        #[cfg(not(test))]
+        {
+            crate::security::policy_gate::PolicyGate::deny_all()
+        }
+    }
+
     /// Policy gate for a bounded child: the target's profile narrowed by this
     /// (calling) tool's own, with MCP grants taken from the caller.
     fn bounded_child_policy(
@@ -1802,22 +1818,17 @@ impl DelegateTool {
         target_tool_lists: &SecurityPolicy,
     ) -> crate::security::policy_gate::PolicyGate {
         use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
-        let governance = self
-            .root_config
-            .as_ref()
-            .map(|config| config.governance.clone())
-            .unwrap_or_default();
-        let servers: Vec<String> = self
-            .root_config
-            .as_ref()
-            .map(|config| {
-                config
-                    .mcp_servers_for_agent(&self.caller_alias)
-                    .into_iter()
-                    .map(|server| server.name)
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Without the root config there are no governance mode and no MCP
+        // grants to build from; fail closed instead of guessing a default.
+        let Some(root_config) = self.root_config.as_ref() else {
+            return Self::gate_without_root_config();
+        };
+        let governance = root_config.governance.clone();
+        let servers: Vec<String> = root_config
+            .mcp_servers_for_agent(&self.caller_alias)
+            .into_iter()
+            .map(|server| server.name)
+            .collect();
         let child = AgentPolicyInputs {
             autonomy: target.autonomy,
             allowed_tools: target_tool_lists.allowed_tools.as_deref(),

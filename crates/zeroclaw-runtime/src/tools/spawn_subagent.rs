@@ -293,7 +293,10 @@ impl Tool for SpawnSubagentTool {
                 vec![],
                 false,
                 Some(session_path),
-                None,
+                // A parent narrowed by a per-run caller list may not spawn a
+                // wider child: the list rides through to the child's registry
+                // and gate.
+                crate::security::policy_gate::active_caller_list(),
                 zeroclaw_api::ingress::TurnOrigin::SubTurn,
                 run_overrides,
             )

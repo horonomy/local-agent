@@ -411,6 +411,8 @@ async fn execute_one_tool_with_provenance(
     let execute = context
         .run(tool.execute_with_context(call_arguments.clone(), &context))
         .instrument(tool_span.clone());
+    let execute =
+        crate::security::policy_gate::scope_caller_list(dispatch.policy.caller_list(), execute);
     let tool_result = if let Some(model_switch_callback) = dispatch.model_switch_callback {
         scope_model_switch_state(Arc::clone(model_switch_callback), execute).await
     } else {

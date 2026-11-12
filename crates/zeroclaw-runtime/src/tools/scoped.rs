@@ -308,7 +308,7 @@ impl BuildRegistry {
 pub struct ScopedToolRegistry(
     Vec<Box<dyn Tool>>,
     Option<Arc<std::sync::Mutex<ActivatedToolSet>>>,
-    PolicyGate,
+    Arc<PolicyGate>,
 );
 
 impl std::ops::Deref for ScopedToolRegistry {
@@ -322,14 +322,14 @@ impl ScopedToolRegistry {
     /// The policy gate that decides and ticket-checks every call against
     /// this registry.
     pub fn policy(&self) -> &PolicyGate {
-        &self.2
+        self.2.as_ref()
     }
 
     /// Replace the gate of an already-sealed registry. Only for a bounded
     /// child whose registry is assembled from a default policy but must be
     /// governed by its parent and target profiles.
     pub(crate) fn replace_policy(&mut self, gate: PolicyGate) {
-        self.2 = gate;
+        self.2 = Arc::new(gate);
     }
 
     /// Consume the assembled registry into the owned `Vec` for non-turn
@@ -430,7 +430,7 @@ impl ScopedToolRegistry {
     /// in shipped builds and the seal holds where it matters.
     #[cfg(any(test, feature = "test-util"))]
     pub fn from_raw_for_test(tools: Vec<Box<dyn Tool>>) -> Self {
-        Self(tools, None, PolicyGate::permit_all_for_test())
+        Self(tools, None, Arc::new(PolicyGate::permit_all_for_test()))
     }
 }
 
@@ -710,6 +710,32 @@ impl ScopedToolRegistry {
                 );
             }
         }
+        // The gate is built from the same policy inputs that scope the
+        // registry below, so decision and registry cannot drift apart. It is
+        // built first because the pipeline tool routes its child steps
+        // through the same gate.
+        let granted_mcp_servers: Vec<String> = if connect_mcp && config.mcp.enabled {
+            config
+                .mcp_servers_for_agent(agent_alias)
+                .into_iter()
+                .map(|server| server.name)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let policy = Arc::new(PolicyGate::for_agent(
+            config,
+            agent_alias,
+            &AgentPolicyInputs {
+                autonomy: security.autonomy,
+                allowed_tools: security.allowed_tools.as_deref(),
+                excluded_tools: security.excluded_tools.as_deref(),
+                always_ask: &security.always_ask,
+                mcp_servers: &granted_mcp_servers,
+                caller_allowed,
+            },
+        ));
+
         let pipeline_id = (config.pipeline.enabled
             && config.tools.is_enabled(tools::PipelineTool::NAME))
         .then(|| {
@@ -728,7 +754,8 @@ impl ScopedToolRegistry {
                     security.excluded_tools.as_deref(),
                     caller_allowed,
                 ),
-            );
+            )
+            .with_step_admission(policy.step_admission());
             #[cfg(all(test, feature = "plugins-wasm-cranelift"))]
             tools::late_tool_search_observer::record("constructor-return", "pipeline", 0, 0);
             builtin_names.insert(tool.name().to_string());
@@ -1361,25 +1388,6 @@ impl ScopedToolRegistry {
                     );
             }
         }
-
-        // The gate is built from the same policy inputs that scoped the
-        // registry above, so decision and registry cannot drift apart.
-        let granted_mcp_servers: Vec<String> = agent_mcp_servers
-            .iter()
-            .map(|server| server.name.clone())
-            .collect();
-        let policy = PolicyGate::for_agent(
-            config,
-            agent_alias,
-            &AgentPolicyInputs {
-                autonomy: security.autonomy,
-                allowed_tools: security.allowed_tools.as_deref(),
-                excluded_tools: security.excluded_tools.as_deref(),
-                always_ask: &security.always_ask,
-                mcp_servers: &granted_mcp_servers,
-                caller_allowed,
-            },
-        );
 
         #[cfg(all(test, feature = "plugins-wasm-cranelift"))]
         tools::late_tool_search_observer::record("phase", "seal", 7, 0);
@@ -2759,7 +2767,11 @@ mod tests {
 
     fn assembled_with_sections(deferred: &str, pinned: &str) -> ScopedAssembled {
         ScopedAssembled {
-            registry: ScopedToolRegistry(Vec::new(), None, PolicyGate::permit_all_for_test()),
+            registry: ScopedToolRegistry(
+                Vec::new(),
+                None,
+                Arc::new(PolicyGate::permit_all_for_test()),
+            ),
             delegate_handle: None,
             ask_user_handle: None,
             reaction_handle: Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new())),
