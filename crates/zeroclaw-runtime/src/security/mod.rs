@@ -24,6 +24,7 @@ pub mod pairing;
 pub mod playbook;
 pub mod policy;
 pub mod policy_contract;
+pub mod policy_engine;
 pub mod principal_resolver;
 pub mod prompt_guard;
 #[cfg(target_os = "macos")]

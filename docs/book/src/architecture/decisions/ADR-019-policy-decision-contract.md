@@ -106,6 +106,28 @@ In this ticket only the types, configuration and an authority factory exist. The
 - `cron_run`, `cron_add`, `cron_update` and `schedule` must be classed `Shell`.
 - `EstopManager` is not enforced.
 
+### Verified gap evidence (checked against the code at `36f2a323d`)
+
+The standalone engine (`policy_engine.rs`) covers only three of these rows: the allow-list (a `__` name is never admitted for containing `__`), composed-name handling, and explicit listing for network-class tools. It is not called by the runtime yet, so every runtime path below is unchanged. The enforcement slice must close the rest itself: `WebFetch` `allowed_domains = ["*"]`, an absent approval manager mapping to `NotRequired`, `cron_run` classification, and skill `shell`/`script` registration without an exclusion check.
+
+| Gap | Evidence |
+| --- | --- |
+| `default_auto_approve` contains network tools | `zeroclaw-config/src/schema.rs` `default_auto_approve()` lists `web_search_tool`, `web_fetch` and `browser_open` |
+| `WebFetch` admits every domain | `default_web_fetch_allowed_domains()` returns `["*"]` (same file) |
+| Absent approval manager fails open | `agent/turn/approval_gate.rs` `gate_tool_approval`: `ctx.approval.map(..).unwrap_or(ApprovalRequirement::NotRequired)` |
+| `__` names auto-admitted under an allow-list | `tools/delegate.rs` (`list.iter().any(..) \|\| name.contains("__")`) and `zeroclaw-tools/src/tool_search.rs` `is_tool_allowed` |
+| Shell-class tools are not all classed as shell | `SHELL_COMMAND_TOOLS` in `zeroclaw-api/src/runtime_traits.rs` names `shell`, `cron_add`, `cron_update`, `schedule` but not `cron_run` (a tool named `cron_run` exists in `tools/cron_run.rs`); no tool overrides `Tool::capability()`, so every built-in is `Unknown` until classified |
+| Skill `shell`/`script` tools skip the exclusion check | `skills/mod.rs` registers `"shell" \| "script"` skill tools (`SkillShellTool`) without consulting `excluded_tools`; only elevation targets pass `elevation_target_admitted` |
+
+Engine preconditions and choices:
+
+- Tool, skill and MCP server names must be canonical when they reach the engine: the engine does no case or whitespace folding, and denies (`local_deny`) any name that is empty, has leading or trailing whitespace, contains an uppercase letter, a control character or a non-ASCII character. The enforcement slice must supply canonical resolved names.
+- A `__` name whose capability is not `Mcp` is denied; for `Mcp`, the prefix before the first `__` is checked against exclusions, and server names with `__` or underscore edges, and tool parts that are empty, contain `__` or start with `_`, are rejected as ambiguous.
+- Under `ReadOnly` autonomy only `FsRead`, `Memory` and `AgentInternal` can be allowed; `Mcp`, `Browser`, `Desktop`, `Network`, `Subagent`, `FsWrite` and `Shell` are denied.
+- `ReasonCode` has no Ask-specific code, so an engine-level Ask carries `local_allow`; the verdict, not the reason, forces the prompt.
+
+Not confirmed and therefore not claimed: composed-name collisions between skill and MCP names beyond the `__` auto-admission above.
+
 ## Out of scope
 
 Real aa-runtime interoperability (UNVERIFIED: the wire layout above is read from source at the pinned revision and not exercised against a running runtime); AASM approvals and `PENDING`; `REDACT`; event shipping; browser and desktop governance on real surfaces; tamper-proof audit; emergency stop; Windows managed mode; prompt injection.
