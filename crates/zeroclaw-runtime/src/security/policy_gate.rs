@@ -141,6 +141,8 @@ struct LiveTicket {
     /// `Allow` or `Ask`; a `Deny` never mints a ticket.
     verdict: Verdict,
     approved: bool,
+    /// An `Ask` already claimed by an answer; a second answer is refused.
+    answered: bool,
     /// The decision's audit record, reused for the approval receipt.
     record: Option<DecisionRecord>,
 }
@@ -412,6 +414,7 @@ impl PolicyGate {
             },
             verdict,
             approved: verdict == Verdict::Allow,
+            answered: verdict == Verdict::Allow,
             record,
         });
         let overflow = book.live.len().saturating_sub(MAX_LIVE_TICKETS);
@@ -466,8 +469,8 @@ impl PolicyGate {
 
     /// An operator approved this Ask call; its ticket becomes redeemable.
     /// The grant is written as an approval receipt first: `false` means it was
-    /// not recorded (no such ask, or the audit write failed) and the ticket
-    /// stays unredeemable.
+    /// not recorded (no open ask, already answered, or the audit write
+    /// failed) and the ticket stays unredeemable.
     pub fn approve(&self, call_id: &str, resolved_name: &str, args: &serde_json::Value) -> bool {
         self.answer_ask(call_id, resolved_name, args, ApprovalResponse::Granted)
     }
@@ -478,6 +481,14 @@ impl PolicyGate {
         self.answer_ask(call_id, resolved_name, args, ApprovalResponse::Rejected);
     }
 
+    /// The prompt ended without an answer (turn cancelled or timed out): a
+    /// `cancelled` receipt is written and the ticket is dropped.
+    pub fn cancel_ask(&self, call_id: &str, resolved_name: &str, args: &serde_json::Value) {
+        self.answer_ask(call_id, resolved_name, args, ApprovalResponse::Cancelled);
+    }
+
+    /// Claim the newest open ask for this exact call, write its receipt
+    /// outside the ticket lock, then settle the ticket.
     fn answer_ask(
         &self,
         call_id: &str,
@@ -486,37 +497,45 @@ impl PolicyGate {
         response: ApprovalResponse,
     ) -> bool {
         let digest = args_sha256(args);
-        let mut book = self.tickets.lock();
-        let Some(index) = book.live.iter().position(|t| {
-            t.ticket.call_id == call_id
-                && t.ticket.resolved_name == resolved_name
-                && t.ticket.args_sha256 == digest
-                && t.verdict == Verdict::Ask
-        }) else {
-            return false;
+        let (decision_id, template) = {
+            let mut book = self.tickets.lock();
+            let Some(live) = book.live.iter_mut().rev().find(|t| {
+                !t.answered
+                    && t.verdict == Verdict::Ask
+                    && t.ticket.call_id == call_id
+                    && t.ticket.resolved_name == resolved_name
+                    && t.ticket.args_sha256 == digest
+            }) else {
+                return false;
+            };
+            live.answered = true;
+            (live.ticket.decision_id.clone(), live.record.clone())
         };
-        let recorded = match (&self.sink, &book.live[index].record) {
-            (Some(sink), Some(record)) => {
-                let mut receipt = record.clone();
+        let recorded = match (&self.sink, template) {
+            (Some(sink), Some(mut receipt)) => {
+                receipt.ts = now_ts();
                 receipt.approval = Some(ApprovalReceipt {
-                    decision_id: book.live[index].ticket.decision_id.clone(),
+                    decision_id: decision_id.clone(),
                     response,
                 });
                 sink.record(&receipt).is_ok()
             }
             _ => true,
         };
-        match response {
-            ApprovalResponse::Granted if recorded => {
-                book.live[index].approved = true;
-                true
-            }
-            ApprovalResponse::Granted => false,
-            ApprovalResponse::Rejected => {
-                book.live.remove(index);
-                recorded
-            }
+        let mut book = self.tickets.lock();
+        let Some(index) = book
+            .live
+            .iter()
+            .position(|t| t.ticket.decision_id == decision_id)
+        else {
+            return false;
+        };
+        if response == ApprovalResponse::Granted && recorded {
+            book.live[index].approved = true;
+        } else if response != ApprovalResponse::Granted {
+            book.live.remove(index);
         }
+        recorded && response == ApprovalResponse::Granted
     }
 
     /// Redeem the ticket for the call the executor is about to run.
@@ -597,7 +616,9 @@ impl PolicyGate {
             if verdict != Verdict::Deny {
                 record.decision_id = Some(self.next_decision_id());
             }
-            record.authority.aasm_decision_id = decision.and_then(|d| d.authority_ref);
+            record.authority.aasm_decision_id = decision
+                .and_then(|d| d.authority_ref)
+                .map(|id| bounded_id(&id));
             record
         });
         if let (Some(sink), Some(record)) = (&self.sink, &record)
@@ -628,31 +649,53 @@ impl PolicyGate {
     }
 }
 
+fn now_ts() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Longest identifier kept verbatim in an audit record.
+const MAX_AUDIT_ID_LEN: usize = 128;
+
+/// Identifiers can be model-controlled (`call_id`) or long. One that is not a
+/// short run of `[A-Za-z0-9._:-]` is replaced by a truncated digest, so it can
+/// neither carry content nor grow a record past the file limit.
+fn bounded_id(id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let plain = id.len() <= MAX_AUDIT_ID_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'));
+    if plain {
+        return id.to_owned();
+    }
+    let digest = Sha256::digest(id.as_bytes());
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("h-{hex}")
+}
+
 fn decision_record(
     facts: &CallFacts<'_>,
     request: Option<&PolicyRequest>,
     verdict: Verdict,
     reason: ReasonCode,
 ) -> DecisionRecord {
-    let alias = |value: Option<&str>| value.map(str::to_owned);
+    let opt = |value: Option<&str>| value.map(bounded_id);
     DecisionRecord {
         v: 1,
-        ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-        session_id: request.map_or_else(|| facts.turn_id.to_owned(), |r| r.session_id.clone()),
-        turn_id: facts.turn_id.to_owned(),
-        call_id: facts.call_id.to_owned(),
-        agent_alias: request.map_or_else(
-            || facts.agent_alias.unwrap_or_default().to_owned(),
-            |r| r.agent_alias.clone(),
-        ),
-        parent_agent_alias: request.map_or_else(
-            || alias(facts.parent_agent_alias),
-            |r| r.parent_agent_alias.clone(),
-        ),
+        ts: now_ts(),
+        session_id: bounded_id(request.map_or(facts.turn_id, |r| r.session_id.as_str())),
+        turn_id: bounded_id(facts.turn_id),
+        call_id: bounded_id(facts.call_id),
+        agent_alias: bounded_id(request.map_or(facts.agent_alias.unwrap_or_default(), |r| {
+            r.agent_alias.as_str()
+        })),
+        parent_agent_alias: opt(request.map_or(facts.parent_agent_alias, |r| {
+            r.parent_agent_alias.as_deref()
+        })),
         capability: request.map_or(ToolCapability::Unknown, |r| r.capability),
-        tool_name: request.map_or_else(|| facts.tool.name().to_owned(), |r| r.tool_name.clone()),
-        via_skill: request.and_then(|r| r.via_skill.clone()),
-        mcp_server: request.and_then(|r| r.mcp_server.clone()),
+        tool_name: bounded_id(request.map_or(facts.tool.name(), |r| r.tool_name.as_str())),
+        via_skill: opt(request.and_then(|r| r.via_skill.as_deref())),
+        mcp_server: opt(request.and_then(|r| r.mcp_server.as_deref())),
         args_sha256: args_sha256(facts.args),
         decision: DecisionTrail {
             local: verdict,

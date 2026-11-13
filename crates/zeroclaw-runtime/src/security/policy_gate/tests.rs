@@ -1149,4 +1149,86 @@ mod audit {
         assert!(message.contains("audit_write_failed"));
         assert!(!message.contains("/secret/path"));
     }
+
+    #[tokio::test]
+    async fn a_second_answer_is_refused_and_writes_no_duplicate_receipt() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let tool = mock("shell", ToolCapability::Shell);
+        let args = json!({});
+        decide(&g, &tool, &args, "c").await;
+        assert!(g.approve("c", "shell", &args));
+        assert!(!g.approve("c", "shell", &args));
+        g.reject("c", "shell", &args);
+        assert_eq!(sink.0.lock().len(), 2, "ask plus exactly one receipt");
+        // The grant survives the refused repeats.
+        assert_eq!(redeem(&g, &tool, &args, "c").await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn identical_asks_are_answered_newest_first_once_each() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let tool = mock("shell", ToolCapability::Shell);
+        let args = json!({});
+        decide(&g, &tool, &args, "c").await;
+        decide(&g, &tool, &args, "c").await;
+        assert!(g.approve("c", "shell", &args));
+        assert!(g.approve("c", "shell", &args));
+        assert!(!g.approve("c", "shell", &args));
+        let records = sink.0.lock();
+        let receipts: Vec<_> = records.iter().filter_map(|r| r.approval.as_ref()).collect();
+        assert_eq!(receipts.len(), 2);
+        assert_ne!(receipts[0].decision_id, receipts[1].decision_id);
+    }
+
+    #[tokio::test]
+    async fn cancelled_ask_writes_a_cancelled_receipt_and_drops_the_ticket() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let tool = mock("shell", ToolCapability::Shell);
+        let args = json!({});
+        decide(&g, &tool, &args, "c").await;
+        g.cancel_ask("c", "shell", &args);
+        assert_eq!(
+            sink.0.lock()[1].approval.as_ref().map(|a| a.response),
+            Some(ApprovalResponse::Cancelled)
+        );
+        assert_eq!(
+            redeem(&g, &tool, &args, "c").await,
+            Err(RedeemError::NoTicket)
+        );
+    }
+
+    #[tokio::test]
+    async fn receipt_timestamp_is_the_answer_time_not_the_decision_time() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let tool = mock("shell", ToolCapability::Shell);
+        decide(&g, &tool, &json!({}), "c").await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(g.approve("c", "shell", &json!({})));
+        let records = sink.0.lock();
+        assert!(
+            records[1].ts > records[0].ts,
+            "{} {}",
+            records[1].ts,
+            records[0].ts
+        );
+    }
+
+    #[tokio::test]
+    async fn model_controlled_ids_are_bounded_and_cannot_carry_content() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let huge = format!("sk-live-SECRET{}", "x".repeat(10_000));
+        decide(&g, &mock("file_read", READ), &json!({}), &huge).await;
+        decide(&g, &mock("file_read", READ), &json!({}), "has space/slash").await;
+        let records = sink.0.lock();
+        assert!(records[0].call_id.starts_with("h-") && records[0].call_id.len() < 32);
+        assert!(!records[0].call_id.contains("SECRET"));
+        assert!(records[1].call_id.starts_with("h-"));
+        let normal = bounded_id("toolu_01A-b.c:d");
+        assert_eq!(normal, "toolu_01A-b.c:d");
+    }
 }
