@@ -49,20 +49,7 @@ impl Tool for McpResourcesTool {
     /// carries it as the `<server>__` prefix of `uri`. An unparsable `uri`
     /// yields an empty name, which policy denies.
     fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
-        Some(match args.get("action").and_then(|v| v.as_str()) {
-            Some("read") => vec![
-                args.get("uri")
-                    .and_then(|v| v.as_str())
-                    .and_then(McpRegistry::split_prefixed)
-                    .map(|(server, _)| server)
-                    .unwrap_or_default(),
-            ],
-            _ => args
-                .get("server")
-                .and_then(|v| v.as_str())
-                .map(|s| vec![s.to_owned()])
-                .unwrap_or_default(),
-        })
+        Some(McpRegistry::servers_named_in_args(args, "read", "uri"))
     }
 
     fn name(&self) -> &str {
