@@ -7955,10 +7955,9 @@ permissions = ["http_client"]
     /// crates. Notes: `deliver_file` hands a file to the requesting ACP client
     /// only and `content_search` spawns a read-only `rg`; neither reaches the
     /// network. Wrapped built-ins keep their class through the wrappers.
-    fn capability_rows() -> (
-        Vec<(&'static str, zeroclaw_api::policy::ToolCapability)>,
-        Vec<(&'static str, zeroclaw_api::policy::ToolCapability)>,
-    ) {
+    type CapabilityRows = Vec<(&'static str, zeroclaw_api::policy::ToolCapability)>;
+
+    fn capability_rows() -> (CapabilityRows, CapabilityRows) {
         use zeroclaw_api::policy::ToolCapability::{
             AgentInternal, Browser, FsRead, FsWrite, Memory, Network, Shell, Subagent,
         };
