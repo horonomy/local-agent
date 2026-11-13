@@ -3018,4 +3018,71 @@ mod tests {
         .await
         .expect("cancelled shell child stopped");
     }
+
+    #[tokio::test]
+    async fn cancelling_a_running_call_grants_no_further_calls_in_the_batch() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let child = Arc::new(Mutex::new(None));
+        let later_calls = Arc::new(AtomicUsize::new(0));
+        let registry = crate::tools::scoped::ScopedToolRegistry::from_raw_for_test(vec![
+            Box::new(ContextChildProbe {
+                started: Arc::clone(&started),
+                child: Arc::clone(&child),
+            }),
+            Box::new(CountingTool::new("later", Arc::clone(&later_calls))),
+        ]);
+        let meta = TurnMeta {
+            parent_agent_alias: None,
+            agent_alias: None,
+            turn_id: "test-turn",
+            channel_name: "test",
+        };
+        let calls = vec![
+            ParsedToolCall {
+                name: "context_child_probe".into(),
+                arguments: serde_json::json!({"scope": "fixed"}),
+                tool_call_id: None,
+            },
+            parsed_tool_call("later"),
+        ];
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        let run = super::execute_tools_sequential(
+            &calls,
+            ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
+                tools_registry: &registry,
+                activated_tools: None,
+                excluded_tools: &[],
+                model_switch_callback: None,
+            },
+            &meta,
+            &NoopObserver,
+            Some(&token),
+            None,
+            None,
+        );
+        let cancel = async {
+            tokio::time::timeout(Duration::from_secs(3), started.notified())
+                .await
+                .expect("first call started");
+            canceller.cancel();
+        };
+        let (slots, ()) =
+            tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(run, cancel) })
+                .await
+                .expect("cancellation ends the batch");
+        let slots = slots.expect("cancellation is not an error");
+        assert!(slots.iter().all(Option::is_none), "no call completes");
+        assert_eq!(
+            later_calls.load(Ordering::SeqCst),
+            0,
+            "a queued call must not run after the user stopped the turn"
+        );
+        let child = child.lock().unwrap().take().expect("child was started");
+        tokio::time::timeout(Duration::from_secs(3), child)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 }
