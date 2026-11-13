@@ -232,6 +232,7 @@ non_row_features = [
     "local-agent-minimal",
     "agent-core",
     "daemon-listeners",
+    "aasm-managed",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
