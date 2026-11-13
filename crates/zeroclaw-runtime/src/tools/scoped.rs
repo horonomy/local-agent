@@ -2544,8 +2544,10 @@ mod tests {
     #[tokio::test]
     async fn assembling_with_audit_enabled_leaves_the_data_dir_absent() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut config = Config::default();
-        config.data_dir = tmp.path().join("data");
+        let config = Config {
+            data_dir: tmp.path().join("data"),
+            ..Config::default()
+        };
         assert!(config.governance.audit.enabled);
         let security = Arc::new(SecurityPolicy::default());
         let _ = ScopedToolRegistry::assemble_with_audit(
