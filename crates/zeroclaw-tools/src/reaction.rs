@@ -28,7 +28,7 @@ impl ReactionTool {
 
 #[async_trait]
 impl Tool for ReactionTool {
-    /// Sends outbound channel traffic, so it is network-class.
+    // Sends outbound channel traffic, so it is network-class.
     zeroclaw_api::declare_capability!(Network);
 
     fn name(&self) -> &str {

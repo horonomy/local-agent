@@ -459,8 +459,8 @@ impl Default for DatasheetTool {
 
 #[async_trait]
 impl Tool for DatasheetTool {
-    /// Downloads datasheets over HTTP and writes them to disk, so it is
-    /// network-class.
+    // Downloads datasheets over HTTP and writes them to disk, so it is
+    // network-class.
     zeroclaw_api::declare_capability!(Network);
 
     fn name(&self) -> &str {
