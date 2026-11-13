@@ -7,21 +7,33 @@
 //! (validated against the 64 MiB ceiling in `[governance.audit]`). Records
 //! carry digests only; the writer never sees raw arguments or tool output.
 //! Any failure is returned to the caller, which turns it into a deny.
+//!
+//! Concurrency: [`FileDecisionSink::shared`] hands out one sink per directory
+//! and limits, so threads of a process share one mutex; an exclusive `flock`
+//! on `policy-audit.lock` additionally serialises writers across sinks and
+//! processes, so rotation can never interleave with another writer.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
 use anyhow::{Context, Result, bail};
 use parking_lot::Mutex;
-use zeroclaw_config::governance::GovernanceAuditConfig;
+use zeroclaw_config::governance::{GovernanceAuditConfig, GovernanceConfig};
 
 use super::policy_contract::{DecisionRecord, DecisionSink};
 
 /// File name of the live log; rotated generations append `.1`, `.2`, ...
 pub const POLICY_AUDIT_FILE: &str = "policy-audit.jsonl";
 
+const LOCK_FILE: &str = "policy-audit.lock";
 const MIB: u64 = 1024 * 1024;
+
+type SinkKey = (PathBuf, u64, u32);
+static SHARED: OnceLock<Mutex<HashMap<SinkKey, Arc<FileDecisionSink>>>> = OnceLock::new();
 
 pub struct FileDecisionSink {
     dir: PathBuf,
@@ -41,80 +53,25 @@ impl FileDecisionSink {
         )
     }
 
-    fn with_max_bytes(dir: impl Into<PathBuf>, max_bytes: u64, generations: u32) -> Self {
-        Self {
-            dir: dir.into(),
-            max_bytes,
-            generations,
-            write_lock: Mutex::new(()),
-        }
+    /// The process-wide sink for this directory and limits.
+    pub fn shared(dir: &Path, config: &GovernanceAuditConfig) -> Arc<Self> {
+        let max_bytes = config.max_size_mb.saturating_mul(MIB);
+        let key = (dir.to_path_buf(), max_bytes, config.generations);
+        let map = SHARED.get_or_init(Default::default);
+        Arc::clone(
+            map.lock().entry(key).or_insert_with(|| {
+                Arc::new(Self::with_max_bytes(dir, max_bytes, config.generations))
+            }),
+        )
     }
 
-    fn live_path(&self) -> PathBuf {
-        self.dir.join(POLICY_AUDIT_FILE)
-    }
-
-    fn generation_path(&self, n: u32) -> PathBuf {
-        self.dir.join(format!("{POLICY_AUDIT_FILE}.{n}"))
-    }
-
-    fn rotate(&self) -> io::Result<()> {
-        if self.generations == 0 {
-            return fs::remove_file(self.live_path());
-        }
-        match fs::remove_file(self.generation_path(self.generations)) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-            _ => {}
-        }
-        for n in (1..self.generations).rev() {
-            match fs::rename(self.generation_path(n), self.generation_path(n + 1)) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-                _ => {}
-            }
-        }
-        fs::rename(self.live_path(), self.generation_path(1))
-    }
-
-    fn open_live(&self) -> Result<File> {
-        let path = self.live_path();
-        // A planted symlink would redirect the log; refuse it.
-        if let Ok(meta) = fs::symlink_metadata(&path)
-            && !meta.file_type().is_file()
-        {
-            bail!("policy audit path is not a regular file");
-        }
-        let mut options = OpenOptions::new();
-        options.create(true).append(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        options.open(&path).context("open policy audit file")
-    }
-
-    /// Delete the live log and every rotated generation. Returns how many
-    /// files were removed. Other files in the directory are untouched.
-    pub fn delete(&self) -> Result<usize> {
-        let _guard = self.write_lock.lock();
-        delete_policy_audit(&self.dir)
-    }
-}
-
-impl DecisionSink for FileDecisionSink {
-    fn record(&self, record: &DecisionRecord) -> Result<()> {
-        let mut line = serde_json::to_vec(record).context("serialize policy audit record")?;
-        line.push(b'\n');
-        if line.len() as u64 > self.max_bytes {
-            bail!("policy audit record exceeds the configured file size");
-        }
+    /// Check now that the log can be opened, creating the directory. Lets
+    /// startup report an unwritable location instead of every call failing.
+    pub fn probe(&self) -> Result<()> {
         let _guard = self.write_lock.lock();
         ensure_dir(&self.dir).context("create policy audit directory")?;
-        let current = match fs::symlink_metadata(self.live_path()) {
-            Ok(meta) => meta.len(),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => 0,
-            Err(e) => return Err(e).context("stat policy audit file"),
-        };
+        let _flock = DirLock::acquire(&self.dir)?;
+        let current = self.live_len()?;
         if current > 0 && current + line.len() as u64 > self.max_bytes {
             self.rotate().context("rotate policy audit file")?;
         }
@@ -133,7 +90,94 @@ fn ensure_dir(dir: &Path) -> io::Result<()> {
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
-    builder.create(dir)
+    builder.create(dir)?;
+    tighten(&fs::metadata(dir)?, dir, 0o700);
+    Ok(())
+}
+
+/// Restrict a pre-existing directory or file to the owner, but only when this
+/// user owns it (a directory we do not own is not ours to chmod).
+#[cfg(unix)]
+fn tighten(meta: &fs::Metadata, path: &Path, mode: u32) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    if meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o777 != mode {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
+    }
+}
+
+#[cfg(not(unix))]
+fn tighten(_meta: &fs::Metadata, _path: &Path, _mode: u32) {}
+
+/// Exclusive advisory lock on the directory's lock file, held for one write.
+struct DirLock {
+    #[cfg(unix)]
+    _file: File,
+}
+
+impl DirLock {
+    #[cfg(unix)]
+    fn acquire(dir: &Path) -> Result<Self> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = dir.join(LOCK_FILE);
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)
+            .context("open policy audit lock")?;
+        // SAFETY: the descriptor is valid for the life of `file`.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            bail!("lock policy audit directory");
+        }
+        Ok(Self { _file: file })
+    }
+
+    #[cfg(not(unix))]
+    fn acquire(_dir: &Path) -> Result<Self> {
+        Ok(Self {})
+    }
+}
+
+/// How a session obtains its decision sink.
+#[derive(Clone, Default)]
+pub enum AuditWiring {
+    /// Build the file sink from `[governance.audit]` and the data directory.
+    #[default]
+    FromConfig,
+    /// Record nothing.
+    Disabled,
+    /// Use this sink regardless of configuration.
+    Sink(Arc<dyn DecisionSink>),
+}
+
+/// Resolve the sink for a session. `audit.enabled = false` turns recording
+/// off for every wiring except an explicit sink.
+pub fn resolve_sink(
+    wiring: AuditWiring,
+    governance: &GovernanceConfig,
+    data_dir: &Path,
+) -> Option<Arc<dyn DecisionSink>> {
+    match wiring {
+        AuditWiring::Sink(sink) => Some(sink),
+        AuditWiring::Disabled => None,
+        AuditWiring::FromConfig if !governance.audit.enabled => None,
+        AuditWiring::FromConfig => {
+            let sink = FileDecisionSink::shared(data_dir, &governance.audit);
+            if sink.probe().is_err() {
+                // Every tool call will now be denied `audit_write_failed`.
+                // Set `governance.audit.enabled = false` to opt out.
+                zeroclaw_log::record!(
+                    WARN,
+                    zeroclaw_log::Event::new(module_path!(), zeroclaw_log::Action::Fail),
+                    "policy audit location is not writable; tool calls will be denied"
+                );
+            }
+            Some(sink)
+        }
+    }
 }
 
 /// Delete `policy-audit.jsonl` and its rotated generations under `dir`.

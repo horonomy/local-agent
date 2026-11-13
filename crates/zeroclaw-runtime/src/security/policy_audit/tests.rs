@@ -50,6 +50,7 @@ fn dir_files(dir: &Path) -> Vec<(String, u64)> {
                 e.metadata().unwrap().len(),
             )
         })
+        .filter(|(name, _)| name != LOCK_FILE)
         .collect();
     files.sort();
     files
@@ -170,4 +171,102 @@ fn delete_removes_only_the_audit_files() {
     sink.record(&record(0)).unwrap();
     assert_eq!(delete_policy_audit(tmp.path()).unwrap(), 1);
     assert_eq!(delete_policy_audit(&tmp.path().join("missing")).unwrap(), 0);
+}
+
+#[test]
+fn two_sinks_on_one_directory_do_not_corrupt_rotation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let line_len = serde_json::to_vec(&record(0)).unwrap().len() as u64 + 1;
+    let max = line_len * 5;
+    let generations = 2;
+    let sinks = [
+        Arc::new(FileDecisionSink::with_max_bytes(
+            tmp.path(),
+            max,
+            generations,
+        )),
+        Arc::new(FileDecisionSink::with_max_bytes(
+            tmp.path(),
+            max,
+            generations,
+        )),
+    ];
+    let handles: Vec<_> = sinks
+        .into_iter()
+        .enumerate()
+        .map(|(t, sink)| {
+            std::thread::spawn(move || {
+                for n in 0..200 {
+                    sink.record(&record(t * 1000 + n))
+                        .expect("no write may fail");
+                }
+            })
+        })
+        .collect();
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    let files = dir_files(tmp.path());
+    assert!(files.len() <= 3, "{files:?}");
+    assert!(files.iter().all(|(_, len)| *len <= max), "{files:?}");
+    let total: u64 = files.iter().map(|(_, len)| len).sum();
+    assert!(total <= max * 3);
+    for (name, _) in files {
+        for line in fs::read_to_string(tmp.path().join(name)).unwrap().lines() {
+            serde_json::from_str::<DecisionRecord>(line).expect("every line is a whole record");
+        }
+    }
+}
+
+#[test]
+fn shared_sink_is_one_per_directory_and_limits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = GovernanceAuditConfig::default();
+    let a = FileDecisionSink::shared(tmp.path(), &cfg);
+    assert!(Arc::ptr_eq(&a, &FileDecisionSink::shared(tmp.path(), &cfg)));
+    let other = tempfile::tempdir().unwrap();
+    assert!(!Arc::ptr_eq(
+        &a,
+        &FileDecisionSink::shared(other.path(), &cfg)
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn loose_permissions_on_an_existing_dir_and_log_are_tightened() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("audit");
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join(POLICY_AUDIT_FILE), b"").unwrap();
+    for p in [&dir, &dir.join(POLICY_AUDIT_FILE)] {
+        fs::set_permissions(p, fs::Permissions::from_mode(0o777)).unwrap();
+    }
+    FileDecisionSink::new(&dir, &GovernanceAuditConfig::default())
+        .record(&record(0))
+        .unwrap();
+    let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir), 0o700);
+    assert_eq!(mode(&dir.join(POLICY_AUDIT_FILE)), 0o600);
+}
+
+#[test]
+fn resolve_sink_follows_audit_enabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut governance = GovernanceConfig::default();
+    assert!(governance.audit.enabled);
+    let sink = resolve_sink(AuditWiring::FromConfig, &governance, tmp.path()).expect("enabled");
+    sink.record(&record(0)).unwrap();
+    assert!(tmp.path().join(POLICY_AUDIT_FILE).exists());
+
+    governance.audit.enabled = false;
+    assert!(resolve_sink(AuditWiring::FromConfig, &governance, tmp.path()).is_none());
+    assert!(
+        resolve_sink(
+            AuditWiring::Disabled,
+            &GovernanceConfig::default(),
+            tmp.path()
+        )
+        .is_none()
+    );
 }
