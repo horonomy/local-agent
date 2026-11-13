@@ -19,6 +19,7 @@ use crate::agent::loop_::{
     mcp_allowed_tool_count, mcp_tool_access_policy, preactivate_always_filter_groups,
     register_eager_mcp_tool_if_allowed,
 };
+use crate::security::policy_audit::{AuditWiring, resolve_sink};
 use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
 use crate::skills::Skill;
 use crate::tools::skill_tool::{PreparedSkill, PreparedSkillBuiltin, SlotId, TargetRef};
@@ -576,6 +577,22 @@ impl ScopedToolRegistry {
     /// Mint a scoped, gated registry from already-built eager tools. The single seam
     /// every construction path goes through.
     pub async fn assemble(spec: ScopedAssembly<'_>) -> ScopedAssembled {
+        // Unit tests build gates over default configs whose data directory is
+        // the developer's real one, so they record nothing unless they pick a
+        // sink through `assemble_with_audit`.
+        let audit = if cfg!(test) {
+            AuditWiring::Disabled
+        } else {
+            AuditWiring::FromConfig
+        };
+        Self::assemble_with_audit(spec, audit).await
+    }
+
+    /// [`assemble`](Self::assemble) with an explicit decision-audit wiring.
+    pub async fn assemble_with_audit(
+        spec: ScopedAssembly<'_>,
+        audit: AuditWiring,
+    ) -> ScopedAssembled {
         let ScopedAssembly {
             config,
             agent_alias,
@@ -743,18 +760,12 @@ impl ScopedToolRegistry {
                 caller_allowed,
             },
         );
-        // Unit tests build gates over default configs; they must not write
-        // into the developer's real data directory.
-        let policy = Arc::new(if config.governance.audit.enabled && !cfg!(test) {
-            policy.with_sink(Arc::new(
-                crate::security::policy_audit::FileDecisionSink::new(
-                    &config.data_dir,
-                    &config.governance.audit,
-                ),
-            ))
-        } else {
-            policy
-        });
+        let policy = Arc::new(
+            match resolve_sink(audit, &config.governance, &config.data_dir) {
+                Some(sink) => policy.with_sink(sink),
+                None => policy,
+            },
+        );
 
         let pipeline_id = (config.pipeline.enabled
             && config.tools.is_enabled(tools::PipelineTool::NAME))
