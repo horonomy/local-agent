@@ -451,6 +451,20 @@ pub(crate) async fn prepare_tool_calls(
             {
                 ApprovalGateOutcome::Proceed { approved } => approved,
                 ApprovalGateOutcome::Deny(outcome) | ApprovalGateOutcome::Replace(outcome) => {
+                    // An operator "no" (or a replacement) on a policy Ask
+                    // leaves a rejected receipt and drops the ticket.
+                    if policy_ask {
+                        ctx.policy.reject(
+                            &call_id,
+                            &resolved_policy_name(
+                                tools_registry,
+                                activated_tools,
+                                &tool_name,
+                                &call_id,
+                            ),
+                            &tool_args,
+                        );
+                    }
                     // The before phase ran but this call will never execute:
                     // its only terminal lifecycle operation is abandonment.
                     abandon_prepared_context(ctx, &hook_context, &tool_name).await;
@@ -465,6 +479,18 @@ pub(crate) async fn prepare_tool_calls(
                     continue;
                 }
                 ApprovalGateOutcome::Cancelled => {
+                    if policy_ask {
+                        ctx.policy.cancel_ask(
+                            &call_id,
+                            &resolved_policy_name(
+                                tools_registry,
+                                activated_tools,
+                                &tool_name,
+                                &call_id,
+                            ),
+                            &tool_args,
+                        );
+                    }
                     // Preparation aborts before execution takes ownership of
                     // the retained contexts or the call awaiting approval.
                     for (retained_context, retained_tool) in &retained_hook_contexts {
@@ -484,6 +510,11 @@ pub(crate) async fn prepare_tool_calls(
         if policy_ask {
             // A policy Ask is only redeemable once an operator said yes.
             if !approved {
+                ctx.policy.reject(
+                    &call_id,
+                    &resolved_policy_name(tools_registry, activated_tools, &tool_name, &call_id),
+                    &tool_args,
+                );
                 abandon_prepared_context(ctx, &hook_context, &tool_name).await;
                 let outcome = policy_denial_outcome(
                     ctx,
@@ -500,7 +531,9 @@ pub(crate) async fn prepare_tool_calls(
                     Some((tool_name.clone(), call.tool_call_id.clone(), outcome));
                 continue;
             }
-            ctx.policy.approve(
+            // The receipt is written before the ticket becomes redeemable; a
+            // failed write leaves it unredeemable and the executor denies.
+            let _recorded = ctx.policy.approve(
                 &call_id,
                 &resolved_policy_name(tools_registry, activated_tools, &tool_name, &call_id),
                 &tool_args,
@@ -1407,6 +1440,41 @@ mod tests {
         let (_, _, outcome) = prepared.ordered_results[0].as_ref().unwrap();
         assert!(!outcome.success);
         assert!(outcome.output.contains("no approval"), "{}", outcome.output);
+    }
+
+    #[derive(Default)]
+    struct RecordingSink(std::sync::Mutex<Vec<crate::security::policy_contract::DecisionRecord>>);
+
+    impl crate::security::policy_contract::DecisionSink for RecordingSink {
+        fn record(
+            &self,
+            record: &crate::security::policy_contract::DecisionRecord,
+        ) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(record.clone());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn operator_refusal_of_a_policy_ask_writes_a_rejected_receipt() {
+        use crate::security::policy_contract::{ApprovalResponse, Verdict};
+        // No approval manager: the gate answers "no" for the operator, which
+        // is the Deny arm a real refusal also takes.
+        let sink = Arc::new(RecordingSink::default());
+        let gate = enforcing_gate(&[], &["file_read"]).with_sink(sink.clone());
+        let prepared = prepare_file_read(&gate, None).await;
+        assert!(prepared.executable_calls.is_empty());
+        let records = sink.0.lock().unwrap();
+        assert_eq!(records.len(), 2, "the ask and its receipt");
+        assert_eq!(records[0].decision.effective, Verdict::Ask);
+        assert_eq!(
+            records[1].approval.as_ref().map(|a| a.response),
+            Some(ApprovalResponse::Rejected)
+        );
+        assert_eq!(
+            records[1].approval.as_ref().map(|a| a.decision_id.as_str()),
+            records[0].decision_id.as_deref()
+        );
     }
 
     #[tokio::test]

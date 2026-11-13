@@ -19,6 +19,7 @@ use crate::agent::loop_::{
     mcp_allowed_tool_count, mcp_tool_access_policy, preactivate_always_filter_groups,
     register_eager_mcp_tool_if_allowed,
 };
+use crate::security::policy_audit::{AuditWiring, resolve_sink};
 use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
 use crate::skills::Skill;
 use crate::tools::skill_tool::{PreparedSkill, PreparedSkillBuiltin, SlotId, TargetRef};
@@ -576,6 +577,22 @@ impl ScopedToolRegistry {
     /// Mint a scoped, gated registry from already-built eager tools. The single seam
     /// every construction path goes through.
     pub async fn assemble(spec: ScopedAssembly<'_>) -> ScopedAssembled {
+        // Unit tests build gates over default configs whose data directory is
+        // the developer's real one, so they record nothing unless they pick a
+        // sink through `assemble_with_audit`.
+        let audit = if cfg!(test) {
+            AuditWiring::Disabled
+        } else {
+            AuditWiring::FromConfig
+        };
+        Self::assemble_with_audit(spec, audit).await
+    }
+
+    /// [`assemble`](Self::assemble) with an explicit decision-audit wiring.
+    pub async fn assemble_with_audit(
+        spec: ScopedAssembly<'_>,
+        audit: AuditWiring,
+    ) -> ScopedAssembled {
         let ScopedAssembly {
             config,
             agent_alias,
@@ -731,7 +748,7 @@ impl ScopedToolRegistry {
         } else {
             Vec::new()
         };
-        let policy = Arc::new(PolicyGate::for_agent(
+        let policy = PolicyGate::for_agent(
             config,
             agent_alias,
             &AgentPolicyInputs {
@@ -742,7 +759,13 @@ impl ScopedToolRegistry {
                 mcp_servers: &granted_mcp_servers,
                 caller_allowed,
             },
-        ));
+        );
+        let policy = Arc::new(
+            match resolve_sink(audit, &config.governance, &config.data_dir) {
+                Some(sink) => policy.with_sink(sink),
+                None => policy,
+            },
+        );
 
         let pipeline_id = (config.pipeline.enabled
             && config.tools.is_enabled(tools::PipelineTool::NAME))
@@ -2516,6 +2539,38 @@ mod tests {
         })
         .await;
         out.registry.iter().map(|t| t.name().to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn assembling_with_audit_enabled_leaves_the_data_dir_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config {
+            data_dir: tmp.path().join("data"),
+            ..Config::default()
+        };
+        assert!(config.governance.audit.enabled);
+        let security = Arc::new(SecurityPolicy::default());
+        let _ = ScopedToolRegistry::assemble_with_audit(
+            ScopedAssembly {
+                config: &config,
+                agent_alias: "default",
+                security: &security,
+                built: built_with(vec![Box::new(MockTool("shell"))]),
+                skills: &[],
+                runtime: Arc::new(crate::platform::NativeRuntime::new()),
+                caller_allowed: None,
+                connect_mcp: false,
+                connect_peripherals: false,
+                exclude_memory: false,
+                acp_delivery: false,
+                list_deferred_mcp_specs: false,
+                emit_assembly_logs: false,
+                mcp_registry: None,
+            },
+            AuditWiring::FromConfig,
+        )
+        .await;
+        assert!(!config.data_dir.exists());
     }
 
     #[tokio::test]
