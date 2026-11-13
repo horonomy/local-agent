@@ -23,6 +23,7 @@ pub mod otp;
 pub mod pairing;
 pub mod playbook;
 pub mod policy;
+pub mod policy_audit;
 pub mod policy_contract;
 pub mod policy_engine;
 pub mod policy_gate;
