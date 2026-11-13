@@ -1097,6 +1097,8 @@ mod tests {
         name: &'static str,
         capability: zeroclaw_api::policy::ToolCapability,
         runs: Arc<std::sync::atomic::AtomicUsize>,
+        /// When set, records the caller list the executor scoped around the run.
+        seen: Option<Arc<std::sync::Mutex<Option<Vec<String>>>>>,
     }
 
     impl Attributable for CountingPolicyTool {
@@ -1124,6 +1126,9 @@ mod tests {
         }
         async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
             self.runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(seen) = &self.seen {
+                *seen.lock().unwrap() = crate::security::policy_gate::active_caller_list();
+            }
             Ok(ToolResult {
                 success: true,
                 output: zeroclaw_api::tool::ToolOutput::default(),
@@ -1165,11 +1170,13 @@ mod tests {
                 name: "file_read",
                 capability: FsRead,
                 runs: Arc::clone(runs),
+                seen: None,
             }),
             Box::new(CountingPolicyTool {
                 name: "shell",
                 capability: Shell,
                 runs: Arc::clone(runs),
+                seen: None,
             }),
         ]
     }
@@ -1268,44 +1275,6 @@ mod tests {
         assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
-    /// Reads the caller list the executor scopes around tool execution.
-    struct CallerListProbe {
-        seen: Arc<std::sync::Mutex<Option<Vec<String>>>>,
-    }
-
-    impl Attributable for CallerListProbe {
-        fn role(&self) -> zeroclaw_api::attribution::Role {
-            zeroclaw_api::attribution::Role::System
-        }
-        fn alias(&self) -> &str {
-            "caller-list-probe"
-        }
-    }
-
-    #[async_trait]
-    impl Tool for CallerListProbe {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::FsRead
-        }
-        fn name(&self) -> &str {
-            "file_read"
-        }
-        fn description(&self) -> &str {
-            "probe"
-        }
-        fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({"type": "object"})
-        }
-        async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
-            *self.seen.lock().unwrap() = crate::security::policy_gate::active_caller_list();
-            Ok(ToolResult {
-                success: true,
-                output: zeroclaw_api::tool::ToolOutput::default(),
-                error: None,
-            })
-        }
-    }
-
     #[tokio::test]
     async fn executor_hands_the_parents_caller_list_to_a_running_tool() {
         use crate::agent::tool_execution::{ToolDispatchContext, execute_tools_sequential};
@@ -1327,8 +1296,11 @@ mod tests {
         )
         .with_caller_filter(inputs.caller_allowed);
         let seen = Arc::new(std::sync::Mutex::new(None));
-        let registry: Vec<Box<dyn crate::tools::Tool>> = vec![Box::new(CallerListProbe {
-            seen: Arc::clone(&seen),
+        let registry: Vec<Box<dyn crate::tools::Tool>> = vec![Box::new(CountingPolicyTool {
+            name: "file_read",
+            capability: zeroclaw_api::policy::ToolCapability::FsRead,
+            runs: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            seen: Some(Arc::clone(&seen)),
         })];
         let observer = NoopObserver;
         let pacing = PacingConfig::default();
