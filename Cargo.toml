@@ -320,6 +320,9 @@ agent-runtime = ["agent-core", "daemon-listeners"]
 # all of that source out of the minimal profile (HORO-2383).
 daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 
+# Managed governance mode (ADR-019): AASM adapter over a Unix socket. Opt-in; Unix only.
+aasm-managed = ["agent-core", "zeroclaw-runtime/aasm-managed"]
+
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,
 # tools, MCP and CLI chat, with no gateway, ACP bridge, daemon listener or
