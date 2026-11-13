@@ -199,6 +199,8 @@ pub struct DecisionOutcome {
 pub enum ApprovalResponse {
     Granted,
     Rejected,
+    /// The turn was cancelled or timed out before the operator answered.
+    Cancelled,
 }
 
 /// Receipt of an operator's answer, scoped to one decision: `decision_id`
