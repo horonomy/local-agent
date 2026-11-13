@@ -332,6 +332,43 @@ mod tests {
     }
 
     #[test]
+    fn a_parent_narrows_a_plugin_grant() {
+        let child = {
+            let mut p = profile(Some(&["x"]));
+            p.autonomy_ceiling = AutonomyLevel::Full;
+            p
+        };
+        let mut r = req(ToolCapability::Plugin, "x");
+        r.parent_agent_alias = Some("main".into());
+        // Parent never listed the plugin: the child's grant cannot widen it.
+        let mut parent = profile(Some(&["y"]));
+        parent.autonomy_ceiling = AutonomyLevel::Full;
+        let engine = StandalonePolicyEngine::new(child.clone()).with_parent("main", parent);
+        assert_eq!(engine.evaluate(&r).verdict, Verdict::Deny);
+        // Parent lists it too: allowed.
+        let mut parent = profile(Some(&["x"]));
+        parent.autonomy_ceiling = AutonomyLevel::Full;
+        let engine = StandalonePolicyEngine::new(child).with_parent("main", parent);
+        assert_eq!(engine.evaluate(&r).verdict, Verdict::Allow);
+    }
+
+    #[test]
+    fn plugin_names_must_be_canonical_and_cannot_be_composed() {
+        let mut p = profile(Some(&["X", "a__b", " x", "caf\u{e9}", "x"]));
+        p.autonomy_ceiling = AutonomyLevel::Full;
+        for name in ["X", " x", "caf\u{e9}", "a__b", ""] {
+            let mut r = req(ToolCapability::Plugin, name);
+            r.autonomy = AutonomyLevel::Supervised;
+            assert_eq!(eval(&p, &r).verdict, Verdict::Deny, "{name:?}");
+        }
+        // The canonical, listed name is the only one that passes.
+        assert_eq!(
+            eval(&p, &req(ToolCapability::Plugin, "x")).verdict,
+            Verdict::Allow
+        );
+    }
+
+    #[test]
     fn plugin_needs_explicit_listing_like_network() {
         let mut r = req(ToolCapability::Plugin, "x");
         r.autonomy = AutonomyLevel::Full;

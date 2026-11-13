@@ -556,6 +556,23 @@ a_discovered_tool_waits_for_approval() {
     esac
 }
 
+# Listing the tool grants it to the policy gate but is not approval: the call
+# must still wait for an operator. (The unlisted case above is denied by policy.)
+a_listed_tool_still_waits_for_approval() {
+    expect_installed tool-fixture || return 1
+    configure plugins.auto_discover true || return 1
+    configure risk_profiles.default.allowed_tools "[\"$fixture_tool\"]" || return 1
+    agent_turn "$fixture_tool" "$fixture_arguments" || return 1
+    expect_offered "$fixture_tool" || return 1
+    case "$turn_result" in
+        *"text="*) fail "the listed plugin ran without approval: $turn_result" || return 1 ;;
+    esac
+    case "$turn_result" in
+        *"the call did not run"* | *"no operator decision was available"*) ;;
+        *) fail "a listed, unapproved tool did not wait for approval: $turn_result" ;;
+    esac
+}
+
 an_approved_call_returns_the_plugin_output() {
     expect_installed tool-fixture || return 1
     approve "$fixture_tool" || return 1
@@ -792,6 +809,7 @@ else
     run_case "discovery without enabling offers nothing" discovery_without_enabling_offers_nothing
     run_case "enabling without discovery offers nothing" enabling_without_discovery_offers_nothing
     run_case "a discovered tool waits for operator approval" a_discovered_tool_waits_for_approval
+    run_case "a listed tool still waits for operator approval" a_listed_tool_still_waits_for_approval
     run_case "an approved call returns the plugin's output" an_approved_call_returns_the_plugin_output
     run_case "remove uninstalls the package" remove_uninstalls_the_package
     run_case "a payload that is not WebAssembly is refused" a_payload_that_is_not_webassembly_is_refused
