@@ -65,15 +65,6 @@ impl FileDecisionSink {
         )
     }
 
-    /// Check now that the log can be opened, creating the directory. Lets
-    /// startup report an unwritable location instead of every call failing.
-    pub fn probe(&self) -> Result<()> {
-        let _guard = self.write_lock.lock();
-        ensure_dir(&self.dir).context("create policy audit directory")?;
-        let _flock = DirLock::acquire(&self.dir)?;
-        self.open_live().map(drop)
-    }
-
     fn with_max_bytes(dir: impl Into<PathBuf>, max_bytes: u64, generations: u32) -> Self {
         Self {
             dir: dir.into(),
@@ -249,17 +240,10 @@ pub fn resolve_sink(
         AuditWiring::Disabled => None,
         AuditWiring::FromConfig if !governance.audit.enabled => None,
         AuditWiring::FromConfig => {
-            let sink = FileDecisionSink::shared(data_dir, &governance.audit);
-            if sink.probe().is_err() {
-                // Every tool call will now be denied `audit_write_failed`.
-                // Set `governance.audit.enabled = false` to opt out.
-                zeroclaw_log::record!(
-                    WARN,
-                    zeroclaw_log::Event::new(module_path!(), zeroclaw_log::Action::Fail),
-                    "policy audit location is not writable; tool calls will be denied"
-                );
-            }
-            Some(sink)
+            // Lazy: nothing is created until the first record, so assembling
+            // a registry touches no disk. An unwritable location surfaces as
+            // `audit_write_failed` on the first decision (see ADR-019).
+            Some(FileDecisionSink::shared(data_dir, &governance.audit))
         }
     }
 }

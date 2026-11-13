@@ -255,9 +255,11 @@ fn resolve_sink_follows_audit_enabled() {
     let tmp = tempfile::tempdir().unwrap();
     let mut governance = GovernanceConfig::default();
     assert!(governance.audit.enabled);
-    let sink = resolve_sink(AuditWiring::FromConfig, &governance, tmp.path()).expect("enabled");
+    let data_dir = tmp.path().join("data");
+    let sink = resolve_sink(AuditWiring::FromConfig, &governance, &data_dir).expect("enabled");
+    assert!(!data_dir.exists(), "resolving the sink must not touch disk");
     sink.record(&record(0)).unwrap();
-    assert!(tmp.path().join(POLICY_AUDIT_FILE).exists());
+    assert!(data_dir.join(POLICY_AUDIT_FILE).exists());
 
     governance.audit.enabled = false;
     assert!(resolve_sink(AuditWiring::FromConfig, &governance, tmp.path()).is_none());

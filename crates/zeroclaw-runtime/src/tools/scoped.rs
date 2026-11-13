@@ -2542,6 +2542,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn assembling_with_audit_enabled_leaves_the_data_dir_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        config.data_dir = tmp.path().join("data");
+        assert!(config.governance.audit.enabled);
+        let security = Arc::new(SecurityPolicy::default());
+        let _ = ScopedToolRegistry::assemble_with_audit(
+            ScopedAssembly {
+                config: &config,
+                agent_alias: "default",
+                security: &security,
+                built: built_with(vec![Box::new(MockTool("shell"))]),
+                skills: &[],
+                runtime: Arc::new(crate::platform::NativeRuntime::new()),
+                caller_allowed: None,
+                connect_mcp: false,
+                connect_peripherals: false,
+                exclude_memory: false,
+                acp_delivery: false,
+                list_deferred_mcp_specs: false,
+                emit_assembly_logs: false,
+                mcp_registry: None,
+            },
+            AuditWiring::FromConfig,
+        )
+        .await;
+        assert!(!config.data_dir.exists());
+    }
+
+    #[tokio::test]
     async fn non_acp_assembly_omits_deliver_file() {
         let names = assemble_names_with_acp_delivery(false).await;
         assert!(
