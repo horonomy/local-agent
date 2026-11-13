@@ -322,9 +322,7 @@ impl PipelineTool {
 
 #[async_trait]
 impl Tool for PipelineTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Shell
-    }
+    zeroclaw_api::declare_capability!(Shell);
 
     fn requires_unrestricted_principal(&self) -> bool {
         true

@@ -39,9 +39,7 @@ impl KnowledgeTool {
 
 #[async_trait]
 impl Tool for KnowledgeTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "knowledge"

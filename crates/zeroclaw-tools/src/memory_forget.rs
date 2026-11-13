@@ -20,9 +20,7 @@ impl MemoryForgetTool {
 
 #[async_trait]
 impl Tool for MemoryForgetTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "memory_forget"

@@ -120,9 +120,7 @@ fn child_run_overrides(policy: Arc<SecurityPolicy>) -> AgentRunOverrides {
 
 #[async_trait]
 impl Tool for SpawnSubagentTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Subagent
-    }
+    zeroclaw_api::declare_capability!(Subagent);
 
     fn requires_unrestricted_principal(&self) -> bool {
         true

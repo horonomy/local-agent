@@ -461,9 +461,7 @@ impl Default for DatasheetTool {
 impl Tool for DatasheetTool {
     /// Downloads datasheets over HTTP and writes them to disk, so it is
     /// network-class.
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Network
-    }
+    zeroclaw_api::declare_capability!(Network);
 
     fn name(&self) -> &str {
         "datasheet"

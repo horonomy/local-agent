@@ -172,9 +172,7 @@ pub fn read_delivered_artifact_bounded(path: &Path) -> Result<Vec<u8>, String> {
 
 #[async_trait]
 impl Tool for DeliverFileTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::FsRead
-    }
+    zeroclaw_api::declare_capability!(FsRead);
 
     fn name(&self) -> &str {
         "deliver_file"

@@ -42,9 +42,7 @@ impl OpenCodeCliTool {
 
 #[async_trait]
 impl Tool for OpenCodeCliTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Shell
-    }
+    zeroclaw_api::declare_capability!(Shell);
 
     fn name(&self) -> &str {
         "opencode_cli"

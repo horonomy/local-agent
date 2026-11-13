@@ -54,9 +54,7 @@ impl McpToolWrapper {
 
 #[async_trait]
 impl Tool for McpToolWrapper {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Mcp
-    }
+    zeroclaw_api::declare_capability!(Mcp);
 
     /// The server is the part of the prefixed name before the first `__`.
     /// Policy rejects ambiguous names (a server containing `__`).

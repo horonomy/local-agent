@@ -22,9 +22,7 @@ impl Default for CalculatorTool {
 
 #[async_trait]
 impl Tool for CalculatorTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::AgentInternal
-    }
+    zeroclaw_api::declare_capability!(AgentInternal);
 
     fn name(&self) -> &str {
         "calculator"

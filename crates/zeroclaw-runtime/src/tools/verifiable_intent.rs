@@ -41,9 +41,7 @@ impl VerifiableIntentTool {
 
 #[async_trait]
 impl Tool for VerifiableIntentTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::AgentInternal
-    }
+    zeroclaw_api::declare_capability!(AgentInternal);
 
     fn name(&self) -> &str {
         "vi_verify"

@@ -140,9 +140,7 @@ impl DeviceReadCodeTool {
 
 #[async_trait]
 impl Tool for DeviceReadCodeTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "device_read_code"
@@ -242,9 +240,7 @@ impl DeviceWriteCodeTool {
 
 #[async_trait]
 impl Tool for DeviceWriteCodeTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "device_write_code"
@@ -429,9 +425,7 @@ impl DeviceExecTool {
 
 #[async_trait]
 impl Tool for DeviceExecTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "device_exec"

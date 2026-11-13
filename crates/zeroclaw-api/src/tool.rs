@@ -548,6 +548,18 @@ macro_rules! forward_policy_hooks {
     };
 }
 
+/// Declare a tool's fixed policy capability in an `impl Tool for` block:
+/// `declare_capability!(Network);`. Tools whose capability depends on the
+/// call keep a hand-written `capability_for_call`.
+#[macro_export]
+macro_rules! declare_capability {
+    ($variant:ident) => {
+        fn capability(&self) -> $crate::policy::ToolCapability {
+            $crate::policy::ToolCapability::$variant
+        }
+    };
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync + crate::attribution::Attributable {
     /// True when this tool starts nested execution without carrying the RPC

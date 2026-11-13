@@ -41,9 +41,7 @@ zeroclaw_api::tool_attribution!(
 
 #[async_trait]
 impl Tool for McpPromptsTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Mcp
-    }
+    zeroclaw_api::declare_capability!(Mcp);
 
     /// `list` names its server in `server` (none means every server); `get`
     /// carries it as the `<server>__` prefix of `name`. An unparsable `name`

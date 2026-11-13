@@ -277,9 +277,7 @@ fn encode_url_component(value: &str) -> String {
 
 #[async_trait]
 impl Tool for SkillHttpTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Network
-    }
+    zeroclaw_api::declare_capability!(Network);
 
     /// A skill HTTP tool makes the same outbound request `http_request`
     /// does, so policy evaluates it as `http_request`: network access must

@@ -2430,9 +2430,7 @@ impl DelegateTool {
 
 #[async_trait]
 impl Tool for DelegateTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Subagent
-    }
+    zeroclaw_api::declare_capability!(Subagent);
 
     fn requires_unrestricted_principal(&self) -> bool {
         true
@@ -7286,9 +7284,7 @@ mod tests {
 
     #[async_trait]
     impl Tool for EchoTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "echo_tool"
@@ -7328,9 +7324,7 @@ mod tests {
 
     #[async_trait]
     impl Tool for PanickingTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "panic_tool"
@@ -7356,9 +7350,7 @@ mod tests {
 
     #[async_trait]
     impl Tool for CountingEchoTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "echo_tool"
@@ -11050,9 +11042,7 @@ mod tests {
 
     #[async_trait]
     impl Tool for GateTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "gate_tool"
@@ -12300,9 +12290,7 @@ mod tests {
         }
         #[async_trait]
         impl Tool for MockShellTool {
-            fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-                zeroclaw_api::policy::ToolCapability::Shell
-            }
+            zeroclaw_api::declare_capability!(Shell);
 
             fn name(&self) -> &str {
                 "shell"
@@ -12456,9 +12444,7 @@ mod tests {
         }
         #[async_trait]
         impl Tool for MockShellTool {
-            fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-                zeroclaw_api::policy::ToolCapability::Shell
-            }
+            zeroclaw_api::declare_capability!(Shell);
 
             fn name(&self) -> &str {
                 "shell"
@@ -18548,9 +18534,7 @@ command = "rm independent-delegate-marker"
     struct FileReadTool;
     #[async_trait]
     impl Tool for FileReadTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::FsRead
-        }
+        zeroclaw_api::declare_capability!(FsRead);
 
         fn name(&self) -> &str {
             "file_read"
@@ -18581,9 +18565,7 @@ command = "rm independent-delegate-marker"
     struct FileWriteTool;
     #[async_trait]
     impl Tool for FileWriteTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::FsWrite
-        }
+        zeroclaw_api::declare_capability!(FsWrite);
 
         fn name(&self) -> &str {
             "file_write"
@@ -18614,9 +18596,7 @@ command = "rm independent-delegate-marker"
     struct MockShellTool;
     #[async_trait]
     impl Tool for MockShellTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::Shell
-        }
+        zeroclaw_api::declare_capability!(Shell);
 
         fn name(&self) -> &str {
             "shell"
@@ -20727,9 +20707,7 @@ command = "rm independent-delegate-marker"
 
     #[async_trait]
     impl Tool for LiveConfigModeFlipTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "live_config_flip_tool"
@@ -21095,9 +21073,7 @@ command = "rm independent-delegate-marker"
 
     #[async_trait]
     impl Tool for ConfigLoweringTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "config_lowering_tool"
@@ -21211,9 +21187,7 @@ command = "rm independent-delegate-marker"
 
     #[async_trait]
     impl Tool for ConfigModeFlipTool {
-        fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-            zeroclaw_api::policy::ToolCapability::AgentInternal
-        }
+        zeroclaw_api::declare_capability!(AgentInternal);
 
         fn name(&self) -> &str {
             "config_mode_flip_tool"

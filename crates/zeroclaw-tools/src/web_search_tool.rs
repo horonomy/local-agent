@@ -2345,9 +2345,7 @@ fn strip_tags(content: &str) -> String {
 
 #[async_trait]
 impl Tool for WebSearchTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Network
-    }
+    zeroclaw_api::declare_capability!(Network);
 
     fn name(&self) -> &str {
         "web_search_tool"

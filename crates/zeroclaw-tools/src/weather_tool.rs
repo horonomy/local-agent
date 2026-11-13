@@ -359,9 +359,7 @@ impl Default for WeatherTool {
 
 #[async_trait]
 impl Tool for WeatherTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Network
-    }
+    zeroclaw_api::declare_capability!(Network);
 
     fn name(&self) -> &str {
         "weather"

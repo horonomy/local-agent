@@ -239,9 +239,7 @@ struct GpioReadTool {
 
 #[async_trait]
 impl Tool for GpioReadTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "gpio_read"
@@ -288,9 +286,7 @@ struct GpioWriteTool {
 
 #[async_trait]
 impl Tool for GpioWriteTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "gpio_write"

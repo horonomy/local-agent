@@ -69,9 +69,7 @@ struct RpiGpioReadTool;
 
 #[async_trait]
 impl Tool for RpiGpioReadTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "gpio_read"
@@ -130,9 +128,7 @@ struct RpiGpioWriteTool;
 
 #[async_trait]
 impl Tool for RpiGpioWriteTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "gpio_write"

@@ -153,9 +153,7 @@ impl SkillShellTool {
 
 #[async_trait]
 impl Tool for SkillShellTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Shell
-    }
+    zeroclaw_api::declare_capability!(Shell);
 
     /// A skill shell or script tool runs a command through the shell, so
     /// policy evaluates it as `shell`: excluding `shell` excludes it.

@@ -443,9 +443,7 @@ fn estimate_task_effort(description: &str) -> (&'static str, &'static str) {
 
 #[async_trait]
 impl Tool for ProjectIntelTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::FsRead
-    }
+    zeroclaw_api::declare_capability!(FsRead);
 
     fn name(&self) -> &str {
         "project_intel"

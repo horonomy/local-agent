@@ -98,9 +98,7 @@ impl ModelSwitchTool {
 
 #[async_trait]
 impl Tool for ModelSwitchTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::AgentInternal
-    }
+    zeroclaw_api::declare_capability!(AgentInternal);
 
     /// `list_models` makes a live provider catalog request; every other
     /// action is local runtime state.

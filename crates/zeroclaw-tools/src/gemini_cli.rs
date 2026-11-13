@@ -42,9 +42,7 @@ impl GeminiCliTool {
 
 #[async_trait]
 impl Tool for GeminiCliTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Shell
-    }
+    zeroclaw_api::declare_capability!(Shell);
 
     fn name(&self) -> &str {
         "gemini_cli"

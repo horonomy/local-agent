@@ -69,9 +69,7 @@ pub struct UnoQGpioReadTool;
 
 #[async_trait]
 impl Tool for UnoQGpioReadTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "gpio_read"
@@ -135,9 +133,7 @@ pub struct UnoQGpioWriteTool;
 
 #[async_trait]
 impl Tool for UnoQGpioWriteTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Desktop
-    }
+    zeroclaw_api::declare_capability!(Desktop);
 
     fn name(&self) -> &str {
         "gpio_write"

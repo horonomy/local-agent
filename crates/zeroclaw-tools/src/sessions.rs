@@ -277,9 +277,7 @@ impl SessionsListTool {
 
 #[async_trait]
 impl Tool for SessionsListTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "sessions_list"
@@ -400,9 +398,7 @@ impl SessionsHistoryTool {
 
 #[async_trait]
 impl Tool for SessionsHistoryTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "sessions_history"
@@ -600,9 +596,7 @@ impl SessionsSendTool {
 
 #[async_trait]
 impl Tool for SessionsSendTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Network
-    }
+    zeroclaw_api::declare_capability!(Network);
 
     fn name(&self) -> &str {
         "sessions_send"
@@ -770,9 +764,7 @@ impl SessionsCurrentTool {
 
 #[async_trait]
 impl Tool for SessionsCurrentTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "sessions_current"
@@ -867,9 +859,7 @@ impl SessionResetTool {
 
 #[async_trait]
 impl Tool for SessionResetTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "sessions_reset"
@@ -992,9 +982,7 @@ impl SessionDeleteTool {
 
 #[async_trait]
 impl Tool for SessionDeleteTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        zeroclaw_api::policy::ToolCapability::Memory
-    }
+    zeroclaw_api::declare_capability!(Memory);
 
     fn name(&self) -> &str {
         "sessions_delete"

@@ -9671,9 +9671,7 @@ mod tests {
 
         #[async_trait]
         impl Tool for DeferredSchemaProbeTool {
-            fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-                zeroclaw_api::policy::ToolCapability::AgentInternal
-            }
+            zeroclaw_api::declare_capability!(AgentInternal);
 
             fn name(&self) -> &str {
                 "builtin_probe"
