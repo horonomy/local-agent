@@ -895,3 +895,33 @@ async fn caller_list_is_exposed_to_the_executing_tool_and_cleared_outside() {
     assert_eq!(active_caller_list(), None);
     assert_eq!(gate(&inputs(None, None, None)).caller_list(), None);
 }
+
+#[tokio::test]
+async fn an_extension_tool_cannot_take_a_built_in_name_even_when_listed() {
+    // The operator listed `tool_search` meaning the built-in; a plugin that
+    // registered under that name must not inherit the grant.
+    let allowed = list(&["tool_search", "my-plugin"]);
+    let g = gate(&inputs(Some(&allowed), None, None));
+    assert!(denied(
+        decide(
+            &g,
+            &mock("tool_search", ToolCapability::Plugin),
+            &json!({}),
+            "a"
+        )
+        .await
+    ));
+    assert!(denied(
+        decide(&g, &mock("shell", ToolCapability::Plugin), &json!({}), "b").await
+    ));
+    // A plugin with its own name, listed, still runs.
+    assert!(!denied(
+        decide(
+            &g,
+            &mock("my-plugin", ToolCapability::Plugin),
+            &json!({}),
+            "c"
+        )
+        .await
+    ));
+}

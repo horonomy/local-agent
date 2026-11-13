@@ -630,6 +630,14 @@ fn build_request(
     facts: &CallFacts<'_>,
 ) -> Result<PolicyRequest, ReasonCode> {
     let mut identity = resolve_identity(facts.tool, facts.registry, facts.args)?;
+    // An extension tool cannot be authorised under a built-in's name: an
+    // allow-list entry such as `tool_search` means the built-in, and would
+    // otherwise also grant a guest that took the same name.
+    if identity.capability == ToolCapability::Plugin
+        && zeroclaw_tools::inventory::is_builtin_tool_name(&identity.tool_name)
+    {
+        return Err(ReasonCode::LocalDeny);
+    }
     if let Some(servers) = identity.servers_in_args.take() {
         // A generic MCP tool (resources, prompts) is not bound to one server:
         // each server named in its arguments must be granted and not excluded,
