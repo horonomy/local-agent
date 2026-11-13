@@ -1,8 +1,7 @@
 //! Builds the policy authority from `[governance]` (ADR-019).
 //!
-//! Not called by production code in this build. Standalone mode builds the
-//! local engine with the deny-all default profile (the enforcement slice
-//! supplies the real profile via [`build_standalone_authority`]); managed mode
+//! Standalone mode builds the local engine with the deny-all default profile
+//! ([`build_standalone_authority`] takes an explicit one); managed mode
 //! composes the local engine with the AASM adapter under the `aasm-managed`
 //! feature and otherwise refuses startup.
 
