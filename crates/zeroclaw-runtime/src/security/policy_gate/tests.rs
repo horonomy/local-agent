@@ -943,3 +943,210 @@ async fn an_extension_tool_cannot_take_a_built_in_name_even_when_listed() {
         .await
     ));
 }
+
+// ── Decision audit and approval receipts (ADR-019 D6) ───────────────────
+
+mod audit {
+    use super::*;
+    use crate::security::policy_audit::{FileDecisionSink, POLICY_AUDIT_FILE};
+    use crate::security::policy_contract::{ApprovalResponse, DecisionRecord, DecisionSink};
+    use zeroclaw_config::governance::GovernanceAuditConfig;
+
+    #[derive(Default)]
+    struct MemorySink(Mutex<Vec<DecisionRecord>>);
+
+    impl DecisionSink for MemorySink {
+        fn record(&self, record: &DecisionRecord) -> anyhow::Result<()> {
+            self.0.lock().push(record.clone());
+            Ok(())
+        }
+    }
+
+    /// Accepts `allowed` writes, then fails every later one.
+    struct FlakySink {
+        allowed: AtomicU64,
+    }
+
+    impl DecisionSink for FlakySink {
+        fn record(&self, _record: &DecisionRecord) -> anyhow::Result<()> {
+            let left = self.allowed.load(Ordering::SeqCst);
+            if left == 0 {
+                anyhow::bail!("disk full at /secret/path");
+            }
+            self.allowed.store(left - 1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    fn audited_gate(sink: Arc<dyn DecisionSink>) -> PolicyGate {
+        let ask = list(&["shell"]);
+        let i = AgentPolicyInputs {
+            always_ask: &ask,
+            ..inputs(None, None, None)
+        };
+        gate(&i).with_sink(sink)
+    }
+
+    const READ: ToolCapability = ToolCapability::FsRead;
+
+    #[tokio::test]
+    async fn allow_deny_and_ask_each_produce_one_record() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let args = json!({"path": "a"});
+        assert!(!denied(
+            decide(&g, &mock("file_read", READ), &args, "allow").await
+        ));
+        assert!(denied(
+            decide(&g, &mock("mystery", ToolCapability::Unknown), &args, "deny").await
+        ));
+        assert!(!denied(
+            decide(&g, &mock("shell", ToolCapability::Shell), &args, "ask").await
+        ));
+
+        let records = sink.0.lock();
+        let effective: Vec<_> = records
+            .iter()
+            .map(|r| {
+                (
+                    r.call_id.as_str(),
+                    r.decision.effective,
+                    r.decision_id.is_some(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            effective,
+            [
+                ("allow", Verdict::Allow, true),
+                ("deny", Verdict::Deny, false),
+                ("ask", Verdict::Ask, true),
+            ]
+        );
+        assert_eq!(records[0].tool_name, "file_read");
+        assert_eq!(records[0].capability, READ);
+        assert_eq!(records[0].args_sha256, args_sha256(&args));
+        assert!(records.iter().all(|r| r.approval.is_none()));
+    }
+
+    #[tokio::test]
+    async fn granted_ask_writes_a_receipt_scoped_to_that_decision_and_is_single_use() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let tool = mock("shell", ToolCapability::Shell);
+        let args = json!({"command": "ls"});
+        decide(&g, &tool, &args, "c1").await;
+        assert!(g.approve("c1", "shell", &args));
+        let receipt = {
+            let records = sink.0.lock();
+            assert_eq!(records.len(), 2);
+            records[1].approval.clone().expect("receipt")
+        };
+        assert_eq!(receipt.response, ApprovalResponse::Granted);
+        assert_eq!(
+            Some(&receipt.decision_id),
+            sink.0.lock()[0].decision_id.as_ref()
+        );
+        assert_eq!(redeem(&g, &tool, &args, "c1").await, Ok(()));
+        assert_eq!(
+            redeem(&g, &tool, &args, "c1").await,
+            Err(RedeemError::NoTicket)
+        );
+        // A receipt does not carry over to a different call or arguments.
+        decide(&g, &tool, &args, "c2").await;
+        assert!(!g.approve("c2", "shell", &json!({"command": "rm"})));
+        assert_eq!(sink.0.lock().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn rejected_ask_writes_a_receipt_and_leaves_nothing_redeemable() {
+        let sink = Arc::new(MemorySink::default());
+        let g = audited_gate(sink.clone());
+        let tool = mock("shell", ToolCapability::Shell);
+        let args = json!({"command": "ls"});
+        decide(&g, &tool, &args, "c1").await;
+        g.reject("c1", "shell", &args);
+        assert_eq!(
+            sink.0.lock()[1].approval.as_ref().map(|a| a.response),
+            Some(ApprovalResponse::Rejected)
+        );
+        assert_eq!(
+            redeem(&g, &tool, &args, "c1").await,
+            Err(RedeemError::NoTicket)
+        );
+        // A late approval cannot revive it.
+        assert!(!g.approve("c1", "shell", &args));
+    }
+
+    #[tokio::test]
+    async fn write_failure_denies_and_mints_no_ticket() {
+        let g = audited_gate(Arc::new(FlakySink {
+            allowed: AtomicU64::new(0),
+        }));
+        let tool = mock("file_read", READ);
+        let args = json!({});
+        assert_eq!(
+            decide(&g, &tool, &args, "c").await,
+            GateOutcome::Deny {
+                reason: ReasonCode::AuditWriteFailed
+            }
+        );
+        assert_eq!(
+            redeem(&g, &tool, &args, "c").await,
+            Err(RedeemError::NoTicket)
+        );
+    }
+
+    #[tokio::test]
+    async fn receipt_write_failure_keeps_the_ask_unredeemable() {
+        let g = audited_gate(Arc::new(FlakySink {
+            allowed: AtomicU64::new(1),
+        }));
+        let tool = mock("shell", ToolCapability::Shell);
+        let args = json!({});
+        assert!(!denied(decide(&g, &tool, &args, "c").await));
+        assert!(!g.approve("c", "shell", &args));
+        assert_eq!(
+            redeem(&g, &tool, &args, "c").await,
+            Err(RedeemError::NoTicket)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_log_never_contains_arguments_or_secrets() {
+        const SECRET: &str = "sk-live-TOP-SECRET-0123456789";
+        let tmp = tempfile::tempdir().unwrap();
+        let sink = Arc::new(FileDecisionSink::new(
+            tmp.path(),
+            &GovernanceAuditConfig::default(),
+        ));
+        let g = audited_gate(sink);
+        let args = json!({"command": format!("curl -H 'Authorization: {SECRET}'"), "path": "/home/u/.ssh/id_rsa"});
+        let shell = mock("shell", ToolCapability::Shell);
+        decide(&g, &shell, &args, "c1").await;
+        g.approve("c1", "shell", &args);
+        decide(&g, &mock("mystery", ToolCapability::Unknown), &args, "c2").await;
+        // Output never reaches the gate; assert the file holds digests only.
+        let text = std::fs::read_to_string(tmp.path().join(POLICY_AUDIT_FILE)).unwrap();
+        assert_eq!(text.lines().count(), 3);
+        for needle in [SECRET, "curl", "id_rsa", "Authorization"] {
+            assert!(!text.contains(needle), "{needle} leaked into the log");
+        }
+        assert!(text.contains(&args_sha256(&args)));
+    }
+
+    #[tokio::test]
+    async fn write_failure_reaches_the_model_only_as_a_closed_code() {
+        let g = audited_gate(Arc::new(FlakySink {
+            allowed: AtomicU64::new(0),
+        }));
+        let GateOutcome::Deny { reason } =
+            decide(&g, &mock("file_read", READ), &json!({}), "c").await
+        else {
+            panic!("expected deny");
+        };
+        let message = denial_message("file_read", reason);
+        assert!(message.contains("audit_write_failed"));
+        assert!(!message.contains("/secret/path"));
+    }
+}

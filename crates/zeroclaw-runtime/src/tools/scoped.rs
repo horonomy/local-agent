@@ -731,7 +731,7 @@ impl ScopedToolRegistry {
         } else {
             Vec::new()
         };
-        let policy = Arc::new(PolicyGate::for_agent(
+        let policy = PolicyGate::for_agent(
             config,
             agent_alias,
             &AgentPolicyInputs {
@@ -742,7 +742,19 @@ impl ScopedToolRegistry {
                 mcp_servers: &granted_mcp_servers,
                 caller_allowed,
             },
-        ));
+        );
+        // Unit tests build gates over default configs; they must not write
+        // into the developer's real data directory.
+        let policy = Arc::new(if config.governance.audit.enabled && !cfg!(test) {
+            policy.with_sink(Arc::new(
+                crate::security::policy_audit::FileDecisionSink::new(
+                    &config.data_dir,
+                    &config.governance.audit,
+                ),
+            ))
+        } else {
+            policy
+        });
 
         let pipeline_id = (config.pipeline.enabled
             && config.tools.is_enabled(tools::PipelineTool::NAME))

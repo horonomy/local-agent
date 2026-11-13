@@ -484,6 +484,11 @@ pub(crate) async fn prepare_tool_calls(
         if policy_ask {
             // A policy Ask is only redeemable once an operator said yes.
             if !approved {
+                ctx.policy.reject(
+                    &call_id,
+                    &resolved_policy_name(tools_registry, activated_tools, &tool_name, &call_id),
+                    &tool_args,
+                );
                 abandon_prepared_context(ctx, &hook_context, &tool_name).await;
                 let outcome = policy_denial_outcome(
                     ctx,
@@ -500,7 +505,9 @@ pub(crate) async fn prepare_tool_calls(
                     Some((tool_name.clone(), call.tool_call_id.clone(), outcome));
                 continue;
             }
-            ctx.policy.approve(
+            // The receipt is written before the ticket becomes redeemable; a
+            // failed write leaves it unredeemable and the executor denies.
+            let _recorded = ctx.policy.approve(
                 &call_id,
                 &resolved_policy_name(tools_registry, activated_tools, &tool_name, &call_id),
                 &tool_args,
