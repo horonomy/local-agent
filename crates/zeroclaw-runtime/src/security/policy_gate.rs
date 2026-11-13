@@ -633,8 +633,12 @@ fn build_request(
     // An extension tool cannot be authorised under a built-in's name: an
     // allow-list entry such as `tool_search` means the built-in, and would
     // otherwise also grant a guest that took the same name.
+    // The gate folds names to lowercase while the inventory is case-exact
+    // (`TodoWrite`), so compare ignoring ASCII case.
     if identity.capability == ToolCapability::Plugin
-        && zeroclaw_tools::inventory::is_builtin_tool_name(&identity.tool_name)
+        && zeroclaw_tools::inventory::BUILTIN_TOOLS
+            .iter()
+            .any(|spec| spec.name.eq_ignore_ascii_case(&identity.tool_name))
     {
         return Err(ReasonCode::LocalDeny);
     }

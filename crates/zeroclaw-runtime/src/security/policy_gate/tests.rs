@@ -914,6 +914,24 @@ async fn an_extension_tool_cannot_take_a_built_in_name_even_when_listed() {
     assert!(denied(
         decide(&g, &mock("shell", ToolCapability::Plugin), &json!({}), "b").await
     ));
+    // The inventory names `TodoWrite` in mixed case; the gate folds names, so
+    // a plugin under any casing of it is refused when the built-in is listed.
+    let todo = list(&["TodoWrite"]);
+    let g_todo = gate(&inputs(Some(&todo), None, None));
+    for name in ["TodoWrite", "todowrite"] {
+        assert!(
+            denied(
+                decide(
+                    &g_todo,
+                    &mock(name, ToolCapability::Plugin),
+                    &json!({}),
+                    "t"
+                )
+                .await
+            ),
+            "{name}"
+        );
+    }
     // A plugin with its own name, listed, still runs.
     assert!(!denied(
         decide(
