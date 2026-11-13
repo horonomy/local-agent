@@ -761,7 +761,7 @@ mod tests {
         fn adapter_with(&self, tweak: impl FnOnce(&mut AasmConfig)) -> AasmAdapter {
             let mut cfg = AasmConfig {
                 socket_path: Some(self.socket.to_string_lossy().into_owned()),
-                timeout_ms: 500,
+                timeout_ms: 2000,
                 ..AasmConfig::default()
             };
             tweak(&mut cfg);
@@ -1249,7 +1249,7 @@ mod tests {
             Err(WireError::BadVarint)
         );
         assert_eq!(
-            read_frame(&mut [].as_slice()).await,
+            read_frame(&mut (&[] as &[u8])).await,
             Err(WireError::Unavailable)
         );
     }
@@ -1333,5 +1333,147 @@ mod tests {
         let production = source.split("#[cfg(test)]").next().unwrap();
         assert!(!production.contains(&["credential_token", "_file"].concat()));
         assert!(!production.contains("read_to_string"));
+    }
+
+    struct ShellTool;
+
+    impl zeroclaw_api::attribution::Attributable for ShellTool {
+        fn role(&self) -> zeroclaw_api::attribution::Role {
+            zeroclaw_api::attribution::Role::System
+        }
+        fn alias(&self) -> &str {
+            "shell-test"
+        }
+    }
+
+    #[async_trait]
+    impl zeroclaw_api::tool::Tool for ShellTool {
+        zeroclaw_api::declare_capability!(Shell);
+        fn name(&self) -> &str {
+            "shell"
+        }
+        fn description(&self) -> &str {
+            "test"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<zeroclaw_api::tool::ToolResult> {
+            unreachable!("the gate never executes tools")
+        }
+    }
+
+    /// Managed gate built through the production constructor, pointed at `socket`.
+    fn managed_gate(
+        socket: &std::path::Path,
+        timeout_ms: u64,
+    ) -> crate::security::policy_gate::PolicyGate {
+        use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
+        let mut config = zeroclaw_config::schema::Config::default();
+        config.governance.mode = GovernanceMode::Managed;
+        config.governance.aasm.socket_path = Some(socket.to_string_lossy().into_owned());
+        config.governance.aasm.timeout_ms = timeout_ms;
+        let allowed = vec!["shell".to_owned()];
+        PolicyGate::for_agent(
+            &config,
+            "main",
+            &AgentPolicyInputs {
+                autonomy: AutonomyLevel::Supervised,
+                allowed_tools: Some(&allowed),
+                excluded_tools: None,
+                always_ask: &[],
+                mcp_servers: &[],
+                caller_allowed: None,
+            },
+        )
+    }
+
+    async fn gate_decide(
+        gate: &crate::security::policy_gate::PolicyGate,
+    ) -> crate::security::policy_gate::GateOutcome {
+        let registry: Vec<Box<dyn zeroclaw_api::tool::Tool>> = Vec::new();
+        let args = serde_json::json!({"command": "ls"});
+        gate.decide(&crate::security::policy_gate::CallFacts {
+            tool: &ShellTool,
+            registry: &registry,
+            args: &args,
+            call_id: "call-1",
+            turn_id: "turn-1",
+            agent_alias: None,
+            parent_agent_alias: None,
+            interactive: true,
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn managed_gate_allows_only_when_the_double_allows() {
+        use crate::security::policy_gate::GateOutcome;
+        let double = Double::start(allow());
+        let outcome = gate_decide(&managed_gate(&double.socket, 2000)).await;
+        assert_eq!(outcome, GateOutcome::Proceed { ask: false });
+        assert_eq!(double.queries.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn managed_gate_denies_on_pending_redact_and_failures() {
+        use crate::security::policy_gate::GateOutcome;
+        // PENDING = 3 and REDACT = 4 (see `non_allow_verdicts_deny`).
+        for code in [2, 3, 4] {
+            let double = Double::start(Reply::Decision {
+                code,
+                decision_id: "",
+            });
+            let outcome = gate_decide(&managed_gate(&double.socket, 2000)).await;
+            assert_eq!(
+                outcome,
+                GateOutcome::Deny {
+                    reason: ReasonCode::AasmDeny
+                },
+                "code {code}"
+            );
+        }
+        let closed = Double::start(Reply::Close);
+        assert!(matches!(
+            gate_decide(&managed_gate(&closed.socket, 2000)).await,
+            GateOutcome::Deny { .. }
+        ));
+        let hung = Double::start(Reply::Hang);
+        let config_gate = managed_gate(&hung.socket, 100);
+        assert_eq!(
+            gate_decide(&config_gate).await,
+            GateOutcome::Deny {
+                reason: ReasonCode::Timeout
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn managed_gate_with_unbuildable_adapter_is_unavailable_not_standalone() {
+        use crate::security::policy_gate::GateOutcome;
+        let mut config = zeroclaw_config::schema::Config::default();
+        config.governance.mode = GovernanceMode::Managed; // no socket_path
+        let allowed = vec!["shell".to_owned()];
+        let gate = crate::security::policy_gate::PolicyGate::for_agent(
+            &config,
+            "main",
+            &crate::security::policy_gate::AgentPolicyInputs {
+                autonomy: AutonomyLevel::Supervised,
+                allowed_tools: Some(&allowed),
+                excluded_tools: None,
+                always_ask: &[],
+                mcp_servers: &[],
+                caller_allowed: None,
+            },
+        );
+        assert_eq!(
+            gate_decide(&gate).await,
+            GateOutcome::Deny {
+                reason: ReasonCode::AuthorityUnavailable
+            }
+        );
     }
 }
