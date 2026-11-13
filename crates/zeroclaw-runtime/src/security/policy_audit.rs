@@ -71,6 +71,90 @@ impl FileDecisionSink {
         let _guard = self.write_lock.lock();
         ensure_dir(&self.dir).context("create policy audit directory")?;
         let _flock = DirLock::acquire(&self.dir)?;
+        self.open_live().map(drop)
+    }
+
+    fn with_max_bytes(dir: impl Into<PathBuf>, max_bytes: u64, generations: u32) -> Self {
+        Self {
+            dir: dir.into(),
+            max_bytes,
+            generations,
+            write_lock: Mutex::new(()),
+        }
+    }
+
+    fn live_path(&self) -> PathBuf {
+        self.dir.join(POLICY_AUDIT_FILE)
+    }
+
+    fn generation_path(&self, n: u32) -> PathBuf {
+        self.dir.join(format!("{POLICY_AUDIT_FILE}.{n}"))
+    }
+
+    fn rotate(&self) -> io::Result<()> {
+        if self.generations == 0 {
+            return fs::remove_file(self.live_path());
+        }
+        match fs::remove_file(self.generation_path(self.generations)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        for n in (1..self.generations).rev() {
+            match fs::rename(self.generation_path(n), self.generation_path(n + 1)) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+                _ => {}
+            }
+        }
+        match fs::rename(self.live_path(), self.generation_path(1)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
+    /// Refuse a live path that exists and is not a plain file (a planted
+    /// symlink would redirect the log), before anything is rotated.
+    fn live_len(&self) -> Result<u64> {
+        match fs::symlink_metadata(self.live_path()) {
+            Ok(meta) if meta.file_type().is_file() => Ok(meta.len()),
+            Ok(_) => bail!("policy audit path is not a regular file"),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(e).context("stat policy audit file"),
+        }
+    }
+
+    fn open_live(&self) -> Result<File> {
+        let path = self.live_path();
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(&path).context("open policy audit file")?;
+        tighten(&file.metadata()?, &path, 0o600);
+        Ok(file)
+    }
+
+    /// Delete the live log and every rotated generation. Returns how many
+    /// files were removed. Other files in the directory are untouched.
+    pub fn delete(&self) -> Result<usize> {
+        let _guard = self.write_lock.lock();
+        let _flock = DirLock::acquire(&self.dir).ok();
+        delete_policy_audit(&self.dir)
+    }
+}
+
+impl DecisionSink for FileDecisionSink {
+    fn record(&self, record: &DecisionRecord) -> Result<()> {
+        let mut line = serde_json::to_vec(record).context("serialize policy audit record")?;
+        line.push(b'\n');
+        if line.len() as u64 > self.max_bytes {
+            bail!("policy audit record exceeds the configured file size");
+        }
+        let _guard = self.write_lock.lock();
+        ensure_dir(&self.dir).context("create policy audit directory")?;
+        let _flock = DirLock::acquire(&self.dir)?;
         let current = self.live_len()?;
         if current > 0 && current + line.len() as u64 > self.max_bytes {
             self.rotate().context("rotate policy audit file")?;
