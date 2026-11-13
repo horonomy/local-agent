@@ -375,8 +375,13 @@ enable_and_discover() {
 
 # A plugin tool needs two operator acts: naming it in allowed_tools (the policy
 # gate denies an extension tool that is not listed, ADR-019) and approving it.
+#
+# allowed_tools also restricts the agent to what it lists, so the built-in
+# `file_read` stays listed: cases that approve a tool and then expect it to be
+# absent (removed, withheld, refused) still need a turn that offers the
+# provider some tool, or agent_turn rejects the turn as uninformative.
 approve() {
-    configure risk_profiles.default.allowed_tools "[\"$1\"]" || return 1
+    configure risk_profiles.default.allowed_tools "[\"$1\", \"file_read\"]" || return 1
     configure risk_profiles.default.auto_approve "[\"$1\"]"
 }
 
@@ -561,7 +566,7 @@ a_discovered_tool_waits_for_approval() {
 a_listed_tool_still_waits_for_approval() {
     expect_installed tool-fixture || return 1
     configure plugins.auto_discover true || return 1
-    configure risk_profiles.default.allowed_tools "[\"$fixture_tool\"]" || return 1
+    configure risk_profiles.default.allowed_tools "[\"$fixture_tool\", \"file_read\"]" || return 1
     agent_turn "$fixture_tool" "$fixture_arguments" || return 1
     expect_offered "$fixture_tool" || return 1
     case "$turn_result" in
