@@ -43,7 +43,9 @@ use zeroclaw_config::governance::{GovernanceConfig, GovernanceMode};
 use zeroclaw_config::schema::Config;
 
 use super::policy_contract::{
-    CONTRACT_VERSION, PolicyAuthority, PolicyRequest, ReasonCode, Verdict, args_sha256,
+    ApprovalReceipt, ApprovalResponse, AuthorityInfo, CONTRACT_VERSION, DecisionOutcome,
+    DecisionRecord, DecisionSink, DecisionTrail, PolicyAuthority, PolicyRequest, ReasonCode,
+    Verdict, args_sha256,
 };
 use super::policy_engine::{PolicyProfile, StandalonePolicyEngine};
 
@@ -139,6 +141,10 @@ struct LiveTicket {
     /// `Allow` or `Ask`; a `Deny` never mints a ticket.
     verdict: Verdict,
     approved: bool,
+    /// An `Ask` already claimed by an answer; a second answer is refused.
+    answered: bool,
+    /// The decision's audit record, reused for the approval receipt.
+    record: Option<DecisionRecord>,
 }
 
 /// A call that did not resolve to a tool at preparation time (a deferred
@@ -221,6 +227,8 @@ pub enum RedeemError {
 
 pub struct PolicyGate {
     mode: Mode,
+    /// Receives one record per decision. A write failure denies the call.
+    sink: Option<Arc<dyn DecisionSink>>,
     tickets: Mutex<TicketBook>,
     next_decision: AtomicU64,
 }
@@ -229,6 +237,7 @@ impl PolicyGate {
     const fn with_mode(mode: Mode) -> Self {
         Self {
             mode,
+            sink: None,
             tickets: Mutex::new(TicketBook {
                 live: Vec::new(),
                 late: Vec::new(),
@@ -318,6 +327,13 @@ impl PolicyGate {
         self
     }
 
+    /// Record every decision to `sink`. If a record cannot be written the call
+    /// is denied `audit_write_failed` (ADR-019 D6).
+    pub fn with_sink(mut self, sink: Arc<dyn DecisionSink>) -> Self {
+        self.sink = Some(sink);
+        self
+    }
+
     /// A gate that denies every call. For a path that cannot build the policy
     /// it needs and must fail closed rather than fall back to a default.
     pub const fn deny_all() -> Self {
@@ -352,22 +368,12 @@ impl PolicyGate {
             #[cfg(any(test, feature = "test-util"))]
             Mode::PermitAll => return GateOutcome::Proceed { ask: false },
         };
-        let request = match build_request(enforcing, facts) {
-            Ok(request) => request,
-            Err(reason) => return GateOutcome::Deny { reason },
-        };
-        let decision = enforcing.authority.decide(&request).await;
-        match decision.verdict {
-            Verdict::Deny => GateOutcome::Deny {
-                reason: decision.reason,
-            },
-            verdict @ (Verdict::Allow | Verdict::Ask) => {
-                self.mint(facts, &request.args_sha256, verdict);
-                GateOutcome::Proceed {
-                    ask: verdict == Verdict::Ask,
-                }
-            }
+        let (outcome, record) = self.evaluate(enforcing, facts).await;
+        if let GateOutcome::Proceed { ask } = outcome {
+            let verdict = if ask { Verdict::Ask } else { Verdict::Allow };
+            self.mint(facts, verdict, record);
         }
+        outcome
     }
 
     /// Record a call that does not resolve yet; the executor decides it.
@@ -392,21 +398,24 @@ impl PolicyGate {
         }
     }
 
-    fn mint(&self, facts: &CallFacts<'_>, digest: &str, verdict: Verdict) {
-        let decision_id = self
-            .next_decision
-            .fetch_add(1, Ordering::Relaxed)
-            .to_string();
+    fn mint(&self, facts: &CallFacts<'_>, verdict: Verdict, record: Option<DecisionRecord>) {
+        let digest = args_sha256(facts.args);
+        let decision_id = record
+            .as_ref()
+            .and_then(|r| r.decision_id.clone())
+            .unwrap_or_else(|| self.next_decision_id());
         let mut book = self.tickets.lock();
         book.live.push(LiveTicket {
             ticket: DecisionTicket {
                 call_id: facts.call_id.to_owned(),
                 resolved_name: facts.tool.name().to_owned(),
-                args_sha256: digest.to_owned(),
+                args_sha256: digest,
                 decision_id,
             },
             verdict,
             approved: verdict == Verdict::Allow,
+            answered: verdict == Verdict::Allow,
+            record,
         });
         let overflow = book.live.len().saturating_sub(MAX_LIVE_TICKETS);
         book.live.drain(..overflow);
@@ -459,16 +468,74 @@ impl PolicyGate {
     }
 
     /// An operator approved this Ask call; its ticket becomes redeemable.
-    pub fn approve(&self, call_id: &str, resolved_name: &str, args: &serde_json::Value) {
+    /// The grant is written as an approval receipt first: `false` means it was
+    /// not recorded (no open ask, already answered, or the audit write
+    /// failed) and the ticket stays unredeemable.
+    pub fn approve(&self, call_id: &str, resolved_name: &str, args: &serde_json::Value) -> bool {
+        self.answer_ask(call_id, resolved_name, args, ApprovalResponse::Granted)
+    }
+
+    /// An operator rejected this Ask call: the receipt is written and the
+    /// ticket is dropped, so nothing can run under it.
+    pub fn reject(&self, call_id: &str, resolved_name: &str, args: &serde_json::Value) {
+        self.answer_ask(call_id, resolved_name, args, ApprovalResponse::Rejected);
+    }
+
+    /// The prompt ended without an answer (turn cancelled or timed out): a
+    /// `cancelled` receipt is written and the ticket is dropped.
+    pub fn cancel_ask(&self, call_id: &str, resolved_name: &str, args: &serde_json::Value) {
+        self.answer_ask(call_id, resolved_name, args, ApprovalResponse::Cancelled);
+    }
+
+    /// Claim the newest open ask for this exact call, write its receipt
+    /// outside the ticket lock, then settle the ticket.
+    fn answer_ask(
+        &self,
+        call_id: &str,
+        resolved_name: &str,
+        args: &serde_json::Value,
+        response: ApprovalResponse,
+    ) -> bool {
         let digest = args_sha256(args);
+        let (decision_id, template) = {
+            let mut book = self.tickets.lock();
+            let Some(live) = book.live.iter_mut().rev().find(|t| {
+                !t.answered
+                    && t.verdict == Verdict::Ask
+                    && t.ticket.call_id == call_id
+                    && t.ticket.resolved_name == resolved_name
+                    && t.ticket.args_sha256 == digest
+            }) else {
+                return false;
+            };
+            live.answered = true;
+            (live.ticket.decision_id.clone(), live.record.clone())
+        };
+        let recorded = match (&self.sink, template) {
+            (Some(sink), Some(mut receipt)) => {
+                receipt.ts = now_ts();
+                receipt.approval = Some(ApprovalReceipt {
+                    decision_id: decision_id.clone(),
+                    response,
+                });
+                sink.record(&receipt).is_ok()
+            }
+            _ => true,
+        };
         let mut book = self.tickets.lock();
-        if let Some(live) = book.live.iter_mut().find(|t| {
-            t.ticket.call_id == call_id
-                && t.ticket.resolved_name == resolved_name
-                && t.ticket.args_sha256 == digest
-        }) {
-            live.approved = true;
+        let Some(index) = book
+            .live
+            .iter()
+            .position(|t| t.ticket.decision_id == decision_id)
+        else {
+            return false;
+        };
+        if response == ApprovalResponse::Granted && recorded {
+            book.live[index].approved = true;
+        } else if response != ApprovalResponse::Granted {
+            book.live.remove(index);
         }
+        recorded && response == ApprovalResponse::Granted
     }
 
     /// Redeem the ticket for the call the executor is about to run.
@@ -518,20 +585,137 @@ impl PolicyGate {
                 reason: ReasonCode::AuthorityUnavailable,
             };
         };
-        match build_request(enforcing, facts) {
-            Err(reason) => GateOutcome::Deny { reason },
-            Ok(request) => {
-                let decision = enforcing.authority.decide(&request).await;
-                match decision.verdict {
-                    Verdict::Deny => GateOutcome::Deny {
-                        reason: decision.reason,
-                    },
-                    verdict => GateOutcome::Proceed {
-                        ask: verdict == Verdict::Ask,
-                    },
-                }
+        self.evaluate(enforcing, facts).await.0
+    }
+
+    fn next_decision_id(&self) -> String {
+        self.next_decision
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string()
+    }
+
+    /// Decide one call and write its record. The record is returned for
+    /// `Allow` and `Ask` so the approval receipt can reuse it.
+    async fn evaluate(
+        &self,
+        enforcing: &Enforcing,
+        facts: &CallFacts<'_>,
+    ) -> (GateOutcome, Option<DecisionRecord>) {
+        let request = build_request(enforcing, facts);
+        let decision = match &request {
+            Ok(request) => Some(enforcing.authority.decide(request).await),
+            Err(_) => None,
+        };
+        let (verdict, reason) = match (&request, &decision) {
+            (Err(reason), _) => (Verdict::Deny, *reason),
+            (_, Some(d)) => (d.verdict, d.reason),
+            _ => (Verdict::Deny, ReasonCode::LocalDeny),
+        };
+        let mut record = self.sink.as_ref().map(|_| {
+            let mut record = decision_record(facts, request.as_ref().ok(), verdict, reason);
+            if verdict != Verdict::Deny {
+                record.decision_id = Some(self.next_decision_id());
             }
+            record.authority.aasm_decision_id = decision
+                .and_then(|d| d.authority_ref)
+                .map(|id| bounded_id(&id));
+            record
+        });
+        if let (Some(sink), Some(record)) = (&self.sink, &record)
+            && sink.record(record).is_err()
+        {
+            // The error text can carry paths; only the closed code is kept.
+            zeroclaw_log::record!(
+                WARN,
+                zeroclaw_log::Event::new(module_path!(), zeroclaw_log::Action::Fail),
+                "policy audit write failed; call denied"
+            );
+            return (
+                GateOutcome::Deny {
+                    reason: ReasonCode::AuditWriteFailed,
+                },
+                None,
+            );
         }
+        match verdict {
+            Verdict::Deny => (GateOutcome::Deny { reason }, None),
+            _ => (
+                GateOutcome::Proceed {
+                    ask: verdict == Verdict::Ask,
+                },
+                record.take(),
+            ),
+        }
+    }
+}
+
+fn now_ts() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Longest identifier kept verbatim in an audit record.
+const MAX_AUDIT_ID_LEN: usize = 128;
+
+/// Identifiers can be model-controlled (`call_id`) or long. One that is not a
+/// short run of `[A-Za-z0-9._:-]` is replaced by a truncated digest, so it can
+/// neither carry content nor grow a record past the file limit.
+fn bounded_id(id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let plain = id.len() <= MAX_AUDIT_ID_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'));
+    if plain {
+        return id.to_owned();
+    }
+    let digest = Sha256::digest(id.as_bytes());
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("h-{hex}")
+}
+
+fn decision_record(
+    facts: &CallFacts<'_>,
+    request: Option<&PolicyRequest>,
+    verdict: Verdict,
+    reason: ReasonCode,
+) -> DecisionRecord {
+    let opt = |value: Option<&str>| value.map(bounded_id);
+    DecisionRecord {
+        v: 1,
+        ts: now_ts(),
+        session_id: bounded_id(request.map_or(facts.turn_id, |r| r.session_id.as_str())),
+        turn_id: bounded_id(facts.turn_id),
+        call_id: bounded_id(facts.call_id),
+        agent_alias: bounded_id(request.map_or(facts.agent_alias.unwrap_or_default(), |r| {
+            r.agent_alias.as_str()
+        })),
+        parent_agent_alias: opt(request.map_or(facts.parent_agent_alias, |r| {
+            r.parent_agent_alias.as_deref()
+        })),
+        capability: request.map_or(ToolCapability::Unknown, |r| r.capability),
+        tool_name: bounded_id(request.map_or(facts.tool.name(), |r| r.tool_name.as_str())),
+        via_skill: opt(request.and_then(|r| r.via_skill.as_deref())),
+        mcp_server: opt(request.and_then(|r| r.mcp_server.as_deref())),
+        args_sha256: args_sha256(facts.args),
+        decision: DecisionTrail {
+            local: verdict,
+            aasm: None,
+            effective: verdict,
+            reason,
+        },
+        authority: AuthorityInfo {
+            mode: "standalone".to_owned(),
+            contract_version: CONTRACT_VERSION,
+            aasm_decision_id: None,
+        },
+        outcome: DecisionOutcome {
+            executed: false,
+            success: false,
+            cancelled: false,
+            duration_ms: 0,
+        },
+        decision_id: None,
+        approval: None,
     }
 }
 

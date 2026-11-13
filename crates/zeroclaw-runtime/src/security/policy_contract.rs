@@ -193,6 +193,24 @@ pub struct DecisionOutcome {
     pub duration_ms: u64,
 }
 
+/// How an operator answered an `Ask`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalResponse {
+    Granted,
+    Rejected,
+    /// The turn was cancelled or timed out before the operator answered.
+    Cancelled,
+}
+
+/// Receipt of an operator's answer, scoped to one decision: `decision_id`
+/// names the ticket that the grant makes redeemable (once).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalReceipt {
+    pub decision_id: String,
+    pub response: ApprovalResponse,
+}
+
 /// One audit line (`policy-audit.jsonl`, `v: 1`). Raw arguments and tool
 /// output are never recorded: only `args_sha256`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +230,12 @@ pub struct DecisionRecord {
     pub decision: DecisionTrail,
     pub authority: AuthorityInfo,
     pub outcome: DecisionOutcome,
+    /// Gate-local id of the ticket minted for an `Allow` or `Ask`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_id: Option<String>,
+    /// Present on the record written when an `Ask` is answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ApprovalReceipt>,
 }
 
 #[cfg(test)]
@@ -329,6 +353,8 @@ mod tests {
                 cancelled: false,
                 duration_ms: 3,
             },
+            decision_id: None,
+            approval: None,
         }
     }
 
