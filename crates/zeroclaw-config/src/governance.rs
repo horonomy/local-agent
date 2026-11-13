@@ -122,11 +122,11 @@ pub struct GovernanceConfig {
     pub audit: GovernanceAuditConfig,
 }
 
-/// Whether this build contains the AASM managed transport. False until the
-/// `aasm-managed` transport lands (HORO-2395), which flips it. While false,
-/// a managed configuration is refused at validation, so a session can never
+/// Whether this build contains the AASM managed transport: true only with the
+/// `aasm-managed` feature (forwarded from `zeroclaw-runtime`). Otherwise a
+/// managed configuration is refused at validation, so a session can never
 /// start in a mode this binary cannot honour.
-pub const MANAGED_TRANSPORT_COMPILED: bool = false;
+pub const MANAGED_TRANSPORT_COMPILED: bool = cfg!(feature = "aasm-managed");
 
 impl GovernanceConfig {
     /// Validate against the current platform and build.
@@ -141,7 +141,7 @@ impl GovernanceConfig {
             validation_bail!(
                 ValidationFailed,
                 "governance.mode".to_string(),
-                "governance.mode = \"managed\" needs a build with the aasm-managed transport; this build has none, and there is no fallback to standalone"
+                "governance.mode = \"managed\" needs a build with the aasm-managed feature enabled; this build was compiled without it, and there is no fallback to standalone"
             );
         }
         Ok(())
@@ -279,7 +279,11 @@ mod tests {
                 .validate_for_build(false)
                 .is_ok()
         );
-        assert!(managed().validate().is_err());
+        assert_eq!(MANAGED_TRANSPORT_COMPILED, cfg!(feature = "aasm-managed"));
+        assert_eq!(
+            managed().validate().is_ok(),
+            cfg!(all(unix, feature = "aasm-managed"))
+        );
     }
 
     #[test]

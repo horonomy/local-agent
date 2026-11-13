@@ -3,7 +3,8 @@
 //! Not called by production code in this build. Standalone mode builds the
 //! local engine with the deny-all default profile (the enforcement slice
 //! supplies the real profile via [`build_standalone_authority`]); managed mode
-//! fails closed until the `aasm-managed` transport exists.
+//! composes the local engine with the AASM adapter under the `aasm-managed`
+//! feature and otherwise refuses startup.
 
 use std::sync::Arc;
 
