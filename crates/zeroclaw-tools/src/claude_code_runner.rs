@@ -74,6 +74,8 @@ impl ClaudeCodeRunnerTool {
 
 #[async_trait]
 impl Tool for ClaudeCodeRunnerTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "claude_code_runner"
     }

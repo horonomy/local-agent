@@ -18,6 +18,8 @@ impl DiscordSearchTool {
 
 #[async_trait]
 impl Tool for DiscordSearchTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "discord_search"
     }

@@ -88,6 +88,8 @@ impl SendMessageToPeerTool {
 
 #[async_trait]
 impl Tool for SendMessageToPeerTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "send_message_to_peer"
     }

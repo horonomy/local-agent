@@ -153,6 +153,17 @@ impl SkillShellTool {
 
 #[async_trait]
 impl Tool for SkillShellTool {
+    zeroclaw_api::declare_capability!(Shell);
+
+    /// A skill shell or script tool runs a command through the shell, so
+    /// policy evaluates it as `shell`: excluding `shell` excludes it.
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        Some(zeroclaw_api::tool::DelegationTarget::Builtin {
+            name: "shell",
+            capability: zeroclaw_api::policy::ToolCapability::Shell,
+        })
+    }
+
     fn name(&self) -> &str {
         &self.tool_name
     }
@@ -435,6 +446,31 @@ fn narrow_schema(
 
 #[async_trait]
 impl Tool for SkillBuiltinTool {
+    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
+        self.target_tool.capability()
+    }
+
+    fn mcp_server(&self) -> Option<&str> {
+        self.target_tool.mcp_server()
+    }
+
+    fn capability_for_call(
+        &self,
+        args: &serde_json::Value,
+    ) -> zeroclaw_api::policy::ToolCapability {
+        self.target_tool.capability_for_call(args)
+    }
+
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        self.target_tool.mcp_servers_for_call(args)
+    }
+
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        Some(zeroclaw_api::tool::DelegationTarget::Tool(
+            self.target_tool.as_ref(),
+        ))
+    }
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.target_tool.requires_unrestricted_principal()
     }

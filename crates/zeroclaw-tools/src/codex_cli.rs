@@ -62,6 +62,8 @@ fn codex_exec_args<'a>(config: &'a CodexCliConfig, prompt: &'a str) -> Vec<&'a s
 
 #[async_trait]
 impl Tool for CodexCliTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "codex_cli"
     }

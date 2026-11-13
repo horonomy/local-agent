@@ -1868,6 +1868,8 @@ static A2A_DISCOVER_DESC: OnceLock<String> = OnceLock::new();
 
 #[async_trait]
 impl Tool for A2aDiscoverTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "a2a_discover"
     }
@@ -1989,6 +1991,8 @@ static A2A_SEND_DESC: OnceLock<String> = OnceLock::new();
 
 #[async_trait]
 impl Tool for A2aSendTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "a2a_send"
     }
@@ -2059,6 +2063,8 @@ static A2A_GET_TASK_DESC: OnceLock<String> = OnceLock::new();
 
 #[async_trait]
 impl Tool for A2aGetTaskTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "a2a_get_task"
     }
@@ -2106,6 +2112,8 @@ static A2A_CANCEL_DESC: OnceLock<String> = OnceLock::new();
 
 #[async_trait]
 impl Tool for A2aCancelTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "a2a_cancel"
     }

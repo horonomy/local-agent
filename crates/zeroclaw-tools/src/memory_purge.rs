@@ -20,6 +20,8 @@ impl MemoryPurgeTool {
 
 #[async_trait]
 impl Tool for MemoryPurgeTool {
+    zeroclaw_api::declare_capability!(Memory);
+
     fn name(&self) -> &str {
         "memory_purge"
     }

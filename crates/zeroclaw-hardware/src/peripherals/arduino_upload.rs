@@ -218,6 +218,8 @@ impl ArduinoUploadTool {
 
 #[async_trait]
 impl Tool for ArduinoUploadTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "arduino_upload"
     }

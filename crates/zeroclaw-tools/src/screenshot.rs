@@ -177,6 +177,8 @@ impl ScreenshotTool {
 
 #[async_trait]
 impl Tool for ScreenshotTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "screenshot"
     }

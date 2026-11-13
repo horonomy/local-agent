@@ -41,6 +41,15 @@ zeroclaw_api::tool_attribution!(
 
 #[async_trait]
 impl Tool for McpPromptsTool {
+    zeroclaw_api::declare_capability!(Mcp);
+
+    /// `list` names its server in `server` (none means every server); `get`
+    /// carries it as the `<server>__` prefix of `name`. An unparsable `name`
+    /// yields an empty name, which policy denies.
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        Some(McpRegistry::servers_named_in_args(args, "get", "name"))
+    }
+
     fn name(&self) -> &str {
         "mcp_prompts"
     }

@@ -22,6 +22,8 @@ impl ReadSkillTool {
 
 #[async_trait]
 impl Tool for ReadSkillTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "read_skill"
     }

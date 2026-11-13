@@ -357,6 +357,8 @@ pub struct GpioRpiWriteTool;
 
 #[async_trait]
 impl Tool for GpioRpiWriteTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "gpio_rpi_write"
     }
@@ -458,6 +460,8 @@ pub struct GpioRpiReadTool;
 
 #[async_trait]
 impl Tool for GpioRpiReadTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "gpio_rpi_read"
     }
@@ -541,6 +545,8 @@ pub struct GpioRpiBlinkTool;
 
 #[async_trait]
 impl Tool for GpioRpiBlinkTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "gpio_rpi_blink"
     }
@@ -660,6 +666,8 @@ pub struct RpiSystemInfoTool;
 
 #[async_trait]
 impl Tool for RpiSystemInfoTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "rpi_system_info"
     }

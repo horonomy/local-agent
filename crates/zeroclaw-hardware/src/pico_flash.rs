@@ -32,6 +32,8 @@ impl PicoFlashTool {
 
 #[async_trait]
 impl Tool for PicoFlashTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "pico_flash"
     }

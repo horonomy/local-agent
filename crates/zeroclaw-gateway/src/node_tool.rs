@@ -64,6 +64,8 @@ impl NodeTool {
 
 #[async_trait]
 impl Tool for NodeTool {
+    zeroclaw_api::declare_capability!(Plugin);
+
     fn name(&self) -> &str {
         &self.prefixed_name
     }

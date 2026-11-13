@@ -755,6 +755,8 @@ impl GitForgeTool {
 
 #[async_trait]
 impl Tool for GitForgeTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "git_forge"
     }

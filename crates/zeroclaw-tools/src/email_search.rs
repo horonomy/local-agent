@@ -32,6 +32,8 @@ impl EmailSearchTool {
 
 #[async_trait]
 impl Tool for EmailSearchTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "email_search"
     }

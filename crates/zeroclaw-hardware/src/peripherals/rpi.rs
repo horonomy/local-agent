@@ -69,6 +69,8 @@ struct RpiGpioReadTool;
 
 #[async_trait]
 impl Tool for RpiGpioReadTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "gpio_read"
     }
@@ -126,6 +128,8 @@ struct RpiGpioWriteTool;
 
 #[async_trait]
 impl Tool for RpiGpioWriteTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "gpio_write"
     }

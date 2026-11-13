@@ -20,6 +20,8 @@ impl CloudOpsTool {
 
 #[async_trait]
 impl Tool for CloudOpsTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "cloud_ops"
     }

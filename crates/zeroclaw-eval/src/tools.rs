@@ -20,6 +20,9 @@ impl Attributable for EchoTool {
 
 #[async_trait]
 impl Tool for EchoTool {
+    // Dev-only replay tool: it only returns its input.
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "echo"
     }

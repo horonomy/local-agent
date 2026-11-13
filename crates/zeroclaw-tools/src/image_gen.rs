@@ -478,6 +478,8 @@ impl ImageGenTool {
 
 #[async_trait]
 impl Tool for ImageGenTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "image_gen"
     }

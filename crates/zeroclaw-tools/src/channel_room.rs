@@ -64,6 +64,8 @@ impl ChannelRoomTool {
 
 #[async_trait]
 impl Tool for ChannelRoomTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "channel_room"
     }

@@ -30,6 +30,8 @@ impl HardwareMemoryReadTool {
 
 #[async_trait]
 impl Tool for HardwareMemoryReadTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "hardware_memory_read"
     }

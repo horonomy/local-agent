@@ -183,6 +183,8 @@ impl CanvasTool {
 
 #[async_trait]
 impl Tool for CanvasTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "canvas"
     }

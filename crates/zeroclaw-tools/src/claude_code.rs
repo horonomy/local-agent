@@ -42,6 +42,8 @@ impl ClaudeCodeTool {
 
 #[async_trait]
 impl Tool for ClaudeCodeTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "claude_code"
     }

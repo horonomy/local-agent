@@ -1582,6 +1582,8 @@ impl ModelRoutingConfigTool {
 
 #[async_trait]
 impl Tool for ModelRoutingConfigTool {
+    zeroclaw_api::declare_capability!(FsWrite);
+
     fn name(&self) -> &str {
         "model_routing_config"
     }

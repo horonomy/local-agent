@@ -53,6 +53,8 @@ impl ScheduleTool {
 
 #[async_trait]
 impl Tool for ScheduleTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "schedule"
     }

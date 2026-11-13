@@ -59,6 +59,8 @@ impl CronRemoveTool {
 
 #[async_trait]
 impl Tool for CronRemoveTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "cron_remove"
     }

@@ -506,6 +506,60 @@ pub fn invocation_trigger_matches(haystack_lower: &str, trigger_lower: &str) -> 
     false
 }
 
+/// What a wrapper tool delegates to, for policy evaluation (ADR-019).
+pub enum DelegationTarget<'a> {
+    /// Another tool instance (a skill wrapping a built-in or MCP tool).
+    Tool(&'a dyn Tool),
+    /// A fixed built-in capability the wrapper implements itself (a skill
+    /// shell tool runs as `shell`, a skill HTTP tool as `http_request`).
+    Builtin {
+        name: &'static str,
+        capability: crate::policy::ToolCapability,
+    },
+}
+
+/// Forward every policy hook of a wrapper tool to the tool it wraps, so a
+/// wrapper never changes what policy decides about the tool inside it. Use it
+/// in an `impl Tool for` block: `forward_policy_hooks!(self => self.inner);`.
+/// The `self` identifier is passed in because macro hygiene keeps a `self`
+/// written at the call site apart from the one the macro declares.
+#[macro_export]
+macro_rules! forward_policy_hooks {
+    ($s:ident => $inner:expr) => {
+        fn capability(&$s) -> $crate::policy::ToolCapability {
+            $inner.capability()
+        }
+
+        fn capability_for_call(&$s, args: &serde_json::Value) -> $crate::policy::ToolCapability {
+            $inner.capability_for_call(args)
+        }
+
+        fn mcp_server(&$s) -> Option<&str> {
+            $inner.mcp_server()
+        }
+
+        fn mcp_servers_for_call(&$s, args: &serde_json::Value) -> Option<Vec<String>> {
+            $inner.mcp_servers_for_call(args)
+        }
+
+        fn delegation_target(&$s) -> Option<$crate::tool::DelegationTarget<'_>> {
+            $inner.delegation_target()
+        }
+    };
+}
+
+/// Declare a tool's fixed policy capability in an `impl Tool for` block:
+/// `declare_capability!(Network);`. Tools whose capability depends on the
+/// call keep a hand-written `capability_for_call`.
+#[macro_export]
+macro_rules! declare_capability {
+    ($variant:ident) => {
+        fn capability(&self) -> $crate::policy::ToolCapability {
+            $crate::policy::ToolCapability::$variant
+        }
+    };
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync + crate::attribution::Attributable {
     /// True when this tool starts nested execution without carrying the RPC
@@ -521,6 +575,34 @@ pub trait Tool: Send + Sync + crate::attribution::Attributable {
     /// `Unknown`, is never granted implicitly by the policy engine.
     fn capability(&self) -> crate::policy::ToolCapability {
         crate::policy::ToolCapability::Unknown
+    }
+
+    /// Capability of one specific call, for tools whose class depends on the
+    /// arguments (an action that stays local versus one that reaches a
+    /// provider). Defaults to [`Self::capability`]; policy decides on this.
+    fn capability_for_call(&self, _args: &serde_json::Value) -> crate::policy::ToolCapability {
+        self.capability()
+    }
+
+    /// For a tool that addresses MCP servers named in its arguments rather
+    /// than being bound to one: the servers this call touches (empty means
+    /// every connected server). `None` for every other tool. Policy checks
+    /// each named server against grants and exclusions.
+    fn mcp_servers_for_call(&self, _args: &serde_json::Value) -> Option<Vec<String>> {
+        None
+    }
+
+    /// MCP server this tool proxies to, when it is an MCP wrapper. Policy
+    /// uses it to check the server grant and exclusions.
+    fn mcp_server(&self) -> Option<&str> {
+        None
+    }
+
+    /// The tool a wrapper (a skill tool) runs on behalf of, if any. Policy
+    /// evaluates a wrapper as its target so a rename cannot change what is
+    /// authorised. Pure forwarders return their inner tool's value.
+    fn delegation_target(&self) -> Option<DelegationTarget<'_>> {
+        None
     }
 
     /// Tool name (used in LLM function calling)

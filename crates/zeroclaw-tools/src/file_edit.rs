@@ -30,6 +30,8 @@ impl FileEditTool {
 
 #[async_trait]
 impl Tool for FileEditTool {
+    zeroclaw_api::declare_capability!(FsWrite);
+
     fn name(&self) -> &str {
         "file_edit"
     }

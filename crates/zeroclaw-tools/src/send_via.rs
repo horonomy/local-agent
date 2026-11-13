@@ -200,6 +200,8 @@ impl SendViaTool {
 
 #[async_trait]
 impl Tool for SendViaTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "send_via"
     }

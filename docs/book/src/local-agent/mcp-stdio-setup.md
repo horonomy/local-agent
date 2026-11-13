@@ -95,7 +95,8 @@ Three independent controls bound what a granted server can do. They are separate
 
 Two behaviors to plan around:
 
-- When `allowed_tools` is non-empty, every MCP tool (any name containing `__`) is auto-admitted unless it is in `excluded_tools`. List destructive tools in `excluded_tools`. The `docs__fail` entry above is how this guide blocks the fixture's second tool.
+- When `allowed_tools` is non-empty, an MCP tool runs only if its composed `<server>__<tool>` name is listed there (containing `__` is not a grant) and the server is granted by an `mcp_bundles` entry. In the example, `docs__echo` is listed, so `docs__fail` is already unreachable; the `excluded_tools` entry is a belt-and-braces block that also wins over any later listing. Excluding a server name (for example `docs`) excludes all of its tools and the `mcp_resources` and `mcp_prompts` tools for that server.
+- `mcp_resources` and `mcp_prompts` name their server in their arguments. The policy gate reads that server: it must be granted and not excluded, and an all-server call is refused while any granted server is excluded.
 - An empty `allowed_tools` means no restriction, not deny-all. Use `deny_all_tools = true` for deny-all.
 
 The client also strips a caller-supplied `approved` flag before forwarding a call, and treats tool and result text as data, never as instructions (matrix rows M4, M5).

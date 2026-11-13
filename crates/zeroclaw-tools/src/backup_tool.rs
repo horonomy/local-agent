@@ -550,6 +550,8 @@ impl BackupTool {
 
 #[async_trait]
 impl Tool for BackupTool {
+    zeroclaw_api::declare_capability!(FsWrite);
+
     fn name(&self) -> &str {
         "backup"
     }

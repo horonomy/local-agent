@@ -67,6 +67,8 @@ impl SkillsListTool {
 
 #[async_trait]
 impl Tool for SkillsListTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "skills_list"
     }
@@ -167,6 +169,8 @@ impl SkillViewTool {
 
 #[async_trait]
 impl Tool for SkillViewTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "skill_view"
     }
@@ -295,6 +299,8 @@ impl SkillManageTool {
 
 #[async_trait]
 impl Tool for SkillManageTool {
+    zeroclaw_api::declare_capability!(FsWrite);
+
     fn name(&self) -> &str {
         "skill_manage"
     }

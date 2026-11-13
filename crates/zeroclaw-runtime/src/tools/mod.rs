@@ -222,6 +222,8 @@ pub struct ArcToolRef(pub Arc<dyn Tool>);
 
 #[async_trait]
 impl Tool for ArcToolRef {
+    zeroclaw_api::forward_policy_hooks!(self => self.0);
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.0.requires_unrestricted_principal()
     }
@@ -360,6 +362,8 @@ impl ::zeroclaw_api::attribution::Attributable for ArcDelegatingTool {
 
 #[async_trait]
 impl Tool for ArcDelegatingTool {
+    zeroclaw_api::forward_policy_hooks!(self => self.inner);
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.inner.requires_unrestricted_principal()
     }
@@ -1768,6 +1772,7 @@ fn all_tools_with_runtime_on_thread(
                 security.clone(),
             )
             .with_subagent_caller(is_subagent_caller)
+            .requiring_caller_scope()
             .with_execution_capability(execution_capability.clone()),
         )
     );
@@ -7679,6 +7684,15 @@ permissions = ["http_client"]
     /// placeholder credentials, and the MCP registry is a test stub whose one
     /// server is never contacted.
     async fn maximal_registry_names(tmp: &TempDir) -> std::collections::BTreeSet<String> {
+        maximal_assembled(tmp)
+            .await
+            .registry
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect()
+    }
+
+    async fn maximal_assembled(tmp: &TempDir) -> scoped::ScopedAssembled {
         use zeroclaw_config::schema::{
             DiscordConfig, McpBundleConfig, McpServerConfig, McpTransport, Microsoft365Config,
             OpenAIModelProviderConfig, SkillsPromptInjectionMode,
@@ -7843,7 +7857,7 @@ permissions = ["http_client"]
 
         // The scoped assembly mints `execute_pipeline` and the MCP capability
         // tools. `acp_delivery` keeps `deliver_file`, which only ACP turns admit.
-        let assembled = scoped::ScopedToolRegistry::assemble(scoped::ScopedAssembly {
+        scoped::ScopedToolRegistry::assemble(scoped::ScopedAssembly {
             config: &cfg,
             agent_alias: "test-agent",
             security: &security,
@@ -7859,12 +7873,7 @@ permissions = ["http_client"]
             emit_assembly_logs: false,
             mcp_registry: Some(Arc::new(McpRegistry::for_test_with_server_count(1))),
         })
-        .await;
-        assembled
-            .registry
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect()
+        .await
     }
 
     #[tokio::test]
@@ -7897,6 +7906,143 @@ permissions = ["http_client"]
             uncompiled.is_empty(),
             "the registry registers tools outside their canonical compilation groups: {uncompiled:?}"
         );
+    }
+
+    /// Built-ins that stay `Unknown` (and are therefore denied by policy) on
+    /// purpose. Empty today: every tool the maximal registry registers is
+    /// classified. Add a row only with a reason.
+    const UNCLASSIFIED_ALLOWLIST: &[(&str, &str)] = &[];
+
+    #[tokio::test]
+    async fn every_registered_builtin_has_a_capability() {
+        use zeroclaw_api::policy::ToolCapability;
+        let tmp = TempDir::new().unwrap();
+        let assembled = maximal_assembled(&tmp).await;
+        assert!(
+            assembled.registry.iter().any(|t| t.name() == "shell"),
+            "positive control: the maximal registry must be populated"
+        );
+        let unclassified: Vec<String> = assembled
+            .registry
+            .iter()
+            .filter(|tool| tool.capability() == ToolCapability::Unknown)
+            .map(|tool| tool.name().to_string())
+            .filter(|name| !UNCLASSIFIED_ALLOWLIST.iter().any(|(n, _)| n == name))
+            .collect();
+        assert!(
+            unclassified.is_empty(),
+            "built-in tools without a capability are denied by policy; override \
+             `Tool::capability` or allowlist with a reason: {unclassified:?}"
+        );
+        let stale: Vec<&str> = UNCLASSIFIED_ALLOWLIST
+            .iter()
+            .map(|(n, _)| *n)
+            .filter(|n| {
+                assembled
+                    .registry
+                    .iter()
+                    .all(|t| t.name() != *n || t.capability() != ToolCapability::Unknown)
+            })
+            .collect();
+        assert!(stale.is_empty(), "stale allowlist rows: {stale:?}");
+    }
+
+    /// Capability pinned for every built-in a reviewer asked about, keyed by
+    /// name. `required` rows are present under the maximal config; the rest
+    /// register only under some configs, so they are pinned when present.
+    /// Hardware (`Desktop`; `datasheet` is `Network`) and plugin (`Plugin`)
+    /// classes are not registered here and are pinned by tests in their own
+    /// crates. Notes: `deliver_file` hands a file to the requesting ACP client
+    /// only and `content_search` spawns a read-only `rg`; neither reaches the
+    /// network. Wrapped built-ins keep their class through the wrappers.
+    type CapabilityRows = Vec<(&'static str, zeroclaw_api::policy::ToolCapability)>;
+
+    fn capability_rows() -> (CapabilityRows, CapabilityRows) {
+        use zeroclaw_api::policy::ToolCapability::{
+            AgentInternal, Browser, FsRead, FsWrite, Memory, Network, Shell, Subagent,
+        };
+        let required = vec![
+            ("shell", Shell),
+            ("cron_run", Shell),
+            ("cron_add", Shell),
+            ("cron_update", Shell),
+            ("schedule", Shell),
+            ("file_read", FsRead),
+            ("file_write", FsWrite),
+            ("file_edit", FsWrite),
+            ("web_fetch", Network),
+            ("http_request", Network),
+            ("delegate", Subagent),
+        ];
+        let optional = vec![
+            ("escalate_to_human", Network),
+            ("poll", Network),
+            ("reaction", Network),
+            ("model_switch", AgentInternal),
+            ("tool_search", AgentInternal),
+            ("ask_user", AgentInternal),
+            ("browser_open", Browser),
+            ("browser", Browser),
+            ("deliver_file", FsRead),
+            ("content_search", FsRead),
+            ("glob_search", FsRead),
+            ("canvas", AgentInternal),
+            ("vi_verify", AgentInternal),
+            ("report_template", AgentInternal),
+            ("sop_execute", Subagent),
+            ("sop_approve", Subagent),
+            ("sop_advance", Subagent),
+            ("sop_workshop", FsWrite),
+            ("sop_list", AgentInternal),
+            ("sop_status", AgentInternal),
+            ("memory_store", Memory),
+            ("memory_forget", Memory),
+            ("memory_purge", Memory),
+            ("sessions_delete", Memory),
+            ("cron_remove", AgentInternal),
+            ("model_routing_config", FsWrite),
+            ("proxy_config", FsWrite),
+        ];
+        (required, optional)
+    }
+
+    #[tokio::test]
+    async fn built_in_capabilities_match_their_authority() {
+        use zeroclaw_api::policy::ToolCapability::{AgentInternal, Mcp, Network};
+        let tmp = TempDir::new().unwrap();
+        let assembled = maximal_assembled(&tmp).await;
+        let find = |name: &str| assembled.registry.iter().find(|t| t.name() == name);
+        let (required, optional) = capability_rows();
+        for (name, expected) in required {
+            let tool = find(name).unwrap_or_else(|| panic!("`{name}` not registered"));
+            assert_eq!(tool.capability(), expected, "{name}");
+        }
+        for (name, expected) in optional {
+            if let Some(tool) = find(name) {
+                assert_eq!(tool.capability(), expected, "{name}");
+            }
+        }
+        // Generic MCP tools report Mcp; `model_switch` decides per call.
+        for name in ["mcp_resources", "mcp_prompts"] {
+            if let Some(tool) = find(name) {
+                assert_eq!(tool.capability(), Mcp, "{name}");
+            }
+        }
+        if let Some(tool) = find("model_switch") {
+            let call =
+                |action: &str| tool.capability_for_call(&serde_json::json!({"action": action}));
+            assert_eq!(call("list_models"), Network);
+            assert_eq!(call("set"), AgentInternal);
+        }
+        // The MCP wrapper is classified through the real wrapper type.
+        if let Some(mcp) = assembled
+            .registry
+            .iter()
+            .find(|t| t.name().starts_with("inventory__"))
+        {
+            assert_eq!(mcp.capability(), Mcp);
+            assert_eq!(mcp.mcp_server(), Some("inventory"));
+        }
     }
 
     #[tokio::test]

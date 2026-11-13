@@ -179,6 +179,8 @@ impl NotionTool {
 
 #[async_trait]
 impl Tool for NotionTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "notion"
     }

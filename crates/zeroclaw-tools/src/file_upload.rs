@@ -137,6 +137,8 @@ impl FileUploadTool {
 
 #[async_trait]
 impl Tool for FileUploadTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "file_upload"
     }

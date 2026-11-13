@@ -65,6 +65,8 @@ impl HardwareBoardInfoTool {
 
 #[async_trait]
 impl Tool for HardwareBoardInfoTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "hardware_board_info"
     }

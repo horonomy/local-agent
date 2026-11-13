@@ -421,6 +421,8 @@ static NORMALIZE_ALLOWED_PRIVATE_HOSTS_WARNING: OnceLock<()> = OnceLock::new();
 
 #[async_trait]
 impl Tool for FileDownloadTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "file_download"
     }

@@ -20,6 +20,8 @@ impl MemoryStoreTool {
 
 #[async_trait]
 impl Tool for MemoryStoreTool {
+    zeroclaw_api::declare_capability!(Memory);
+
     fn name(&self) -> &str {
         "memory_store"
     }
