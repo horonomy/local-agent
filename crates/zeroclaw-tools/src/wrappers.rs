@@ -36,28 +36,7 @@ impl<T: Tool> Attributable for RateLimitedTool<T> {
 
 #[async_trait]
 impl<T: Tool> Tool for RateLimitedTool<T> {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        self.inner.capability()
-    }
-
-    fn capability_for_call(
-        &self,
-        args: &serde_json::Value,
-    ) -> zeroclaw_api::policy::ToolCapability {
-        self.inner.capability_for_call(args)
-    }
-
-    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
-        self.inner.mcp_servers_for_call(args)
-    }
-
-    fn mcp_server(&self) -> Option<&str> {
-        self.inner.mcp_server()
-    }
-
-    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
-        self.inner.delegation_target()
-    }
+    zeroclaw_api::forward_policy_hooks!(self => self.inner);
 
     fn name(&self) -> &str {
         self.inner.name()
@@ -169,28 +148,7 @@ impl<T: Tool> Attributable for PathGuardedTool<T> {
 
 #[async_trait]
 impl<T: Tool> Tool for PathGuardedTool<T> {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        self.inner.capability()
-    }
-
-    fn capability_for_call(
-        &self,
-        args: &serde_json::Value,
-    ) -> zeroclaw_api::policy::ToolCapability {
-        self.inner.capability_for_call(args)
-    }
-
-    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
-        self.inner.mcp_servers_for_call(args)
-    }
-
-    fn mcp_server(&self) -> Option<&str> {
-        self.inner.mcp_server()
-    }
-
-    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
-        self.inner.delegation_target()
-    }
+    zeroclaw_api::forward_policy_hooks!(self => self.inner);
 
     fn name(&self) -> &str {
         self.inner.name()

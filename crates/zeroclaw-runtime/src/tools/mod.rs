@@ -222,28 +222,7 @@ pub struct ArcToolRef(pub Arc<dyn Tool>);
 
 #[async_trait]
 impl Tool for ArcToolRef {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        self.0.capability()
-    }
-
-    fn capability_for_call(
-        &self,
-        args: &serde_json::Value,
-    ) -> zeroclaw_api::policy::ToolCapability {
-        self.0.capability_for_call(args)
-    }
-
-    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
-        self.0.mcp_servers_for_call(args)
-    }
-
-    fn mcp_server(&self) -> Option<&str> {
-        self.0.mcp_server()
-    }
-
-    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
-        self.0.delegation_target()
-    }
+    zeroclaw_api::forward_policy_hooks!(self => self.0);
 
     fn requires_unrestricted_principal(&self) -> bool {
         self.0.requires_unrestricted_principal()
@@ -383,28 +362,7 @@ impl ::zeroclaw_api::attribution::Attributable for ArcDelegatingTool {
 
 #[async_trait]
 impl Tool for ArcDelegatingTool {
-    fn capability(&self) -> zeroclaw_api::policy::ToolCapability {
-        self.inner.capability()
-    }
-
-    fn capability_for_call(
-        &self,
-        args: &serde_json::Value,
-    ) -> zeroclaw_api::policy::ToolCapability {
-        self.inner.capability_for_call(args)
-    }
-
-    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
-        self.inner.mcp_servers_for_call(args)
-    }
-
-    fn mcp_server(&self) -> Option<&str> {
-        self.inner.mcp_server()
-    }
-
-    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
-        self.inner.delegation_target()
-    }
+    zeroclaw_api::forward_policy_hooks!(self => self.inner);
 
     fn requires_unrestricted_principal(&self) -> bool {
         self.inner.requires_unrestricted_principal()
@@ -7989,23 +7947,22 @@ permissions = ["http_client"]
         assert!(stale.is_empty(), "stale allowlist rows: {stale:?}");
     }
 
-    #[tokio::test]
-    async fn built_in_capabilities_match_their_authority() {
+    /// Capability pinned for every built-in a reviewer asked about, keyed by
+    /// name. `required` rows are present under the maximal config; the rest
+    /// register only under some configs, so they are pinned when present.
+    /// Hardware (`Desktop`; `datasheet` is `Network`) and plugin (`Plugin`)
+    /// classes are not registered here and are pinned by tests in their own
+    /// crates. Notes: `deliver_file` hands a file to the requesting ACP client
+    /// only and `content_search` spawns a read-only `rg`; neither reaches the
+    /// network. Wrapped built-ins keep their class through the wrappers.
+    fn capability_rows() -> (
+        Vec<(&'static str, zeroclaw_api::policy::ToolCapability)>,
+        Vec<(&'static str, zeroclaw_api::policy::ToolCapability)>,
+    ) {
         use zeroclaw_api::policy::ToolCapability::{
-            Browser, FsRead, FsWrite, Mcp, Network, Shell, Subagent,
+            AgentInternal, Browser, FsRead, FsWrite, Memory, Network, Shell, Subagent,
         };
-        let tmp = TempDir::new().unwrap();
-        let assembled = maximal_assembled(&tmp).await;
-        let capability = |name: &str| {
-            assembled
-                .registry
-                .iter()
-                .find(|t| t.name() == name)
-                .unwrap_or_else(|| panic!("`{name}` not registered"))
-                .capability()
-        };
-        // Wrapped built-ins keep their class through RateLimited/PathGuarded.
-        for (name, expected) in [
+        let required = vec![
             ("shell", Shell),
             ("cron_run", Shell),
             ("cron_add", Shell),
@@ -8017,96 +7974,73 @@ permissions = ["http_client"]
             ("web_fetch", Network),
             ("http_request", Network),
             ("delegate", Subagent),
-        ] {
-            assert_eq!(capability(name), expected, "{name}");
-        }
-        // Outbound channel traffic and MCP introspection. Each registers only
-        // under some configs, so pin the ones present and require the
-        // positive control above. Hardware (`Desktop`, `datasheet` is
-        // `Network`) and plugin (`Plugin`) classes are not registered by this
-        // maximal config; they are pinned by focused tests in their crates.
-        for (name, expected) in [
+        ];
+        let optional = vec![
             ("escalate_to_human", Network),
             ("poll", Network),
             ("reaction", Network),
-            ("mcp_resources", Mcp),
-            ("mcp_prompts", Mcp),
-            (
-                "model_switch",
-                zeroclaw_api::policy::ToolCapability::AgentInternal,
-            ),
-            (
-                "tool_search",
-                zeroclaw_api::policy::ToolCapability::AgentInternal,
-            ),
-            (
-                "ask_user",
-                zeroclaw_api::policy::ToolCapability::AgentInternal,
-            ),
-        ] {
-            if let Some(tool) = assembled.registry.iter().find(|t| t.name() == name) {
+            ("model_switch", AgentInternal),
+            ("tool_search", AgentInternal),
+            ("ask_user", AgentInternal),
+            ("browser_open", Browser),
+            ("browser", Browser),
+            ("deliver_file", FsRead),
+            ("content_search", FsRead),
+            ("glob_search", FsRead),
+            ("canvas", AgentInternal),
+            ("vi_verify", AgentInternal),
+            ("report_template", AgentInternal),
+            ("sop_execute", Subagent),
+            ("sop_approve", Subagent),
+            ("sop_advance", Subagent),
+            ("sop_workshop", FsWrite),
+            ("sop_list", AgentInternal),
+            ("sop_status", AgentInternal),
+            ("memory_store", Memory),
+            ("memory_forget", Memory),
+            ("memory_purge", Memory),
+            ("sessions_delete", Memory),
+            ("cron_remove", AgentInternal),
+            ("model_routing_config", FsWrite),
+            ("proxy_config", FsWrite),
+        ];
+        (required, optional)
+    }
+
+    #[tokio::test]
+    async fn built_in_capabilities_match_their_authority() {
+        use zeroclaw_api::policy::ToolCapability::{AgentInternal, Mcp, Network};
+        let tmp = TempDir::new().unwrap();
+        let assembled = maximal_assembled(&tmp).await;
+        let find = |name: &str| assembled.registry.iter().find(|t| t.name() == name);
+        let (required, optional) = capability_rows();
+        for (name, expected) in required {
+            let tool = find(name).unwrap_or_else(|| panic!("`{name}` not registered"));
+            assert_eq!(tool.capability(), expected, "{name}");
+        }
+        for (name, expected) in optional {
+            if let Some(tool) = find(name) {
                 assert_eq!(tool.capability(), expected, "{name}");
             }
         }
-        // Audited for egress and process spawn: every remaining local class.
-        // `deliver_file` hands a file to the requesting ACP client only;
-        // `content_search` spawns a read-only `rg`; neither reaches the network.
-        {
-            use zeroclaw_api::policy::ToolCapability::{
-                AgentInternal, FsRead, FsWrite, Memory, Subagent,
-            };
-            for (name, expected) in [
-                ("deliver_file", FsRead),
-                ("content_search", FsRead),
-                ("glob_search", FsRead),
-                ("canvas", AgentInternal),
-                ("vi_verify", AgentInternal),
-                ("report_template", AgentInternal),
-                ("sop_execute", Subagent),
-                ("sop_approve", Subagent),
-                ("sop_advance", Subagent),
-                ("sop_workshop", FsWrite),
-                ("sop_list", AgentInternal),
-                ("sop_status", AgentInternal),
-                ("memory_store", Memory),
-                ("memory_forget", Memory),
-                ("memory_purge", Memory),
-                ("sessions_delete", Memory),
-                ("cron_remove", AgentInternal),
-                ("model_routing_config", FsWrite),
-                ("proxy_config", FsWrite),
-            ] {
-                if let Some(tool) = assembled.registry.iter().find(|t| t.name() == name) {
-                    assert_eq!(tool.capability(), expected, "{name}");
-                }
+        // Generic MCP tools report Mcp; `model_switch` decides per call.
+        for name in ["mcp_resources", "mcp_prompts"] {
+            if let Some(tool) = find(name) {
+                assert_eq!(tool.capability(), Mcp, "{name}");
             }
         }
-        if let Some(tool) = assembled
-            .registry
-            .iter()
-            .find(|t| t.name() == "model_switch")
-        {
-            assert_eq!(
-                tool.capability_for_call(&serde_json::json!({"action": "list_models"})),
-                Network
-            );
-            assert_eq!(
-                tool.capability_for_call(&serde_json::json!({"action": "set"})),
-                zeroclaw_api::policy::ToolCapability::AgentInternal
-            );
-        }
-        // Browser tools register only under some browser configs.
-        for name in ["browser_open", "browser"] {
-            if let Some(tool) = assembled.registry.iter().find(|t| t.name() == name) {
-                assert_eq!(tool.capability(), Browser, "{name}");
-            }
+        if let Some(tool) = find("model_switch") {
+            let call =
+                |action: &str| tool.capability_for_call(&serde_json::json!({"action": action}));
+            assert_eq!(call("list_models"), Network);
+            assert_eq!(call("set"), AgentInternal);
         }
         // The MCP wrapper is classified through the real wrapper type.
-        let mcp = assembled
+        if let Some(mcp) = assembled
             .registry
             .iter()
-            .find(|t| t.name().starts_with("inventory__"));
-        if let Some(mcp) = mcp {
+            .find(|t| t.name().starts_with("inventory__"))
+        {
             assert_eq!(mcp.capability(), Mcp);
             assert_eq!(mcp.mcp_server(), Some("inventory"));
         }

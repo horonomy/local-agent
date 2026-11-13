@@ -518,6 +518,36 @@ pub enum DelegationTarget<'a> {
     },
 }
 
+/// Forward every policy hook of a wrapper tool to the tool it wraps, so a
+/// wrapper never changes what policy decides about the tool inside it. Use it
+/// in an `impl Tool for` block: `forward_policy_hooks!(self => self.inner);`.
+/// The `self` identifier is passed in because macro hygiene keeps a `self`
+/// written at the call site apart from the one the macro declares.
+#[macro_export]
+macro_rules! forward_policy_hooks {
+    ($s:ident => $inner:expr) => {
+        fn capability(&$s) -> $crate::policy::ToolCapability {
+            $inner.capability()
+        }
+
+        fn capability_for_call(&$s, args: &serde_json::Value) -> $crate::policy::ToolCapability {
+            $inner.capability_for_call(args)
+        }
+
+        fn mcp_server(&$s) -> Option<&str> {
+            $inner.mcp_server()
+        }
+
+        fn mcp_servers_for_call(&$s, args: &serde_json::Value) -> Option<Vec<String>> {
+            $inner.mcp_servers_for_call(args)
+        }
+
+        fn delegation_target(&$s) -> Option<$crate::tool::DelegationTarget<'_>> {
+            $inner.delegation_target()
+        }
+    };
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync + crate::attribution::Attributable {
     /// True when this tool starts nested execution without carrying the RPC
