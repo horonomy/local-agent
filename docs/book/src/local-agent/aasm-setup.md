@@ -34,7 +34,7 @@ Managed mode is for a machine where an AASM runtime already runs under **your ow
 
    It is Unix only. Without the feature, a managed configuration cannot work (see [Misconfigured](#managed-examples-denial-and-disconnect)).
 
-2. **Choose a socket location you own.** Create a private directory, readable and writable only by you, and have the AASM runtime place its socket there. The file name must be `aa-runtime-<agent_id>.sock`, where `<agent_id>` is the agent id the runtime derives its key from.
+2. **Choose a socket location you own.** Create a private directory (`0700` is recommended; the code enforces only that it is not group or world writable), and have the AASM runtime place its socket there. Name it `aa-runtime-<agent_id>.sock`, where `<agent_id>` should match what the runtime derives its key from. The adapter accepts any non-empty name; it takes the id from the file name, so a mismatch is not caught by Local Agent.
 
    ```sh
    mkdir -m 700 "$HOME/aasm-run"
@@ -116,7 +116,7 @@ The adapter deliberately does not say why a socket was refused: a missing socket
 
 | Symptom | Likely cause and check |
 | --- | --- |
-| Every tool call is denied `authority_unavailable`, even with the runtime running | Socket path rejected. Check each ancestor for symlinks (macOS `/var`, `/tmp`), group or world write, and owner. Check the socket is owned by your uid, not root. Check `expected_peer_uid` is unset or your uid. Check the file name is `aa-runtime-<agent_id>.sock`. |
+| Every tool call is denied `authority_unavailable`, even with the runtime running | Socket path rejected. Check each ancestor for symlinks (macOS `/var`, `/tmp`), group or world write, and owner. Check the socket is owned by your uid, not root. Check `expected_peer_uid` is unset or your uid. Check the file name's agent id matches what the runtime derives its key from (the adapter accepts any non-empty name). |
 | Same, but only after switching builds | The build lacks `aasm-managed`. Rebuild with the feature, or set `mode = "standalone"`. |
 | `denied by policy (timeout)` | The runtime did not reply within `timeout_ms` (default 2000, allowed 100 to 10000). Check the runtime is responsive before raising the value. |
 | `denied by policy (malformed_response)` | The runtime's reply did not match the mirrored protocol. This is the expected symptom if a real runtime disagrees with the unverified wire layout; report the AASM version. |
