@@ -124,8 +124,9 @@ pub struct GovernanceConfig {
 
 /// Whether this build contains the AASM managed transport: true only with the
 /// `aasm-managed` feature (forwarded from `zeroclaw-runtime`). Otherwise a
-/// managed configuration is refused at validation, so a session can never
-/// start in a mode this binary cannot honour.
+/// managed configuration fails validation. Config load only warns about that,
+/// so startup continues, but the policy gate then denies every call
+/// (`authority_unavailable`) and never falls back to standalone.
 pub const MANAGED_TRANSPORT_COMPILED: bool = cfg!(feature = "aasm-managed");
 
 impl GovernanceConfig {

@@ -84,6 +84,7 @@ The record is a **decision log**, not an execution log. Read the following befor
 
 - `outcome` is written with fixed zero values at decision time and is not updated after the tool runs. Do not infer from it whether a call ran, succeeded or was cancelled. Cancellation shows only as a `cancelled` approval receipt.
 - `authority.mode` is `standalone` or `managed` according to the session's mode, but `decision.aasm` is always `null`. `decision.local` and `decision.effective` both carry the final verdict. To tell an AASM-involved decision apart, use `decision.reason` (`aasm_deny`, `timeout`, `malformed_response`, `authority_unavailable`) and `authority.aasm_decision_id`, which is filled when AASM returned a well-formed id. An allow from AASM is not distinguishable by reason.
+- A call denied `authority_unavailable` because managed mode could not be honored at all (build without `aasm-managed`, rejected `[governance]` section) is refused before any record is built, so it is **not** in the log (ADR-019, M3). Only the model-visible refusal shows it.
 - The log cannot show what AASM was told beyond the digest, nor why AASM decided as it did.
 
 `decision.aasm` and `outcome` exist in the record type but are not yet populated by the gate. That is a gap in the current source, not a documented guarantee.
