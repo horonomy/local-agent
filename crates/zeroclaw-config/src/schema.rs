@@ -42313,6 +42313,10 @@ high_entropy_tokens = false
         http.declared_tools = vec!["read".into()];
         assert!(check(http).is_err());
 
+        let mut no_command = ok.clone();
+        no_command.command = " ".into();
+        assert!(check(no_command).is_err());
+
         // Eager servers ignore the on-demand fields.
         assert!(check(stdio_server("fs", "/usr/bin/mcp-fs")).is_ok());
     }
