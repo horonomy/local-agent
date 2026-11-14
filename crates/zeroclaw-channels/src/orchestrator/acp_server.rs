@@ -3436,7 +3436,7 @@ fn map_tool_kind(name: &str) -> &'static str {
         "http_request" | "web_fetch" => "other",
         "image_gen" => "other",
         "cron_remove" => "delete",
-        "cron_run" | "computer_use" => "execute",
+        "cron_run" => "execute",
         "sessions_send" => "execute",
         _ => "other",
     }
