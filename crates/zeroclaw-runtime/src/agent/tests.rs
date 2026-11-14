@@ -1976,3 +1976,69 @@ fn runtime_approved_arg_tool_names_are_inventoried() {
          runtime-approved argument; update this test to the intended set"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 27. Model-supplied `approved` is neutralized behind wrappers and node tools
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// An elevated-skill-shaped wrapper: a different name that delegates to `inner`.
+struct DelegatingWrapper {
+    name: &'static str,
+    inner: Box<dyn Tool>,
+}
+
+#[async_trait]
+impl Tool for DelegatingWrapper {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "wrapper"
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object"})
+    }
+    fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+        Some(zeroclaw_api::tool::DelegationTarget::Tool(
+            self.inner.as_ref(),
+        ))
+    }
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
+        self.inner.execute(args).await
+    }
+}
+
+zeroclaw_api::mock_tool_attribution!(DelegatingWrapper);
+
+#[test]
+fn model_approved_is_overwritten_for_wrapper_delegating_to_shell() {
+    let (shell, _) = RecordingShellTool::new();
+    let wrapper = DelegatingWrapper {
+        name: "skill_deploy",
+        inner: Box::new(shell),
+    };
+    let mut args = serde_json::json!({"command": "ls", "approved": true});
+    crate::agent::set_runtime_approved_arg("skill_deploy", Some(&wrapper), &mut args, false);
+    assert_eq!(args["approved"], serde_json::json!(false));
+
+    crate::agent::set_runtime_approved_arg("skill_deploy", Some(&wrapper), &mut args, true);
+    assert_eq!(
+        args["approved"],
+        serde_json::json!(true),
+        "legitimate runtime approval must still propagate"
+    );
+}
+
+#[test]
+fn model_approved_is_overwritten_for_node_tools() {
+    let mut args = serde_json::json!({"approved": true});
+    crate::agent::set_runtime_approved_arg("node:phone-1:camera.snap", None, &mut args, false);
+    assert_eq!(args["approved"], serde_json::json!(false));
+}
+
+#[test]
+fn unrelated_tool_args_are_left_alone() {
+    let mut args = serde_json::json!({"approved": true});
+    crate::agent::set_runtime_approved_arg("echo", Some(&EchoTool), &mut args, false);
+    assert_eq!(args["approved"], serde_json::json!(true));
+}
