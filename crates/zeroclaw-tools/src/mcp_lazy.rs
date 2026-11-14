@@ -39,8 +39,6 @@ struct Shared {
     /// Process group of the live child (0 = none), so teardown without a
     /// graceful close can still kill the tree synchronously.
     pgid: AtomicI32,
-    spawns: AtomicU64,
-    reaps: AtomicU64,
 }
 
 impl Shared {
@@ -50,7 +48,6 @@ impl Shared {
 
     async fn retire(&self, child: Arc<StdioTransport>, reason: &'static str) {
         self.pgid.store(0, Ordering::Release);
-        self.reaps.fetch_add(1, Ordering::AcqRel);
         if let Err(error) = child.close().await {
             ::zeroclaw_log::record!(
                 WARN,
@@ -89,7 +86,6 @@ impl Shared {
         }
 
         let child = Arc::new(StdioTransport::new_with_group(&self.config, true)?);
-        self.spawns.fetch_add(1, Ordering::AcqRel);
         if let Some(pgid) = child.process_group_id().await {
             self.pgid.store(pgid, Ordering::Release);
         }
@@ -182,20 +178,8 @@ impl LazyStdioTransport {
                 activity: AtomicU64::new(0),
                 closed: AtomicBool::new(false),
                 pgid: AtomicI32::new(0),
-                spawns: AtomicU64::new(0),
-                reaps: AtomicU64::new(0),
             }),
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn spawn_count(&self) -> u64 {
-        self.shared.spawns.load(Ordering::Acquire)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reap_count(&self) -> u64 {
-        self.shared.reaps.load(Ordering::Acquire)
     }
 }
 
@@ -268,3 +252,7 @@ impl SharedMcpTransportConn for LazyStdioTransport {
         Ok(())
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "mcp_lazy_tests.rs"]
+mod tests;
