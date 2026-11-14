@@ -112,8 +112,8 @@ pub fn profile_from_inputs(inputs: &AgentPolicyInputs<'_>) -> PolicyProfile {
 }
 
 /// Standalone authority with parent profiles registered. Kept here rather
-/// than in `authority_factory` so the factory stays the one place HORO-2395
-/// extends for managed mode.
+/// than in `authority_factory` because it takes per-agent parent profiles the
+/// factory's default-profile builders do not.
 fn standalone_authority_with_parents(
     profile: PolicyProfile,
     parents: Vec<(String, PolicyProfile)>,
@@ -164,8 +164,10 @@ struct TicketBook {
 
 enum Mode {
     Enforce(Box<Enforcing>),
-    /// Managed mode is configured but the transport does not exist in this
-    /// build: every call is denied `authority_unavailable`.
+    /// No usable authority: managed mode in a build without the
+    /// `aasm-managed` transport (or unix), or a managed authority that failed
+    /// to build. Every call is denied `authority_unavailable`; there is no
+    /// fallback to standalone.
     Unavailable,
     /// Test-only: admits everything and demands no ticket.
     #[cfg(any(test, feature = "test-util"))]
@@ -247,8 +249,10 @@ impl PolicyGate {
     }
 
     /// Gate for one agent, from its configured policy. `governance` selects
-    /// the authority: standalone builds the local engine; managed has no
-    /// transport yet and fails closed with no fallback to standalone.
+    /// the authority: standalone builds the local engine; managed composes it
+    /// with the AASM adapter (feature `aasm-managed`, unix) and otherwise, or
+    /// if the adapter cannot be built, fails closed with no fallback to
+    /// standalone.
     pub fn for_agent(config: &Config, agent_alias: &str, inputs: &AgentPolicyInputs<'_>) -> Self {
         Self::for_governance(&config.governance, agent_alias, inputs)
     }
@@ -259,7 +263,14 @@ impl PolicyGate {
         inputs: &AgentPolicyInputs<'_>,
     ) -> Self {
         if governance.mode == GovernanceMode::Managed {
-            return Self::with_mode(Mode::Unavailable);
+            return Self::managed(
+                governance,
+                agent_alias,
+                inputs.autonomy,
+                profile_from_inputs(inputs),
+                Vec::new(),
+            )
+            .with_caller_filter(inputs.caller_allowed);
         }
         // Parents are not registered here: an independent delegate or a
         // cross-agent SOP step is a separate authority that runs under its own
@@ -277,11 +288,52 @@ impl PolicyGate {
         profile: PolicyProfile,
         parents: Vec<(String, PolicyProfile)>,
     ) -> Self {
-        let guards = std::iter::once(profile.clone())
-            .chain(parents.iter().map(|(_, p)| p.clone()))
+        let authority = standalone_authority_with_parents(profile.clone(), parents.clone());
+        Self::enforcing(agent_alias, autonomy, authority, profile, parents)
+    }
+
+    /// Managed gate: the local profiles composed with the AASM adapter, which
+    /// can only tighten. A configuration the adapter rejects yields a gate
+    /// that denies everything, never a standalone gate.
+    #[cfg(all(feature = "aasm-managed", unix))]
+    fn managed(
+        governance: &GovernanceConfig,
+        agent_alias: &str,
+        autonomy: AutonomyLevel,
+        profile: PolicyProfile,
+        parents: Vec<(String, PolicyProfile)>,
+    ) -> Self {
+        let local = standalone_authority_with_parents(profile.clone(), parents.clone());
+        match super::aasm_adapter::build_managed_authority(governance, local) {
+            Ok(authority) => Self::enforcing(agent_alias, autonomy, authority, profile, parents),
+            Err(_) => Self::with_mode(Mode::Unavailable),
+        }
+    }
+
+    /// Without the `aasm-managed` transport, managed mode denies every call.
+    #[cfg(not(all(feature = "aasm-managed", unix)))]
+    fn managed(
+        _governance: &GovernanceConfig,
+        _agent_alias: &str,
+        _autonomy: AutonomyLevel,
+        _profile: PolicyProfile,
+        _parents: Vec<(String, PolicyProfile)>,
+    ) -> Self {
+        Self::with_mode(Mode::Unavailable)
+    }
+
+    fn enforcing(
+        agent_alias: &str,
+        autonomy: AutonomyLevel,
+        authority: Arc<dyn PolicyAuthority>,
+        profile: PolicyProfile,
+        parents: Vec<(String, PolicyProfile)>,
+    ) -> Self {
+        let guards = std::iter::once(profile)
+            .chain(parents.into_iter().map(|(_, p)| p))
             .collect();
         Self::with_mode(Mode::Enforce(Box::new(Enforcing {
-            authority: standalone_authority_with_parents(profile, parents),
+            authority,
             agent_alias: agent_alias.to_owned(),
             autonomy,
             caller_allowed: None,
@@ -302,15 +354,23 @@ impl PolicyGate {
         parent_alias: &str,
         parent: &AgentPolicyInputs<'_>,
     ) -> Self {
-        if governance.mode == GovernanceMode::Managed {
-            return Self::with_mode(Mode::Unavailable);
+        let parents = vec![(parent_alias.to_owned(), profile_from_inputs(parent))];
+        let mut gate = if governance.mode == GovernanceMode::Managed {
+            Self::managed(
+                governance,
+                child_alias,
+                child.autonomy,
+                profile_from_inputs(child),
+                parents,
+            )
+        } else {
+            Self::standalone(
+                child_alias,
+                child.autonomy,
+                profile_from_inputs(child),
+                parents,
+            )
         }
-        let mut gate = Self::standalone(
-            child_alias,
-            child.autonomy,
-            profile_from_inputs(child),
-            vec![(parent_alias.to_owned(), profile_from_inputs(parent))],
-        )
         .with_caller_filter(child.caller_allowed);
         if let Mode::Enforce(enforcing) = &mut gate.mode {
             enforcing.bounded_parent = Some(parent_alias.to_owned());

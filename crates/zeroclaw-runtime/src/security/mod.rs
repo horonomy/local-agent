@@ -1,5 +1,7 @@
 //! Security subsystem for policy enforcement, sandboxing, and secret management.
 
+#[cfg(all(feature = "aasm-managed", unix))]
+pub mod aasm_adapter;
 pub mod audit;
 pub mod auth_provider;
 pub mod authority_factory;

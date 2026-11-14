@@ -232,6 +232,7 @@ non_row_features = [
     "local-agent-minimal",
     "agent-core",
     "daemon-listeners",
+    "aasm-managed",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
@@ -319,6 +320,9 @@ agent-runtime = ["agent-core", "daemon-listeners"]
 # it through `agent-runtime`; `local-agent-minimal` does not, so the compiler leaves
 # all of that source out of the minimal profile (HORO-2383).
 daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
+
+# Managed governance mode (ADR-019): AASM adapter over a Unix socket. Opt-in; Unix only.
+aasm-managed = ["agent-core", "zeroclaw-runtime/aasm-managed"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,

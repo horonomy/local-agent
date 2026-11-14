@@ -68,6 +68,8 @@ zeroclaw-spawn.workspace = true
 default = ["schema-export", "clap"]
 schema-export = ["dep:schemars", "zeroclaw-api/schema-export"]
 clap = ["dep:clap"]
+# Marks the build as containing the AASM managed transport (set via zeroclaw-runtime).
+aasm-managed = []
 memory-postgres = ["dep:postgres"]
 ws-transport = [
   "dep:rustls",

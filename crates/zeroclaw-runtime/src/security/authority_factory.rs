@@ -1,9 +1,9 @@
 //! Builds the policy authority from `[governance]` (ADR-019).
 //!
-//! Not called by production code in this build. Standalone mode builds the
-//! local engine with the deny-all default profile (the enforcement slice
-//! supplies the real profile via [`build_standalone_authority`]); managed mode
-//! fails closed until the `aasm-managed` transport exists.
+//! Standalone mode builds the local engine with the deny-all default profile
+//! ([`build_standalone_authority`] takes an explicit one); managed mode
+//! composes the local engine with the AASM adapter under the `aasm-managed`
+//! feature and otherwise refuses startup.
 
 use std::sync::Arc;
 
@@ -18,6 +18,9 @@ pub enum AuthorityBuildError {
     /// Managed mode is configured but this build has no AASM transport.
     #[error("managed mode unsupported in this build")]
     ManagedUnsupported,
+    /// Managed mode is configured but `[governance]` is not usable.
+    #[error("managed mode configuration invalid: {0}")]
+    ManagedConfigInvalid(String),
 }
 
 /// Build the authority for a session. Fails closed: there is no fallback
@@ -26,9 +29,27 @@ pub fn build_authority(
     config: &GovernanceConfig,
 ) -> Result<Arc<dyn PolicyAuthority>, AuthorityBuildError> {
     match config.mode {
-        GovernanceMode::Managed => Err(AuthorityBuildError::ManagedUnsupported),
+        GovernanceMode::Managed => build_managed(config),
         GovernanceMode::Standalone => Ok(build_standalone_authority(PolicyProfile::default())),
     }
+}
+
+/// Managed authority: the local engine composed with the AASM adapter.
+#[cfg(all(feature = "aasm-managed", unix))]
+fn build_managed(
+    config: &GovernanceConfig,
+) -> Result<Arc<dyn PolicyAuthority>, AuthorityBuildError> {
+    let local = build_standalone_authority(PolicyProfile::default());
+    super::aasm_adapter::build_managed_authority(config, local)
+        .map_err(|e| AuthorityBuildError::ManagedConfigInvalid(e.to_string()))
+}
+
+/// Without the `aasm-managed` feature, managed mode refuses startup.
+#[cfg(not(all(feature = "aasm-managed", unix)))]
+fn build_managed(
+    _config: &GovernanceConfig,
+) -> Result<Arc<dyn PolicyAuthority>, AuthorityBuildError> {
+    Err(AuthorityBuildError::ManagedUnsupported)
 }
 
 /// Standalone authority over an explicit profile.
@@ -40,6 +61,7 @@ pub fn build_standalone_authority(profile: PolicyProfile) -> Arc<dyn PolicyAutho
 mod tests {
     use super::*;
 
+    #[cfg(not(all(feature = "aasm-managed", unix)))]
     #[test]
     fn managed_fails_closed() {
         let cfg = GovernanceConfig {
