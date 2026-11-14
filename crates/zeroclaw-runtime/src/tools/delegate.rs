@@ -1830,6 +1830,11 @@ impl DelegateTool {
         let Some(root_config) = self.root_config.as_ref() else {
             return self.gate_without_root_config();
         };
+        // A dropped `[governance]` section reads as standalone; never let a
+        // child gate be built from it.
+        if crate::security::policy_gate::governance_degraded(root_config) {
+            return PolicyGate::deny_all();
+        }
         let governance = root_config.governance.clone();
         let servers: Vec<String> = root_config
             .mcp_servers_for_agent(&self.caller_alias)
@@ -9575,6 +9580,39 @@ mod tests {
             executions.load(std::sync::atomic::Ordering::SeqCst),
             messages,
         )
+    }
+
+    #[test]
+    fn bounded_child_with_degraded_governance_is_denied() {
+        let config = Config {
+            degraded_security: vec!["governance".to_owned()],
+            ..Config::default()
+        };
+        let tool = DelegateTool::new(HashMap::new(), None, test_security())
+            .with_root_config(Arc::new(config));
+        let gate = tool.bounded_child_policy(
+            "child",
+            &SecurityPolicy::default(),
+            &SecurityPolicy::default(),
+        );
+        let echo = EchoTool;
+        let outcome = futures_util::FutureExt::now_or_never(gate.decide(
+            &crate::security::policy_gate::CallFacts {
+                tool: &echo,
+                registry: &[],
+                args: &json!({}),
+                call_id: "c",
+                turn_id: "t",
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: true,
+            },
+        ))
+        .expect("deny-all decides without awaiting");
+        assert!(matches!(
+            outcome,
+            crate::security::policy_gate::GateOutcome::Deny { .. }
+        ));
     }
 
     #[test]

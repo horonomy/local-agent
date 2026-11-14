@@ -229,6 +229,12 @@ pub enum RedeemError {
     Denied(ReasonCode),
 }
 
+/// True when `[governance]` failed to load and was reset to its default, so
+/// the configured authority (possibly managed) is unknown.
+pub fn governance_degraded(config: &Config) -> bool {
+    config.degraded_security.iter().any(|s| s == "governance")
+}
+
 pub struct PolicyGate {
     mode: Mode,
     /// Receives one record per decision. A write failure denies the call.
@@ -259,7 +265,7 @@ impl PolicyGate {
         // A `[governance]` section that failed to load was reset to the
         // standalone default; the operator's intent (possibly managed) is
         // unknown, so deny everything rather than fall back to standalone.
-        if config.degraded_security.iter().any(|s| s == "governance") {
+        if governance_degraded(config) {
             return Self::with_mode(Mode::Unavailable);
         }
         Self::for_governance(&config.governance, agent_alias, inputs)
