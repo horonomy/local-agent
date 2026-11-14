@@ -59,8 +59,8 @@ an error log rather than started.
 - Resource and prompt capability tools see no capabilities from an `on_demand`
   server until a child has been started and re-handshaken; they do not start one.
 - Idle expiry is timer-based within one agent process. A hard-killed agent
-  cannot run cleanup, so its children are then reaped by their stdin closing,
-  not by this feature.
+  cannot run cleanup; its children are then left to notice their closed stdin,
+  which a server may ignore.
 
 ## Measuring
 
