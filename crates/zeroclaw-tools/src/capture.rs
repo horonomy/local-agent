@@ -913,7 +913,7 @@ impl CaptureTool {
         shared.pgid.store(running.pgid, Ordering::Release);
         let weak: Weak<Shared> = Arc::downgrade(shared);
         let timer_id = id.clone();
-        let timer = tokio::spawn(async move {
+        let timer = zeroclaw_spawn::spawn!(async move {
             tokio::time::sleep(max).await;
             if let Some(shared) = weak.upgrade() {
                 let _ = shared

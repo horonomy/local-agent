@@ -2,6 +2,9 @@
 //! commands, so the real process-group, timer and storage code runs while no
 //! screen is ever captured.
 
+// Helpers for the unix-only process-group tests are unused on other targets.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use super::*;
 use std::sync::atomic::AtomicUsize;
 use zeroclaw_config::autonomy::AutonomyLevel;
@@ -68,6 +71,7 @@ fn fake(pidfile: Option<PathBuf>, rec_script: &'static str) -> Arc<FakeBackend> 
 
 /// Writes data, records its own pid in $2 and sleeps as a child process of
 /// the group leader (a helper the group sweep must also kill).
+#[cfg(unix)]
 const REC_WITH_HELPER: &str = "printf MOVDATA > \"$1\"; sleep 30 & echo $! > \"$2\"; wait";
 const REC_SIMPLE: &str = "printf MOVDATA > \"$1\"; echo $$ > \"$2\"; exec sleep 30";
 
@@ -159,6 +163,7 @@ async fn assert_gone(pidfile: &Path) {
     panic!("process {pid} is still alive: orphaned recorder");
 }
 
+#[cfg(unix)]
 async fn wait_for_file(path: &Path) {
     for _ in 0..200 {
         if path.exists() && std::fs::read_to_string(path).is_ok_and(|s| !s.trim().is_empty()) {
