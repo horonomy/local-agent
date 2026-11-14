@@ -58,3 +58,13 @@ Not verified, and not claimed:
 - **No emergency-stop claim.** `EstopManager` is not wired into this integration, so nothing here can halt a running agent on AASM's say-so beyond denying the next tool call.
 - **Windows.** Managed mode is Unix only. A named-pipe transport does not exist; `mode = "managed"` on a non-Unix platform fails validation.
 - Some audit-record fields are present but not populated yet; see [what the audit record does not tell you](./aasm-policy-ipc.md#what-the-record-does-not-tell-you).
+
+## Known limitations
+
+Facts about the source at the time of writing, from the independent security gate. They bound what policy decisions cover; they are not promises about future behavior.
+
+- **Not every tool path goes through the policy gate.** Scheduled cron shell jobs and hardware `ToolRegistry::dispatch` are outside `PolicyGate`. For cron, only the `cron_add` and `cron_update` calls are decided, at add time, not each scheduled run.
+- **Independent delegates and cross-agent SOP steps** run under their own policy, which may be wider than the calling agent's.
+- **Pipeline steps** are decided Allow-only, without a per-step ticket or prompt.
+- **A malformed `[governance]` section may currently reset to standalone with a warning**, which would silently drop managed mode. At the time of writing this is being fixed under HORO-2398; check the current source before relying on managed mode to survive a broken config.
+- **Provider-side server tools** (tools a model provider runs on its own side) were not reviewed.
