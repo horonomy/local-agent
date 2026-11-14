@@ -1986,7 +1986,26 @@ fn all_tools_with_runtime_on_thread(
                 max_coordinate_y: browser_config.computer_use.max_coordinate_y,
             },
             browser_config.allowed_private_hosts.clone(),
-        ) {
+        )
+        .and_then(|tool| {
+            // Agent-owned profile under the state dir; no config key can point the tool
+            // at the user's own browser profile.
+            tool.with_profile_dir(
+                root_config
+                    .data_dir
+                    .join("browser-profile")
+                    .join(agent_alias),
+            )
+        })
+        // Builds without `tools-external` are the local profile: no wildcard domains,
+        // no production sign-in pages, no credential entry, loopback-only endpoints.
+        .map(|tool| {
+            if cfg!(feature = "tools-external") {
+                tool
+            } else {
+                tool.with_strict_local_policy()
+            }
+        }) {
             Ok(tool) => {
                 tool_arcs.push(Arc::new(RateLimitedTool::new(tool, security.clone())));
             }
