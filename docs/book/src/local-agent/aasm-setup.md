@@ -23,7 +23,7 @@ mode = "standalone"
 
 ## Enable managed mode
 
-Managed mode is for a machine where an AASM runtime already runs under **your own user account** and listens on a socket you can name. This page does not explain how to install or configure AASM, and it is not verified that a stock AASM runtime can listen where Local Agent accepts (see [socket requirements](#socket-requirements)).
+**Do not expect this to work with a stock AASM.** AASM v0.0.1 at revision `f6b0e2b70` hard-codes its runtime socket at `/tmp/aa-runtime-<agent_id>.sock` with no environment or configuration override (`aa-runtime/src/ipc/server.rs:38`, `runtime.rs:1010`, read by the independent security gate). Local Agent rejects a world-writable immediate parent and any symlink component, and macOS `/tmp` is a symlink, so **against an unmodified AASM v0.0.1 runtime managed mode denies every call**. Managed mode is currently useful only with an AASM runtime configured or patched to bind a private path as described here, and that combination has never been verified live. This page does not explain how to install, configure or patch AASM, and the steps below are what Local Agent requires of the socket, not a recipe that a stock runtime satisfies.
 
 1. **Build with the feature.** The managed transport is the Cargo feature `aasm-managed`, outside `default` and outside `local-agent-minimal`. The `src/lib.rs` guard that rejects `local-agent-minimal` combined with ingress features does not list `aasm-managed`, so the combination below is expected to compile. The CI job `Test (AASM managed policy)` only runs `cargo test -p zeroclaw-runtime --features aasm-managed --lib security::` and `--test policy_bypass`. It does **not** build the root binary with `--no-default-features --features local-agent-minimal,aasm-managed`, so this full binary build line is unverified by CI and was not built for this page.
 
@@ -67,7 +67,7 @@ The path is checked on every query, not just at startup:
 - every ancestor directory is a real directory owned by you or root and not group or world writable. A sticky directory such as `/tmp` is tolerated only as a distant ancestor, never as the immediate parent;
 - the socket file is a socket owned by your uid, and the connected peer must be your uid. **A root-owned runtime socket is rejected.** `expected_peer_uid` may only be unset or equal to your own effective uid, because the AASM server accepts only its own uid.
 
-AASM's own default path, `/tmp/aa-runtime-<id>.sock`, is refused by design. Whether a stock AASM runtime can be told to listen on a compliant path is not verified here.
+AASM's own hard-coded path, `/tmp/aa-runtime-<id>.sock`, is refused by design and the pinned AASM revision offers no override, so a stock runtime cannot satisfy these requirements.
 
 ## Disable managed mode
 

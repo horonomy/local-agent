@@ -58,7 +58,7 @@ If you need a control that the user cannot remove, managed mode alone does not p
 - The behavior, security or release status of AASM itself.
 - Compatibility with a live AASM runtime: the wire layout and handshake are hand-mirrored and unverified.
 - Windows: managed mode is not supported.
-- AASM's own default socket path is refused by design; whether AASM can be configured to a compliant path is not verified.
+- AASM v0.0.1 (`f6b0e2b70`) hard-codes `/tmp/aa-runtime-<agent_id>.sock` with no override, which Local Agent refuses, so an unmodified runtime is denied 100% of the time. Only a runtime configured or patched to bind a private path can work, and that has never been verified live.
 
 ## Reader checklists
 
