@@ -110,8 +110,8 @@ impl PipelineTool {
         }
     }
 
-    /// Route every step through the agent's policy gate. Without it the
-    /// legacy name policy is the only check on child steps.
+    /// Route every step through the agent's policy gate. Without it every
+    /// step is denied.
     pub fn with_step_admission(mut self, admission: StepAdmission) -> Self {
         self.step_admission = Some(admission);
         self
@@ -122,10 +122,14 @@ impl PipelineTool {
         tool: Arc<dyn Tool>,
         args: &serde_json::Value,
     ) -> std::result::Result<(), PipelineError> {
-        let Some(admission) = &self.step_admission else {
-            return Ok(());
-        };
         let name = tool.name().to_string();
+        // Fail closed: a pipeline nobody attached a gate to must not run steps.
+        let Some(admission) = &self.step_admission else {
+            return Err(PipelineError::Denied {
+                tool: name,
+                reason: "no step admission is attached to this pipeline".into(),
+            });
+        };
         admission(tool, args.clone())
             .await
             .map_err(|reason| PipelineError::Denied { tool: name, reason })
@@ -517,6 +521,12 @@ fn resolve_template(template: &str, prior_results: &[StepResult]) -> Option<Stri
 mod tests {
     use super::*;
 
+    /// Test pipelines admit every step explicitly; the default denies.
+    fn permitting(config: PipelineConfig, tools: Vec<Arc<dyn Tool>>) -> PipelineTool {
+        PipelineTool::new(config, tools)
+            .with_step_admission(Arc::new(|_, _| Box::pin(async { Ok(()) })))
+    }
+
     struct ContextAwareStep {
         tokens: Arc<std::sync::Mutex<Vec<tokio_util::sync::CancellationToken>>>,
     }
@@ -558,7 +568,7 @@ mod tests {
 
     async fn assert_steps_inherit_context(parallel: bool) {
         let tokens = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let tool = PipelineTool::new(
+        let tool = permitting(
             PipelineConfig {
                 enabled: true,
                 max_steps: 2,
@@ -727,7 +737,7 @@ mod tests {
             max_steps: 2,
             allowed_tools: vec!["shell".to_string()],
         };
-        let tool = PipelineTool::new(config, vec![]);
+        let tool = permitting(config, vec![]);
 
         let request = PipelineRequest {
             steps: vec![
@@ -759,7 +769,7 @@ mod tests {
             max_steps: 20,
             allowed_tools: vec!["shell".to_string()],
         };
-        let tool = PipelineTool::new(config, vec![]);
+        let tool = permitting(config, vec![]);
 
         let request = PipelineRequest {
             steps: vec![PipelineStep {
@@ -781,7 +791,7 @@ mod tests {
             max_steps: 20,
             allowed_tools: vec!["shell".to_string(), "file_read".to_string()],
         };
-        let tool = PipelineTool::new(
+        let tool = permitting(
             config,
             vec![
                 Arc::new(EchoTool {
@@ -820,7 +830,7 @@ mod tests {
             max_steps: 20,
             allowed_tools: vec![],
         };
-        let tool = PipelineTool::new(config, vec![]);
+        let tool = permitting(config, vec![]);
 
         let request = PipelineRequest {
             steps: vec![],
@@ -1039,7 +1049,7 @@ mod tests {
                 output: "final answer".into(),
             }),
         ];
-        PipelineTool::new(config, tools)
+        permitting(config, tools)
     }
 
     #[tokio::test]
@@ -1069,5 +1079,42 @@ mod tests {
         assert!(res.success);
         assert!(res.output.contains("FIRST_BIG_BLOB"));
         assert!(res.output.contains("final answer"));
+    }
+
+    #[tokio::test]
+    async fn pipeline_without_step_admission_denies_every_step() {
+        let ran = Arc::new(std::sync::Mutex::new(false));
+        struct Probe(Arc<std::sync::Mutex<bool>>);
+        #[async_trait::async_trait]
+        impl Tool for Probe {
+            fn name(&self) -> &str {
+                "probe"
+            }
+            fn description(&self) -> &str {
+                "probe"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+                *self.0.lock().unwrap() = true;
+                Ok(ToolResult::ok("ran"))
+            }
+        }
+        zeroclaw_api::mock_tool_attribution!(Probe);
+        let tool = PipelineTool::new(
+            PipelineConfig {
+                enabled: true,
+                max_steps: 2,
+                allowed_tools: vec!["probe".into()],
+            },
+            vec![Arc::new(Probe(ran.clone()))],
+        );
+        let res = tool
+            .execute(serde_json::json!({"steps": [{"tool": "probe", "args": {}}]}))
+            .await
+            .unwrap();
+        assert!(!res.success);
+        assert!(!*ran.lock().unwrap(), "step must not run without admission");
     }
 }

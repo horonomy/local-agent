@@ -3,8 +3,10 @@
 //! [`FileDecisionSink`] appends one JSON line per [`DecisionRecord`] to
 //! `policy-audit.jsonl`. The file never exceeds `max_size_mb`; at the limit it
 //! rotates to `policy-audit.jsonl.1` and so on, keeping `generations` rotated
-//! files, so the total never exceeds `max_size_mb * (generations + 1)`
-//! (validated against the 64 MiB ceiling in `[governance.audit]`). Records
+//! files, so with the configured limits the total stays within
+//! `max_size_mb * (generations + 1)`. The 64 MiB ceiling on that product is a
+//! validation rule in `[governance.audit]`; a loaded config that exceeds it is
+//! only warned about, so this module does not itself enforce the ceiling. Records
 //! carry digests only; the writer never sees raw arguments or tool output.
 //! Any failure is returned to the caller, which turns it into a deny.
 //!

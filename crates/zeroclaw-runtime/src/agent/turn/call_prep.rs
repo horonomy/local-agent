@@ -191,6 +191,39 @@ fn resolved_policy_name(
     .unwrap_or_else(|| tool_name.to_owned())
 }
 
+/// Resolve the tool with the executor's own resolver, then overwrite the
+/// model-supplied `approved` for it (and for what a wrapper delegates to).
+fn set_runtime_approved_for(
+    tools_registry: &[Box<dyn crate::tools::Tool>],
+    activated_tools: Option<&Arc<std::sync::Mutex<crate::tools::ActivatedToolSet>>>,
+    tool_name: &str,
+    tool_args: &mut serde_json::Value,
+    approved: bool,
+) {
+    let resolved = crate::agent::tool_execution::resolve_tool(
+        tools_registry,
+        activated_tools,
+        tool_name,
+        None,
+    );
+    // A late-bound tool (not resolvable yet) could be a wrapper over an
+    // approved-honouring tool; drop any model-set value so the executor, which
+    // re-neutralizes after resolution, never sees one. `approved` is not part
+    // of the policy args digest, so the decision is unaffected.
+    if resolved.is_none()
+        && !crate::agent::takes_runtime_approved_arg(tool_name, None)
+        && let Some(map) = tool_args.as_object_mut()
+    {
+        map.remove("approved");
+    }
+    crate::agent::set_runtime_approved_arg(
+        tool_name,
+        resolved.as_ref().map(|r| r.tool()),
+        tool_args,
+        approved,
+    );
+}
+
 /// Ask the registry's policy gate about one prepared call, resolving the tool
 /// with the executor's own resolver so both agree on what runs.
 async fn decide_policy(
@@ -338,7 +371,13 @@ pub(crate) async fn prepare_tool_calls(
             ctx.channel_reply_target,
         );
 
-        crate::agent::set_runtime_approved_arg(&tool_name, &mut tool_args, false);
+        set_runtime_approved_for(
+            tools_registry,
+            activated_tools,
+            &tool_name,
+            &mut tool_args,
+            false,
+        );
 
         // ── Policy decision (ADR-019) ───────────────────
         // After the hook and delivery defaults have settled the call, so the
@@ -546,7 +585,9 @@ pub(crate) async fn prepare_tool_calls(
             && ctx
                 .approval
                 .is_none_or(crate::approval::ApprovalManager::propagates_runtime_command_approval);
-        crate::agent::set_runtime_approved_arg(
+        set_runtime_approved_for(
+            tools_registry,
+            activated_tools,
             &tool_name,
             &mut tool_args,
             runtime_command_approved,
@@ -631,6 +672,13 @@ pub(crate) async fn prepare_tool_calls(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unresolved_late_bound_call_loses_a_model_approved_flag() {
+        let mut args = serde_json::json!({"command": "ls", "approved": true});
+        super::set_runtime_approved_for(&[], None, "late_skill_wrapper", &mut args, false);
+        assert!(args.get("approved").is_none());
+    }
+
     use super::{PreparedToolCalls, prepare_tool_calls};
     use crate::agent::tool_execution::ToolExecutionOutcome;
     use crate::agent::turn::context::TurnCtx;
