@@ -716,6 +716,16 @@ impl StdioTransport {
         })
     }
 
+    /// Process group led by the live child, when created with its own group.
+    pub(crate) async fn process_group_id(&self) -> Option<i32> {
+        self.state
+            .lock()
+            .await
+            .conn
+            .as_ref()
+            .and_then(|conn| conn.pgid)
+    }
+
     #[cfg(all(test, unix))]
     pub(crate) fn set_write_test_hook(&self, hook: Arc<StdioWriteTestHook>) {
         *self.write_test_hook.lock() = Some(hook);

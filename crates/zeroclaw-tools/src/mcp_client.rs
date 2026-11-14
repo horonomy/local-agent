@@ -21,7 +21,7 @@ use crate::mcp_transport::{
     McpRecoveryGate, McpRequestLifecycle, McpTransportError, SharedMcpTransportConn,
     create_shared_transport,
 };
-use zeroclaw_config::schema::{McpServerConfig, McpTransport};
+use zeroclaw_config::schema::{McpServerConfig, McpSpawnMode, McpTransport};
 
 /// Timeout for receiving a response from an MCP server during init/list.
 /// Prevents a hung server from blocking the daemon indefinitely.
@@ -40,7 +40,7 @@ const MAX_RECONNECT_ATTEMPTS: u32 = 2;
 /// Perform the MCP `initialize` + `notifications/initialized` handshake on a
 /// transport. Shared by the initial [`McpServer::connect`] and the
 /// reconnect-after-stale-session path in [`McpServer::call_tool`].
-async fn handshake(
+pub(crate) async fn handshake(
     transport: &dyn SharedMcpTransportConn,
     server_name: &str,
     epoch: u64,
@@ -398,6 +398,72 @@ impl McpServer {
             transport,
             epoch_gate,
             serial_gate,
+            recovery: Arc::new(RecoveryBarrier::new()),
+        })
+    }
+
+    /// Register an `on_demand` stdio server without starting its child.
+    ///
+    /// The tool set is exactly `config.declared_tools`; the child is spawned,
+    /// and handshaken, by the first call that reaches the transport. Fails
+    /// closed on configs that would force a startup spawn or are not stdio.
+    pub fn on_demand(config: McpServerConfig) -> Result<Self> {
+        if config.transport != McpTransport::Stdio {
+            bail!(
+                "MCP server `{}`: spawn = \"on_demand\" requires transport = \"stdio\"",
+                config.name
+            );
+        }
+        if config.command.trim().is_empty() {
+            bail!(
+                "MCP server `{}`: on_demand server needs a command",
+                config.name
+            );
+        }
+        if !config.pinned_resources.is_empty() {
+            bail!(
+                "MCP server `{}`: pinned_resources would spawn the child at startup; \
+                 remove them or use spawn = \"eager\"",
+                config.name
+            );
+        }
+        let mut tools: Vec<McpToolDef> = Vec::new();
+        for name in &config.declared_tools {
+            let name = name.trim();
+            if name.is_empty() || tools.iter().any(|tool| tool.name == name) {
+                continue;
+            }
+            tools.push(McpToolDef {
+                name: name.to_string(),
+                description: Some(format!(
+                    "`{name}` on MCP server `{}` (declared in config; the server starts on first use)",
+                    config.name
+                )),
+                input_schema: json!({ "type": "object", "additionalProperties": true }),
+            });
+        }
+        if tools.is_empty() {
+            bail!(
+                "MCP server `{}`: on_demand server needs a non-empty declared_tools list",
+                config.name
+            );
+        }
+        let transport: Arc<dyn SharedMcpTransportConn> =
+            Arc::new(crate::mcp_lazy::LazyStdioTransport::new(&config));
+        let inner = McpServerInner {
+            config,
+            #[cfg(target_has_atomic = "64")]
+            next_id: AtomicU64::new(3),
+            #[cfg(not(target_has_atomic = "64"))]
+            next_id: AtomicU32::new(3),
+            tools,
+            capabilities: McpServerCapabilities::default(),
+        };
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+            transport,
+            epoch_gate: Arc::new(RwLock::new(0)),
+            serial_gate: None,
             recovery: Arc::new(RecoveryBarrier::new()),
         })
     }
@@ -899,7 +965,12 @@ impl McpRegistry {
         let mut server_index = HashMap::new();
 
         for config in configs {
-            match McpServer::connect(config.clone()).await {
+            let connected = if config.spawn == McpSpawnMode::OnDemand {
+                McpServer::on_demand(config.clone())
+            } else {
+                McpServer::connect(config.clone()).await
+            };
+            match connected {
                 Ok(server) => {
                     let server_idx = servers.len();
                     server_index.insert(config.name.clone(), server_idx);
