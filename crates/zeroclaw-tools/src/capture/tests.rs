@@ -659,3 +659,42 @@ fn tool_declares_desktop_capability() {
         zeroclaw_api::policy::ToolCapability::Desktop
     );
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn tools_rebuilt_for_the_same_dir_share_one_recording_and_survive_each_other() {
+    let fx = fixture();
+    let pid = fx.state.join("pid");
+    let first = tool_with(&fx, fake(Some(pid.clone()), REC_SIMPLE), limits());
+    assert!(run(&first, with_action("record_start")).await.success);
+    wait_for_file(&pid).await;
+
+    // A registry rebuild creates a second tool on the same captures directory.
+    let second = tool_with(&fx, fake(None, REC_SIMPLE), limits());
+    let overlap = run(&second, with_action("record_start")).await;
+    assert!(!overlap.success, "one recording per process, not per tool");
+    // Dropping the first tool must not end the recording the second still serves.
+    drop(first);
+    let status = text(&run(&second, json!({"action": "status"})).await);
+    assert!(status.contains("recording: yes"), "{status}");
+    assert!(run(&second, json!({"action": "record_stop"})).await.success);
+    assert_gone(&pid).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_screenshot_never_purges_the_active_recording() {
+    let fx = fixture();
+    let pid = fx.state.join("pid");
+    let tiny = CaptureLimits {
+        max_total_bytes: 1,
+        ..limits()
+    };
+    let tool = tool_with(&fx, fake(Some(pid.clone()), REC_SIMPLE), tiny);
+    let started = run(&tool, with_action("record_start")).await;
+    let id = id_from(&started);
+    wait_for_file(&pid).await;
+    assert!(run(&tool, with_action("screenshot")).await.success);
+    assert!(captures_dir(&fx).join(format!("{id}.mov")).exists());
+    assert!(run(&tool, json!({"action": "record_stop"})).await.success);
+}

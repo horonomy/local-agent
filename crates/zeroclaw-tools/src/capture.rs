@@ -577,7 +577,8 @@ struct Active {
 struct Shared {
     store: CaptureStore,
     backend: Arc<dyn CaptureBackend>,
-    limits: CaptureLimits,
+    /// Replaced by each newly built tool, so a config reload applies to the shared state.
+    limits: std::sync::Mutex<CaptureLimits>,
     active: Mutex<Option<Active>>,
     /// Mirrors the live recorder's group so `Drop` can kill it without the lock.
     pgid: AtomicI32,
@@ -599,9 +600,17 @@ impl Shared {
         }
     }
 
+    fn limits(&self) -> CaptureLimits {
+        self.limits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     fn purge(&self, keep: Option<&str>) {
+        let limits = self.limits();
         self.store
-            .purge(self.limits.retention_ttl, self.limits.max_total_bytes, keep);
+            .purge(limits.retention_ttl, limits.max_total_bytes, keep);
     }
 
     /// Finalize a recorder that already exited by itself (finished or crashed).
@@ -690,13 +699,52 @@ impl Drop for Shared {
             active.timer.abort();
             let _ = self.store.delete(&active.id);
         }
-        if self.limits.delete_on_session_end {
+        if self.limits().delete_on_session_end {
             self.store.delete_all();
         }
     }
 }
 
 // ── Tool ────────────────────────────────────────────────────────────────
+
+type Registry = std::sync::Mutex<std::collections::HashMap<PathBuf, Weak<Shared>>>;
+static REGISTRY: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+
+/// One lifecycle per captures directory per process. The tool registry is rebuilt
+/// per agent build and per channel turn, so independent `CaptureTool`s must share
+/// the single-recording slot and the active-file protection; otherwise one
+/// instance's purge or drop could delete another's in-progress recording. The
+/// shared state (recorder, session-end cleanup) ends when the last tool using it
+/// is dropped.
+fn shared_for(
+    store: CaptureStore,
+    backend: Arc<dyn CaptureBackend>,
+    limits: CaptureLimits,
+) -> Arc<Shared> {
+    let mut map = REGISTRY
+        .get_or_init(Registry::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    map.retain(|_, weak| weak.strong_count() > 0);
+    if let Some(existing) = map.get(&store.dir).and_then(Weak::upgrade) {
+        *existing
+            .limits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = limits;
+        return existing;
+    }
+    let key = store.dir.clone();
+    let shared = Arc::new(Shared {
+        store,
+        backend,
+        limits: std::sync::Mutex::new(limits),
+        active: Mutex::new(None),
+        pgid: AtomicI32::new(0),
+        last_event: std::sync::Mutex::new(None),
+    });
+    map.insert(key, Arc::downgrade(&shared));
+    shared
+}
 
 /// `capture`: explicit screenshot / start / stop / status / list / delete.
 pub struct CaptureTool {
@@ -711,14 +759,7 @@ impl CaptureTool {
         backend: Arc<dyn CaptureBackend>,
         limits: CaptureLimits,
     ) -> Self {
-        let shared = Arc::new(Shared {
-            store,
-            backend,
-            limits,
-            active: Mutex::new(None),
-            pgid: AtomicI32::new(0),
-            last_event: std::sync::Mutex::new(None),
-        });
+        let shared = shared_for(store, backend, limits);
         Self { security, shared }
     }
 
@@ -794,7 +835,9 @@ impl CaptureTool {
         let target = Self::parse_target(args)?;
         let shared = &self.shared;
         shared.backend.preflight()?;
-        shared.purge(None);
+        // Never purge the file an in-progress recording is writing.
+        let recording = shared.active.lock().await.as_ref().map(|a| a.id.clone());
+        shared.purge(recording.as_deref());
         let id = CaptureStore::new_id(Kind::Shot);
         let path = shared.store.path_for(&id)?;
         shared.store.create_private(&path)?;
@@ -820,7 +863,6 @@ impl CaptureTool {
         outcome?;
         partial.0 = None;
         CaptureStore::restrict(&path);
-        shared.purge(Some(&id));
         let bytes = shared.store.size_of(&id);
         let text = format!(
             "Captured screenshot id={id} size={bytes} bytes. Stored locally in the agent state \
@@ -830,7 +872,7 @@ impl CaptureTool {
         // The marker carries the real path because the provider loader must read the
         // file. It exists only when the operator opted in via
         // `[capture] attach_images_to_provider`, which can send pixels off-device.
-        if shared.limits.attach_images {
+        if shared.limits().attach_images {
             output = output.with_attachment(RenderedMarker {
                 target: path.display().to_string(),
                 kind: MarkerKind::Image,
@@ -856,7 +898,7 @@ impl CaptureTool {
         let id = CaptureStore::new_id(Kind::Rec);
         let path = shared.store.path_for(&id)?;
         shared.store.create_private(&path)?;
-        let max = shared.limits.max_recording;
+        let max = shared.limits().max_recording;
         let spawned = shared
             .backend
             .record_command(&target, &path, max.as_secs().max(1))
@@ -931,12 +973,13 @@ impl CaptureTool {
         };
         shared.purge(recording.as_ref().map(|(id, _)| id.as_str()));
         let entries = shared.store.entries();
+        let limits = shared.limits();
         let total: u64 = entries.iter().map(|e| e.bytes).sum();
         let mut lines = vec![match &recording {
             Some((id, elapsed)) => format!(
                 "recording: yes id={id} elapsed={}s max={}s",
                 elapsed.as_secs(),
-                shared.limits.max_recording.as_secs()
+                limits.max_recording.as_secs()
             ),
             None => "recording: no".to_string(),
         }];
@@ -944,10 +987,10 @@ impl CaptureTool {
             "stored: {} captures, {total} of {} bytes; retention {} s; delete on session end: {}; \
              provider image attachment: {}",
             entries.len(),
-            shared.limits.max_total_bytes,
-            shared.limits.retention_ttl.as_secs(),
-            shared.limits.delete_on_session_end,
-            shared.limits.attach_images,
+            limits.max_total_bytes,
+            limits.retention_ttl.as_secs(),
+            limits.delete_on_session_end,
+            limits.attach_images,
         ));
         if let Ok(last) = shared.last_event.lock()
             && let Some(event) = last.as_ref()
