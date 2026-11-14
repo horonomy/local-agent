@@ -40,7 +40,7 @@ Managed mode is for a machine where an AASM runtime already runs under **your ow
    mkdir -m 700 "$HOME/aasm-run"
    ```
 
-3. **Set the configuration.** Write absolute paths with no symlink component (on macOS, write `/private/...` rather than `/var/...` or `/tmp/...`). Use your real home path, not `$HOME`: the config file is not shell-expanded.
+3. **Set the configuration.** Write absolute paths with no symlink component (on macOS, write `/private/...` rather than `/var/...` or `/tmp/...`). Use your real home path, not `$HOME`: the config file is not shell-expanded. On macOS that is `/Users/<you>/aasm-run/...`, which has no symlink component; avoid `/tmp` and `/var`.
 
    ```toml
    [governance]
@@ -103,7 +103,7 @@ Each row assumes `mode = "managed"` and a tool the local engine allows. The expe
 | Runtime answers deny, pending, redact, unspecified or an unknown code | `aasm_deny` | `deny_verdict_is_aasm_deny_without_reply_text`, `non_allow_verdicts_deny` |
 | Runtime sends a bad handshake, unknown tag, undecodable or oversize (over 1 MiB) frame | `malformed_response` | `bad_handshake_denies`, `unknown_tag_denies`, `undecodable_payload_denies`, `oversize_frame_denies_before_reading_payload` |
 | Socket directory group or world writable, symlinked path, or wrong owner (no connection is made) | `authority_unavailable` | `group_or_world_writable_directory_is_refused_before_connect`, `symlinked_socket_path_is_refused_before_connect`, `socket_owned_by_another_uid_is_refused` |
-| Misconfigured: build lacks `aasm-managed`, no socket path, `expected_peer_uid` not your uid, `timeout_ms` out of range | `authority_unavailable` for every call, no fallback | `managed_mode_fails_closed` (gate), `expected_uid_other_than_own_euid_is_rejected_at_construction` |
+| Misconfigured: build lacks `aasm-managed`, no socket path, `expected_peer_uid` not your uid, `timeout_ms` out of range | `authority_unavailable` for every call, no fallback | `managed_mode_fails_closed` (gate; covers managed with no socket path only), `expected_uid_other_than_own_euid_is_rejected_at_construction` (uid). The build-lacks-feature and `timeout_ms` cases follow from the same code path (`build_managed_authority` errors, so the gate is unavailable) but have no dedicated test cited here |
 | Decision log cannot be written | `audit_write_failed` | `write_failure_denies_and_mints_no_ticket` |
 
 To watch a disconnect, point `socket_path` at an absolute path where nothing listens and ask for a locally allowed tool call: it is denied `authority_unavailable`. Point it at a runtime that is running again and the next call is decided normally; there is no restart step.

@@ -9,7 +9,7 @@ One decision is made per tool call, after hooks have rewritten the call and befo
 | Verdict | Meaning | Where it can come from |
 | --- | --- | --- |
 | `allow` | The call may run. A single-use ticket is minted for exactly this tool and these arguments. | Local engine; AASM `ALLOW`. |
-| `ask` | The call may run only if an operator approves it. The prompt is mandatory, even for an `auto_approve` tool or full autonomy. | **Local engine only**, for a tool named in the risk profile's `always_ask`. AASM never produces `ask`: the `PENDING` verdict and its approval id are treated as a deny. |
+| `ask` | The call may run only if an operator approves it. The prompt is mandatory, even for an `auto_approve` tool or full autonomy. | **Local engine only**, for a tool named in the risk profile's `always_ask`. AASM never produces `ask`: the `PENDING` verdict is treated as a deny and its approval id is dropped. |
 | `deny` | The call does not run. The model sees `Tool call not executed: '<tool>' was denied by policy (<code>).` | Local engine, AASM, or any failure to decide. |
 
 In managed mode the local engine runs first. If it denies, that is final and AASM is not queried. Otherwise AASM is queried and the stricter result wins, so AASM can turn an `allow` into a `deny` but a local `deny` can never be turned into an `allow`. The only way a decision is ever widened is by editing the local configuration.
@@ -39,7 +39,7 @@ The reason is a closed set of codes, never text written by a model, tool or AASM
 | `local_allow` | Allowed (or asked) by the local engine. Also recorded for an allow that came from AASM; there is no AASM-allow code. |
 | `local_deny` | Denied by the local engine: autonomy above the profile ceiling, not in the allow-list, MCP not granted, unparseable or ambiguous name, unknown parent, caller list excludes it. |
 | `excluded` | An exclusion matched the tool, its skill wrapper or its MCP server. |
-| `network_not_granted` | A network, browser or desktop tool is not named in `allowed_tools`. |
+| `network_not_granted` | A network, browser or desktop tool is not named in `allowed_tools`. In a read-only session such a tool gets `local_deny` instead, because the read-only check runs first. |
 | `unknown_capability` | The tool's capability is unknown, or an extension tool is not named in `allowed_tools`. |
 | `aasm_deny` | AASM answered anything other than allow. |
 | `authority_unavailable` | AASM could not be reached or the socket was refused; or managed mode cannot be honored (see [Misconfigured](./aasm.md#the-six-lifecycle-states)). |
