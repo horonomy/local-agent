@@ -23,3 +23,7 @@ separate from fixture self-tests:
 - `crates/zeroclaw-runtime/src/agent/loop_.rs::run_tool_call_loop_parallel_cancel_no_double_terminal_for_completed_call`
 
 The runtime test module also has the `ScriptedProvider` / `run_scripted_loop` seam in `crates/zeroclaw-runtime/src/agent/turn/mod.rs`. Initial offline execution was blocked by uncached `clap-markdown`; after permitted registry access and a locked build, these focused boundary tests ran separately. A clean baseline CLI journey also exercised a local synthetic provider, governed workspace `file_write`, tool-result roundtrip and final answer without credentials. Neither result proves this new stdio fixture was composed end-to-end with the runtime. The cumulative runtime library suite remains red on two inherited relay fixture setup failures; no fixture self-test substitutes for that gate. Keep detailed outcomes and raw evidence locally.
+
+## Governance journeys (MVP 3.0)
+
+Four cases cover policy and governance: `policy_deny`, `policy_ask_denied`, `audit_record` and `managed_unavailable`. They are defined and unit-tested but **have not been run on a built candidate** (they need the release binary); no pass is recorded. Assertions and the exact command to run all cases on a candidate are in [golden-journeys-runner.md](./golden-journeys-runner.md#governance-cases-mvp-30-not-yet-run-on-a-built-candidate). Per the cumulative Golden Journey requirement in [engineering-lifecycle.md](./engineering-lifecycle.md), they join the set that must pass against the exact release-branch SHA.

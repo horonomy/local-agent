@@ -21,6 +21,14 @@ MARKER = "HORO-2378-STDIO-ROUNDTRIP"
 GRANTED_FINAL = "STDIO_GRANTED_FINAL"
 DENIED_FINAL = "STDIO_NOT_GRANTED_FINAL"
 MODES = ("granted", "ungranted", "provider_timeout", "cancellation", "recovery")
+# Governance journeys (HORO-2398) live in governance_journey.py.
+GOVERNANCE_MODES = (
+    "policy_deny",
+    "policy_ask_denied",
+    "audit_record",
+    "managed_unavailable",
+)
+ALL_CASES = MODES + GOVERNANCE_MODES
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_OUTPUT_BYTES = 1024 * 1024
@@ -325,6 +333,10 @@ def bounded_final_marker(output: Path) -> bool:
 
 
 def run_case(mode: str, binary: Path, fixture: Path, deadline: float) -> dict[str, Any]:
+    if mode in GOVERNANCE_MODES:
+        from governance_journey import run_governance_case
+
+        return run_governance_case(mode, binary, fixture, deadline)
     if mode not in MODES or not math.isfinite(deadline) or deadline <= 0:
         return {"case": mode, "status": "invalid_input", "case_pass": False}
     if os.name != "posix":
@@ -603,7 +615,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fixture", type=Path, default=Path(__file__).with_name("mcp_fixture.py")
     )
-    parser.add_argument("--case", choices=("all", *MODES), default="all")
+    parser.add_argument("--case", choices=("all", *ALL_CASES), default="all")
     parser.add_argument("--deadline", default="40")
     args = parser.parse_args(argv)
     try:
@@ -620,7 +632,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     results = [
         run_case(mode, binary, fixture, deadline)
-        for mode in (MODES if args.case == "all" else (args.case,))
+        for mode in (ALL_CASES if args.case == "all" else (args.case,))
     ]
     print(
         json.dumps(
