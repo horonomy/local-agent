@@ -56,8 +56,9 @@ an error log rather than started.
   start-up latency.
 - Non-Unix builds do not isolate a process group; only the direct child is
   killed there.
-- Resource and prompt capability tools see no capabilities from an `on_demand`
-  server until a child has been started and re-handshaken; they do not start one.
+- An `on_demand` server never advertises real capabilities: its `initialize`
+  is answered locally with empty capabilities, so resource and prompt tools are
+  unavailable for it and never start a child.
 - Idle expiry is timer-based within one agent process. A hard-killed agent
   cannot run cleanup; its children are then left to notice their closed stdin,
   which a server may ignore.
