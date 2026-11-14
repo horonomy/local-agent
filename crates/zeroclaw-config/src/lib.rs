@@ -12,6 +12,7 @@ pub mod api_error;
 pub mod autonomy;
 pub mod builtin_tools;
 pub mod comment_writer;
+pub mod computer_use;
 pub mod cost;
 pub mod domain_matcher;
 pub mod env_overrides;
