@@ -689,6 +689,12 @@ impl BrowserTool {
         self.agent_browser_bin = Some(bin);
     }
 
+    /// Shorten the per-command bound so the timeout path is testable without waiting.
+    #[cfg(all(test, unix))]
+    fn set_command_timeout_for_tests(&mut self, timeout: Duration) {
+        self.command_timeout = timeout;
+    }
+
     /// Execute a browser action via agent-browser CLI
     #[allow(clippy::too_many_lines)]
     async fn execute_agent_browser_action(
@@ -5106,5 +5112,620 @@ mod tests {
             "Expected success, got error: {:?}",
             result.error
         );
+    }
+}
+
+/// Isolated-profile, domain/action control and synthetic-site tests (HORO-2399). The
+/// synthetic site is a fake `agent-browser` shell script driven through the real
+/// command path; no browser is launched and nothing leaves the temp directory.
+#[cfg(test)]
+mod isolation_tests {
+    use super::*;
+    use zeroclaw_config::policy::AutonomyLevel;
+
+    fn security(ws: &std::path::Path) -> Arc<SecurityPolicy> {
+        Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: ws.to_path_buf(),
+            allowed_roots: vec![ws.to_path_buf()],
+            ..SecurityPolicy::default()
+        })
+    }
+
+    fn strict_tool(ws: &std::path::Path, domains: &[&str], private: &[&str]) -> BrowserTool {
+        BrowserTool::new_with_backend(
+            security(ws),
+            domains.iter().map(|d| (*d).to_string()).collect(),
+            None,
+            "agent_browser".into(),
+            None,
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig::default(),
+            private.iter().map(|d| (*d).to_string()).collect(),
+        )
+        .unwrap()
+        .with_strict_local_policy()
+    }
+
+    // ---- isolated profile -------------------------------------------------
+
+    #[test]
+    fn profile_dir_must_be_absolute_agent_owned_and_not_a_user_browser_profile() {
+        assert!(validate_agent_profile_dir(std::path::Path::new("/s/browser-profile/a")).is_ok());
+        for bad in [
+            "relative/profile",
+            "/s/../etc/profile",
+            "/Users/u/Library/Application Support/Google/Chrome/Default",
+            "/home/u/.config/google-chrome",
+            "/home/u/.config/chromium",
+            "/Users/u/Library/Application Support/BraveSoftware/Brave-Browser",
+            "/home/u/.mozilla/firefox/x.default",
+        ] {
+            assert!(
+                validate_agent_profile_dir(std::path::Path::new(bad)).is_err(),
+                "{bad} must be refused"
+            );
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tool = strict_tool(tmp.path(), &[], &[]);
+        assert!(
+            tool.with_profile_dir("/home/u/.config/google-chrome".into())
+                .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_profile_dir_creates_private_dir_and_refuses_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("browser-profile").join("agent");
+        prepare_profile_dir(&dir).unwrap();
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+
+        let target = tmp.path().join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(prepare_profile_dir(&link).is_err());
+    }
+
+    #[test]
+    fn agent_browser_command_passes_agent_profile_and_no_exposure_or_attach_flags() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let profile = tmp.path().join("browser-profile").join("agent");
+        let tool = strict_tool(tmp.path(), &[], &[])
+            .with_profile_dir(profile.clone())
+            .unwrap();
+        let cmd = tool.agent_browser_command();
+        let std_cmd = cmd.as_std();
+        let args: Vec<String> = std_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args[0], "--profile");
+        assert_eq!(args[1], profile.to_string_lossy());
+        for forbidden in [
+            "--cdp",
+            "--auto-connect",
+            "--stream-port",
+            "--remote-debugging-port",
+            "--remote-debugging-address",
+            "--executable-path",
+        ] {
+            assert!(
+                !args.iter().any(|a| a.starts_with(forbidden)),
+                "{forbidden} must never be passed"
+            );
+        }
+        let removed: Vec<String> = std_cmd
+            .get_envs()
+            .filter(|(_, v)| v.is_none())
+            .map(|(k, _)| k.to_string_lossy().into_owned())
+            .collect();
+        for name in [
+            "AGENT_BROWSER_CDP",
+            "AGENT_BROWSER_AUTO_CONNECT",
+            "AGENT_BROWSER_PROFILE",
+        ] {
+            assert!(removed.iter().any(|r| r == name), "{name} must be unset");
+        }
+    }
+
+    // ---- domain and action control -----------------------------------------
+
+    #[test]
+    fn local_profile_empty_or_wildcard_allowlist_denies_open() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        for domains in [&[][..], &["*"][..]] {
+            let tool = strict_tool(tmp.path(), domains, &[]);
+            let err = tool.validate_url("https://fixture.example/").unwrap_err();
+            assert!(err.to_string().contains("no allowed_domains"), "{err}");
+        }
+        // Standard builds keep the wildcard meaning.
+        let standard = BrowserTool::new(security(tmp.path()), vec!["*".into()], None).unwrap();
+        assert!(standard.validate_url("https://fixture.example/").is_ok());
+    }
+
+    #[test]
+    fn local_profile_denies_unlisted_domain_and_wildcard_private_hosts() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tool = strict_tool(tmp.path(), &["fixture.example"], &["*"]);
+        assert!(tool.validate_url("https://fixture.example/page").is_ok());
+        assert!(tool.validate_url("https://sub.fixture.example/").is_ok());
+        assert!(tool.validate_url("https://evil.example/").is_err());
+        // `["*"]` private hosts grants nothing in the local profile.
+        assert!(tool.validate_url("http://127.0.0.1:8080/").is_err());
+        assert!(tool.validate_url("http://169.254.169.254/").is_err());
+        assert!(tool.validate_url("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn local_profile_refuses_production_login_even_when_listed() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tool = strict_tool(
+            tmp.path(),
+            &[
+                "google.com",
+                "microsoftonline.com",
+                "github.com",
+                "okta.com",
+                "fixture.example",
+            ],
+            &["127.0.0.1"],
+        );
+        for url in [
+            "https://accounts.google.com/signin",
+            "https://login.microsoftonline.com/common/oauth2",
+            "https://github.com/login",
+            "https://github.com/users/sign_in",
+            "https://acme.okta.com/sso/saml",
+            "https://fixture.example/login",
+        ] {
+            let err = tool.validate_url(url).unwrap_err();
+            assert!(err.to_string().contains("production login"), "{url}: {err}");
+        }
+        assert!(
+            tool.validate_url("https://fixture.example/dashboard")
+                .is_ok()
+        );
+        // A loopback synthetic site may serve its own login form.
+        assert!(tool.validate_url("http://127.0.0.1:8080/login").is_ok());
+    }
+
+    #[test]
+    fn local_profile_requires_loopback_endpoints() {
+        for ok in [
+            "http://127.0.0.1:9515",
+            "http://localhost:9515",
+            "http://[::1]:9515",
+        ] {
+            assert!(ensure_loopback_endpoint(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://0.0.0.0:9515",
+            "http://192.168.1.20:9515",
+            "http://10.0.0.5:9515",
+            "https://driver.example.com",
+            "not a url",
+        ] {
+            assert!(ensure_loopback_endpoint(bad).is_err(), "{bad}");
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config = ComputerUseConfig {
+            endpoint: "http://192.168.1.20:8787/v1/actions".into(),
+            ..ComputerUseConfig::default()
+        };
+        let tool = BrowserTool::new_with_backend(
+            security(tmp.path()),
+            vec![],
+            None,
+            "computer_use".into(),
+            None,
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            config,
+            vec![],
+        )
+        .unwrap()
+        .with_strict_local_policy();
+        assert!(tool.computer_use_endpoint_url().is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_only_autonomy_denies_every_action() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            workspace_dir: tmp.path().to_path_buf(),
+            ..SecurityPolicy::default()
+        });
+        let tool = BrowserTool::new(security, vec!["fixture.example".into()], None).unwrap();
+        let result = tool
+            .execute(json!({"action": "open", "url": "https://fixture.example/"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("read-only"));
+    }
+
+    #[test]
+    fn credential_entry_is_denied_only_for_password_looking_targets() {
+        let fill = |selector: &str| BrowserAction::Fill {
+            selector: selector.into(),
+            value: "x".into(),
+        };
+        assert!(deny_credential_entry(&fill("#password")).is_err());
+        assert!(deny_credential_entry(&fill("input[type=Password]")).is_err());
+        assert!(
+            deny_credential_entry(&BrowserAction::Type {
+                selector: "@passwd-field".into(),
+                text: "x".into()
+            })
+            .is_err()
+        );
+        assert!(
+            deny_credential_entry(&BrowserAction::Find {
+                by: "label".into(),
+                value: "Password".into(),
+                action: "fill".into(),
+                fill_value: Some("x".into()),
+            })
+            .is_err()
+        );
+        assert!(deny_credential_entry(&fill("#name")).is_ok());
+        assert!(
+            deny_credential_entry(&BrowserAction::Click {
+                selector: "#password".into()
+            })
+            .is_ok()
+        );
+    }
+
+    // ---- redaction ---------------------------------------------------------
+
+    #[test]
+    fn typed_values_are_masked_in_logged_args_and_scrubbed_from_stderr() {
+        let (shown, secrets) = redact_command_args(&["fill", "#name", "hunter2"]);
+        assert_eq!(shown, "fill #name <redacted>");
+        assert_eq!(secrets, ["hunter2"]);
+        let (shown, _) = redact_command_args(&["type", "#q", "my secret text"]);
+        assert_eq!(shown, "type #q <redacted>");
+        let (shown, secrets) = redact_command_args(&["find", "label", "Name", "fill", "tok-123"]);
+        assert_eq!(shown, "find label Name fill <redacted>");
+        assert_eq!(secrets, ["tok-123"]);
+        let (shown, secrets) = redact_command_args(&["click", "#go"]);
+        assert_eq!(shown, "click #go");
+        assert!(secrets.is_empty());
+        assert_eq!(
+            scrub_secrets("could not type hunter2 into #name", &["hunter2".into()]),
+            "could not type <redacted> into #name"
+        );
+    }
+
+    // ---- synthetic site (fake agent-browser) -------------------------------
+
+    /// A fake `agent-browser` that behaves like a tiny synthetic site. Every call's
+    /// arguments are appended to `state.argv`; typed values go to `state.typed`.
+    #[cfg(unix)]
+    fn write_synthetic_site(dir: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let png: String = [
+            0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52,
+        ]
+        .iter()
+        .map(|b| format!("\\{b:03o}"))
+        .collect();
+        let script = format!(
+            "#!/bin/sh\n\
+             state=\"$(dirname \"$0\")/state\"\n\
+             printf '%s\\n' \"$*\" >> \"$state.argv\"\n\
+             if [ \"$1\" = --profile ]; then printf '%s' \"$2\" > \"$state.profile\"; shift 2; fi\n\
+             case \"$1\" in\n\
+             open) printf '{{\"success\":true,\"data\":{{\"url\":\"%s\",\"title\":\"Synthetic Fixture\"}}}}\\n' \"$2\" ;;\n\
+             snapshot) printf '{{\"success\":true,\"data\":{{\"snapshot\":\"textbox @e2 Name; button @e1 Submit\"}}}}\\n' ;;\n\
+             click) printf '{{\"success\":true,\"data\":{{\"clicked\":\"%s\"}}}}\\n' \"$2\" ;;\n\
+             fill|type) printf '%s\\n' \"$3\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
+             find) printf '%s\\n' \"$5\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
+             get) printf '{{\"success\":true,\"data\":{{\"text\":\"Synthetic page body\"}}}}\\n' ;;\n\
+             screenshot) printf '{png}' > \"$2\"; printf '{{\"success\":true,\"data\":{{\"path\":\"%s\"}}}}\\n' \"$2\" ;;\n\
+             wait) echo $$ > \"$state.pid\"; exec sleep 30 ;;\n\
+             *) echo 'unknown' >&2; exit 2 ;;\n\
+             esac\n"
+        );
+        let bin = dir.join("synthetic-agent-browser");
+        std::fs::write(&bin, script).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    #[cfg(unix)]
+    struct Site {
+        tmp: tempfile::TempDir,
+        tool: BrowserTool,
+    }
+
+    #[cfg(unix)]
+    fn site() -> Site {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ws = tmp.path().join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        let bin = write_synthetic_site(tmp.path());
+        let profile = tmp
+            .path()
+            .join("state")
+            .join("browser-profile")
+            .join("agent");
+        let mut tool = strict_tool(&ws, &["fixture.example", "google.com"], &[])
+            .with_profile_dir(profile)
+            .unwrap();
+        tool.set_agent_browser_bin_for_tests(bin);
+        Site { tmp, tool }
+    }
+
+    #[cfg(unix)]
+    impl Site {
+        fn state(&self, ext: &str) -> String {
+            std::fs::read_to_string(self.tmp.path().join(format!("state.{ext}")))
+                .unwrap_or_default()
+        }
+        async fn run(&self, action: BrowserAction) -> anyhow::Result<ToolResult> {
+            self.tool
+                .execute_action(action, ResolvedBackend::AgentBrowser)
+                .await
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn synthetic_site_open_read_click_type_screenshot_end_to_end() {
+        use std::os::unix::fs::PermissionsExt;
+        let site = site();
+
+        let open = site
+            .run(BrowserAction::Open {
+                url: "https://fixture.example/form".into(),
+            })
+            .await
+            .unwrap();
+        assert!(open.success && open.output.as_str().contains("Synthetic Fixture"));
+
+        let snap = site
+            .run(BrowserAction::Snapshot {
+                interactive_only: true,
+                compact: false,
+                depth: None,
+            })
+            .await
+            .unwrap();
+        assert!(snap.output.as_str().contains("@e1"));
+
+        let click = site
+            .run(BrowserAction::Click {
+                selector: "@e1".into(),
+            })
+            .await
+            .unwrap();
+        assert!(click.success);
+
+        let typed = site
+            .run(BrowserAction::Fill {
+                selector: "#name".into(),
+                value: "Ada Lovelace".into(),
+            })
+            .await
+            .unwrap();
+        assert!(typed.success);
+        let typed2 = site
+            .run(BrowserAction::Type {
+                selector: "#note".into(),
+                text: "hello".into(),
+            })
+            .await
+            .unwrap();
+        assert!(typed2.success);
+        assert_eq!(site.state("typed"), "Ada Lovelace\nhello\n");
+
+        let text = site
+            .run(BrowserAction::GetText {
+                selector: "body".into(),
+            })
+            .await
+            .unwrap();
+        assert!(text.output.as_str().contains("Synthetic page body"));
+
+        // Default screenshot: path-only text, the file exists, no Image attachment.
+        let shot = site
+            .run(BrowserAction::Screenshot {
+                path: None,
+                full_page: false,
+            })
+            .await
+            .unwrap();
+        assert!(shot.success);
+        assert!(
+            shot.output.attachments().is_empty(),
+            "screenshots must not be attached to provider requests by default"
+        );
+        let text = shot.output.as_str();
+        assert!(
+            text.contains("browser_screenshot_") && text.contains(".png"),
+            "{text}"
+        );
+        assert!(!text.contains("[IMAGE:"), "{text}");
+
+        // Every call ran with the agent-owned profile, created 0700.
+        let profile = site.tool.profile_dir.clone();
+        assert_eq!(site.state("profile"), profile.to_string_lossy());
+        assert_eq!(
+            std::fs::metadata(&profile).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert!(
+            site.state("argv")
+                .lines()
+                .all(|l| l.starts_with("--profile "))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn synthetic_site_denied_domain_and_action_never_reach_the_backend() {
+        let site = site();
+        for url in [
+            "https://evil.example/",
+            "https://accounts.google.com/signin",
+            "http://127.0.0.1:8080/",
+        ] {
+            assert!(
+                site.run(BrowserAction::Open { url: url.into() })
+                    .await
+                    .is_err(),
+                "{url} must be denied"
+            );
+        }
+        assert!(
+            site.run(BrowserAction::Fill {
+                selector: "#password".into(),
+                value: "p4ssw0rd-fixture".into(),
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(
+            site.state("argv"),
+            "",
+            "denied calls must not spawn the backend"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn synthetic_site_timeout_kills_the_backend_and_reports_failure() {
+        let mut site = site();
+        site.tool
+            .set_command_timeout_for_tests(Duration::from_secs(1));
+        let result = site
+            .run(BrowserAction::Wait {
+                selector: None,
+                ms: Some(60_000),
+                text: None,
+            })
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("timed out"));
+        let pid = site.state("pid").trim().to_string();
+        assert!(!pid.is_empty(), "the fake backend must have started");
+        assert!(
+            wait_until_dead(&pid).await,
+            "timed-out backend must be killed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn synthetic_site_cancel_kills_the_backend() {
+        let site = Arc::new(site());
+        let running = {
+            let site = Arc::clone(&site);
+            tokio::spawn(async move {
+                site.run(BrowserAction::Wait {
+                    selector: None,
+                    ms: Some(60_000),
+                    text: None,
+                })
+                .await
+            })
+        };
+        let mut pid = String::new();
+        for _ in 0..100 {
+            pid = site.state("pid").trim().to_string();
+            if !pid.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(!pid.is_empty(), "the fake backend must have started");
+        running.abort();
+        assert!(running.await.unwrap_err().is_cancelled());
+        assert!(
+            wait_until_dead(&pid).await,
+            "cancelled backend must be killed"
+        );
+    }
+
+    #[cfg(unix)]
+    async fn wait_until_dead(pid: &str) -> bool {
+        for _ in 0..100 {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            if !alive {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        false
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn typed_values_never_appear_in_log_output() {
+        ::zeroclaw_log::try_install_capture_subscriber();
+        let mut rx = ::zeroclaw_log::subscribe_or_install();
+        let site = site();
+        let secret = "zq-typed-secret-7f3a91";
+        site.run(BrowserAction::Fill {
+            selector: "#name".into(),
+            value: secret.into(),
+        })
+        .await
+        .unwrap();
+        site.run(BrowserAction::Type {
+            selector: "#note".into(),
+            text: format!("{secret}-2"),
+        })
+        .await
+        .unwrap();
+        site.run(BrowserAction::Find {
+            by: "label".into(),
+            value: "Name".into(),
+            action: "fill".into(),
+            fill_value: Some(format!("{secret}-3")),
+        })
+        .await
+        .unwrap();
+
+        // The value did reach the backend (positive control) ...
+        assert_eq!(site.state("typed").matches(secret).count(), 3);
+        // ... and is in no captured log event.
+        let mut captured = String::new();
+        while let Ok(event) = rx.try_recv() {
+            captured.push_str(&serde_json::to_string(&event).unwrap_or_default());
+        }
+        assert!(
+            !captured.contains(secret),
+            "typed value leaked into log output"
+        );
+        if captured.contains("Running: agent-browser") {
+            assert!(captured.contains("<redacted>"));
+        }
+    }
+
+    #[test]
+    fn screenshot_attachments_are_opt_in() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tool = strict_tool(tmp.path(), &[], &[]);
+        assert!(!tool.attach_screenshots);
+        assert!(tool.with_screenshot_attachments(true).attach_screenshots);
     }
 }
