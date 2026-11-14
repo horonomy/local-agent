@@ -15,11 +15,23 @@ const SCREENSHOT_TIMEOUT_SECS: u64 = 15;
 /// Linux: tries `gnome-screenshot`, `scrot`, `import` (`ImageMagick`) in order.
 pub struct ScreenshotTool {
     security: Arc<SecurityPolicy>,
+    attach_image: bool,
 }
 
 impl ScreenshotTool {
     pub fn new(security: Arc<SecurityPolicy>) -> Self {
-        Self { security }
+        Self {
+            security,
+            attach_image: false,
+        }
+    }
+
+    /// Declare the saved screenshot as an image attachment, which inlines its pixels
+    /// into provider requests. Off by default; the operator opts in through
+    /// `[capture] attach_images_to_provider`. Without it the result is path-only text.
+    pub fn with_attachments(mut self, attach: bool) -> Self {
+        self.attach_image = attach;
+        self
     }
 
     /// Determine the screenshot command for the current platform.
@@ -129,7 +141,7 @@ impl ScreenshotTool {
                     });
                 }
 
-                Self::describe_saved_file(&output_path).await
+                Self::describe_saved_file(&output_path, self.attach_image).await
             }
             Ok(Err(e)) => Ok(ToolResult {
                 success: false,
@@ -148,24 +160,33 @@ impl ScreenshotTool {
 
     /// Read the saved screenshot file and describe it for the tool result.
     ///
-    /// The saved file is declared as an image attachment; the text carries
-    /// the path and size only.
-    async fn describe_saved_file(output_path: &std::path::Path) -> anyhow::Result<ToolResult> {
+    /// The text carries the path and size only. The saved file is declared as an
+    /// image attachment (inlined into provider requests) only when `attach_image`.
+    async fn describe_saved_file(
+        output_path: &std::path::Path,
+        attach_image: bool,
+    ) -> anyhow::Result<ToolResult> {
         match tokio::fs::read(output_path).await {
-            Ok(bytes) => Ok(ToolResult {
-                success: true,
-                output: format!(
-                    "Screenshot saved to: {}\nSize: {} bytes",
-                    output_path.display(),
-                    bytes.len(),
-                )
-                .into(),
-                error: None,
+            Ok(bytes) => {
+                let result = ToolResult {
+                    success: true,
+                    output: format!(
+                        "Screenshot saved to: {}\nSize: {} bytes",
+                        output_path.display(),
+                        bytes.len(),
+                    )
+                    .into(),
+                    error: None,
+                };
+                Ok(if attach_image {
+                    result.with_attachment(RenderedMarker {
+                        target: output_path.display().to_string(),
+                        kind: MarkerKind::Image,
+                    })
+                } else {
+                    result
+                })
             }
-            .with_attachment(RenderedMarker {
-                target: output_path.display().to_string(),
-                kind: MarkerKind::Image,
-            })),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: format!("Screenshot saved to: {}", output_path.display()).into(),
@@ -250,7 +271,9 @@ mod tests {
         let path = dir.path().join("minimal.png");
         std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
 
-        let result = ScreenshotTool::describe_saved_file(&path).await.unwrap();
+        let result = ScreenshotTool::describe_saved_file(&path, false)
+            .await
+            .unwrap();
 
         assert!(result.success);
         let text = result.output.as_str();
@@ -314,7 +337,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn describe_saved_file_declares_the_saved_png_as_attachment() {
+    async fn describe_saved_file_declares_no_attachment_by_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("shot.png");
+        std::fs::write(&image, [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']).unwrap();
+
+        let result = ScreenshotTool::describe_saved_file(&image, false)
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(
+            result.output.attachments().is_empty(),
+            "pixels reach a provider only through an explicit opt-in"
+        );
+        assert!(
+            result
+                .output
+                .as_str()
+                .contains(&format!("Screenshot saved to: {}", image.display()))
+        );
+    }
+
+    #[test]
+    fn attachments_are_off_unless_the_operator_opts_in() {
+        let tool = ScreenshotTool::new(test_security());
+        assert!(!tool.attach_image);
+        assert!(tool.with_attachments(true).attach_image);
+    }
+
+    #[tokio::test]
+    async fn describe_saved_file_declares_the_saved_png_as_attachment_when_opted_in() {
         // The saved screenshot is a produced image: the tool must declare it
         // (exactly one image attachment) while leaving the text unchanged,
         // because nothing downstream scans the text for the path anymore.
@@ -322,7 +375,7 @@ mod tests {
         let image = temp.path().join("shot.png");
         std::fs::write(&image, [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']).unwrap();
 
-        let result = ScreenshotTool::describe_saved_file(&image)
+        let result = ScreenshotTool::describe_saved_file(&image, true)
             .await
             .expect("describe_saved_file succeeds on a small PNG");
 
