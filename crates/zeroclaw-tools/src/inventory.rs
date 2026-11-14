@@ -59,6 +59,9 @@ pub enum BuiltinToolCompilation {
     Always,
     /// Native adapters compiled by `tools-external`.
     External,
+    /// The `browser` automation tool: compiled by `tools-external` or the
+    /// narrower `local-browser` opt-in.
+    Browser,
     /// An existing SaaS or coding-CLI compilation group.
     OptIn(OptInTool),
 }
@@ -69,6 +72,7 @@ impl BuiltinToolCompilation {
         match self {
             Self::Always => true,
             Self::External => cfg!(feature = "tools-external"),
+            Self::Browser => cfg!(any(feature = "tools-external", feature = "local-browser")),
             Self::OptIn(tool) => {
                 // A consumer can enable config features without compiling the concrete owner.
                 let owner_compiled = match tool {
@@ -470,7 +474,7 @@ pub const BUILTIN_TOOLS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         name: "browser",
         tier: ToolTier::Optional,
-        compilation: BuiltinToolCompilation::External,
+        compilation: BuiltinToolCompilation::Browser,
     },
     BuiltinToolSpec {
         name: "browser_delegate",
@@ -661,7 +665,12 @@ mod tests {
     fn external_compilation_rows_match_canonical_names() {
         let external: BTreeSet<&str> = BUILTIN_TOOLS
             .iter()
-            .filter(|spec| spec.compilation == BuiltinToolCompilation::External)
+            .filter(|spec| {
+                matches!(
+                    spec.compilation,
+                    BuiltinToolCompilation::External | BuiltinToolCompilation::Browser
+                )
+            })
             .map(|spec| spec.name)
             .collect();
         let expected: BTreeSet<&str> = zeroclaw_config::builtin_tools::EXTERNAL_TOOL_NAMES

@@ -50,7 +50,7 @@ pub use zeroclaw_tools::a2a_client::{
 pub use zeroclaw_tools::ask_user::AskUserTool;
 pub use zeroclaw_tools::ask_user::ChannelMapHandle;
 pub use zeroclaw_tools::backup_tool::BackupTool;
-#[cfg(feature = "tools-external")]
+#[cfg(any(feature = "tools-external", feature = "local-browser"))]
 pub use zeroclaw_tools::browser::{BrowserTool, ComputerUseConfig};
 #[cfg(feature = "tools-external")]
 pub use zeroclaw_tools::browser_delegate::BrowserDelegateTool;
@@ -1574,7 +1574,7 @@ fn all_tools_with_runtime_on_thread(
     execution_capability: Option<AgentExecutionCapability>,
     acp_sessions: Option<AcpSessionReadView>,
 ) -> anyhow::Result<AllToolsResult> {
-    #[cfg(feature = "tools-external")]
+    #[cfg(any(feature = "tools-external", feature = "local-browser"))]
     let browser_config = _browser_config;
     let has_shell_access = runtime.has_shell_access();
     let persistent_writes = runtime.has_filesystem_access();
@@ -1965,7 +1965,7 @@ fn all_tools_with_runtime_on_thread(
     // Full browser automation (pluggable backend) is a separate opt-in from
     // `browser_open`: it drives a real Chrome/Chromium session that may
     // already be logged in, so `[browser] enabled` alone must not grant it.
-    #[cfg(feature = "tools-external")]
+    #[cfg(any(feature = "tools-external", feature = "local-browser"))]
     if browser_config.automation_enabled && select_tool!("browser") {
         match BrowserTool::new_with_backend(
             security.clone(),
@@ -1986,7 +1986,25 @@ fn all_tools_with_runtime_on_thread(
                 max_coordinate_y: browser_config.computer_use.max_coordinate_y,
             },
             browser_config.allowed_private_hosts.clone(),
-        ) {
+        )
+        .and_then(|tool| {
+            // Builds without `tools-external` are the local profile: agent-owned profile
+            // under the state dir (no config key can point the tool at the user's own
+            // browser profile), no wildcard domains, no production sign-in pages, no
+            // credential entry, loopback-only endpoints, guarded page URL. Standard
+            // builds keep their existing behaviour.
+            if cfg!(feature = "tools-external") {
+                Ok(tool)
+            } else {
+                tool.with_profile_dir(
+                    root_config
+                        .data_dir
+                        .join("browser-profile")
+                        .join(zeroclaw_tools::browser::profile_component(agent_alias)),
+                )
+                .map(BrowserTool::with_strict_local_policy)
+            }
+        }) {
             Ok(tool) => {
                 tool_arcs.push(Arc::new(RateLimitedTool::new(tool, security.clone())));
             }
