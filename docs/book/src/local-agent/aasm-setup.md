@@ -25,7 +25,7 @@ mode = "standalone"
 
 Managed mode is for a machine where an AASM runtime already runs under **your own user account** and listens on a socket you can name. This page does not explain how to install or configure AASM, and it is not verified that a stock AASM runtime can listen where Local Agent accepts (see [socket requirements](#socket-requirements)).
 
-1. **Build with the feature.** The managed transport is the Cargo feature `aasm-managed`, outside `default` and outside `local-agent-minimal`. The `src/lib.rs` guard that rejects `local-agent-minimal` combined with ingress features does not list `aasm-managed`, so the combination below is expected to compile. The CI job `Test (AASM managed policy)` compiles it and runs the managed policy tests, but it was not built for this page.
+1. **Build with the feature.** The managed transport is the Cargo feature `aasm-managed`, outside `default` and outside `local-agent-minimal`. The `src/lib.rs` guard that rejects `local-agent-minimal` combined with ingress features does not list `aasm-managed`, so the combination below is expected to compile. The CI job `Test (AASM managed policy)` only runs `cargo test -p zeroclaw-runtime --features aasm-managed --lib security::` and `--test policy_bypass`. It does **not** build the root binary with `--no-default-features --features local-agent-minimal,aasm-managed`, so this full binary build line is unverified by CI and was not built for this page.
 
    ```sh
    cargo build --release --locked --bin zeroclaw \
