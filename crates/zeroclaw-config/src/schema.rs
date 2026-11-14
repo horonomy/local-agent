@@ -24287,7 +24287,9 @@ impl Config {
             }
         }
 
-        if let Some((path, message)) = self.computer_use.validation_error() {
+        if self.computer_use.enabled
+            && let Some((path, message)) = self.computer_use.validation_error()
+        {
             validation_bail!(InvalidFormat, path, "{path}: {message}");
         }
 

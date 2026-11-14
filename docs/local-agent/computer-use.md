@@ -27,7 +27,7 @@ desktop-input surface for the local profile.
   each action has an `action_timeout_ms` deadline. A timeout or a cancelled
   call drops the backend future, which a backend must turn into killing any
   helper it started.
-- Key chords with command/control/alt-style modifiers are refused; typed text
+- Only a letter/digit, F1-F12 and a short list of named keys are accepted (no modifiers, chords or system keys); typed text
   is limited to 500 characters and never appears in results, errors or debug
   output.
 - Screenshots are out of scope here and answer "use the capture tool".
@@ -51,6 +51,11 @@ action_timeout_ms = 5000
 ```
 
 ## Known limits
+
+- The session and rate budgets live in the tool instance; a rebuilt registry
+  (for example after a config reload) starts a fresh budget.
+- Typed text is kept out of this tool's results and errors, but it is part of
+  the call arguments, which approval prompts and transcripts may carry.
 
 - The window check and the dispatch are separate backend calls; a window change
   between them is not detected.

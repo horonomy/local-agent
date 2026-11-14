@@ -35,12 +35,25 @@ use zeroclaw_api::tool::{Tool, ToolOutput, ToolResult};
 use zeroclaw_config::computer_use::{ComputerUseConfig, WindowRule};
 
 const MAX_TYPED_CHARS: usize = 500;
-const MAX_KEY_LEN: usize = 32;
 const WINDOW: Duration = Duration::from_secs(60);
-/// Modifier names that could leave the allowlisted window (quit, switch app,
-/// open a launcher). Chords are refused outright in this version.
-const MODIFIERS: &[&str] = &[
-    "cmd", "command", "ctrl", "control", "alt", "option", "opt", "win", "super", "meta", "fn",
+/// Keys that stay inside the focused window. Everything else is refused, so
+/// modifiers, chords and system keys (launchers, power, capture) cannot pass.
+const NAMED_KEYS: &[&str] = &[
+    "enter",
+    "return",
+    "tab",
+    "escape",
+    "space",
+    "backspace",
+    "delete",
+    "up",
+    "down",
+    "left",
+    "right",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
 ];
 
 /// Screen rectangle in the backend's coordinate space.
@@ -245,24 +258,17 @@ fn parse_request(args: &Value) -> Result<Request, String> {
 }
 
 fn validate_key(key: &str) -> Result<(), String> {
-    let well_formed = !key.is_empty()
-        && key.len() <= MAX_KEY_LEN
-        && key
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-');
-    if !well_formed {
-        return Err("`key` must be a short key name such as Enter, Tab, Escape or a".into());
-    }
     let lowered = key.to_ascii_lowercase();
-    if lowered
-        .split(['+', '-'])
-        .any(|part| MODIFIERS.contains(&part))
-    {
-        return Err(
-            "key chords with command, control, alt or similar modifiers are not allowed".into(),
-        );
+    let single = key.len() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric());
+    let function = lowered
+        .strip_prefix('f')
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=12).contains(&n));
+    if single || function || NAMED_KEYS.contains(&lowered.as_str()) {
+        Ok(())
+    } else {
+        Err("`key` must be one letter or digit, F1-F12, or one of: enter, return, tab, escape, space, backspace, delete, up, down, left, right, home, end, pageup, pagedown; modifiers, chords and system keys are not allowed".into())
     }
-    Ok(())
 }
 
 impl ComputerUseTool {
@@ -731,6 +737,11 @@ mod tests {
             json!({"action": "key", "app": "Notes", "key": "cmd+q"}),
             json!({"action": "key", "app": "Notes", "key": "Ctrl-Alt-Delete"}),
             json!({"action": "key", "app": "Notes", "key": "a b"}),
+            json!({"action": "key", "app": "Notes", "key": "left_cmd"}),
+            json!({"action": "key", "app": "Notes", "key": "lcmd"}),
+            json!({"action": "key", "app": "Notes", "key": "Spotlight"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{F702}"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{202E}b"}),
             json!({"action": "type", "app": "Notes", "text": "x\u{1b}[2J"}),
             json!({"action": "type", "app": "Notes", "text": "a".repeat(501)}),
             json!({"action": "click", "app": "Notes", "x": 1.5, "y": 2}),

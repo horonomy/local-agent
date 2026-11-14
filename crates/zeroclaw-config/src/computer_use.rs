@@ -182,8 +182,10 @@ mod tests {
 
     #[test]
     fn validation_flags_bounds_and_bad_entries() {
-        let mut c = ComputerUseConfig::default();
-        c.window_allowlist = vec!["*".into()];
+        let mut c = ComputerUseConfig {
+            window_allowlist: vec!["*".into()],
+            ..Default::default()
+        };
         assert_eq!(
             c.validation_error().unwrap().0,
             "computer_use.window_allowlist"
