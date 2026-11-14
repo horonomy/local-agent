@@ -66,6 +66,18 @@ pub struct BrowserTool {
     /// constructor and set only by `set_agent_browser_bin_for_tests`, so
     /// production always launches the installed `agent-browser`.
     agent_browser_bin: Option<std::path::PathBuf>,
+    /// Agent-owned browser profile directory, handed to every backend. There is
+    /// deliberately no config key for it: the tool must never reuse the user's own
+    /// Chrome profile (cookies, logged-in sessions).
+    profile_dir: std::path::PathBuf,
+    /// Local-profile policy (see [`Self::with_strict_local_policy`]).
+    strict_local_policy: bool,
+    /// Whether a saved screenshot is also declared as an image attachment, which the
+    /// provider request inlines. Off by default: the result is path-only text.
+    attach_screenshots: bool,
+    /// Upper bound for one agent-browser invocation; the child is killed when it is
+    /// exceeded or when the call is cancelled.
+    command_timeout: Duration,
     #[cfg(feature = "browser-native")]
     native_headless: bool,
     #[cfg(feature = "browser-native")]
@@ -237,6 +249,7 @@ impl BrowserTool {
     ) -> anyhow::Result<Self> {
         #[cfg(not(feature = "browser-native"))]
         let _ = (native_headless, &native_webdriver_url, &native_chrome_path);
+        let security_workspace = security.workspace_dir.clone();
         Ok(Self {
             security,
             allowed_domains: domain_guard::normalize_allowed_domains(
@@ -251,6 +264,10 @@ impl BrowserTool {
             backend,
             headed,
             agent_browser_bin: None,
+            profile_dir: default_profile_dir(&security_workspace),
+            strict_local_policy: false,
+            attach_screenshots: false,
+            command_timeout: DEFAULT_COMMAND_TIMEOUT,
             #[cfg(feature = "browser-native")]
             native_headless,
             #[cfg(feature = "browser-native")]
@@ -261,6 +278,36 @@ impl BrowserTool {
             #[cfg(feature = "browser-native")]
             native_state: tokio::sync::Mutex::new(native_backend::NativeBrowserState::default()),
         })
+    }
+
+    /// Use `dir` as the agent-owned browser profile (the runtime passes
+    /// `<state dir>/browser-profile/<agent>`). Refuses relative paths and anything inside
+    /// a well-known real browser profile location, so the user's own profile can never
+    /// be selected through this tool.
+    pub fn with_profile_dir(mut self, dir: std::path::PathBuf) -> anyhow::Result<Self> {
+        validate_agent_profile_dir(&dir)?;
+        self.profile_dir = dir;
+        Ok(self)
+    }
+
+    /// Local-profile policy for builds without `tools-external`:
+    /// - wildcard (`*`) entries in `allowed_domains` / `allowed_private_hosts` grant
+    ///   nothing, so an empty allow-list denies `open`;
+    /// - hosts that look like production sign-in pages are refused even when listed;
+    /// - typing into password-looking fields is refused;
+    /// - WebDriver and computer-use endpoints must be loopback.
+    pub fn with_strict_local_policy(mut self) -> Self {
+        self.strict_local_policy = true;
+        self.allowed_domains.retain(|d| d != "*");
+        self.allowed_private_hosts.retain(|d| d != "*");
+        self
+    }
+
+    /// Declare saved screenshots as image attachments (inlined into provider requests).
+    /// Off by default; the screenshot attachment policy belongs to HORO-2401.
+    pub fn with_screenshot_attachments(mut self, attach: bool) -> Self {
+        self.attach_screenshots = attach;
+        self
     }
 
     /// Check if agent-browser CLI is available
@@ -346,6 +393,12 @@ impl BrowserTool {
             anyhow::Error::msg("browser.computer_use.endpoint must include host")
         })?;
 
+        if self.strict_local_policy && !is_loopback_host(host) {
+            anyhow::bail!(
+                "browser.computer_use.endpoint host '{host}' must be loopback in the local browser profile"
+            );
+        }
+
         let host_is_private = domain_guard::is_private_or_local_host(host);
         if !self.computer_use.allow_remote_endpoint && !host_is_private {
             anyhow::bail!(
@@ -391,6 +444,10 @@ impl BrowserTool {
                     anyhow::bail!(
                         "browser.backend='rust_native' requires build feature 'browser-native'"
                     );
+                }
+                #[cfg(feature = "browser-native")]
+                if self.strict_local_policy {
+                    ensure_loopback_endpoint(&self.native_webdriver_url)?;
                 }
                 if !self.rust_native_available() {
                     anyhow::bail!(
@@ -492,6 +549,12 @@ impl BrowserTool {
         let private_host_allowed = private_host
             && domain_guard::host_matches_allowlist(&host, &self.allowed_private_hosts);
 
+        // Local profile: an allow-listed production sign-in page is still refused, so
+        // the agent never drives a real account login. Loopback fixtures are exempt.
+        if self.strict_local_policy && !private_host && looks_like_production_login(&parsed) {
+            anyhow::bail!("Blocked production login page: {host}");
+        }
+
         if private_host && !private_host_allowed {
             anyhow::bail!("Blocked local/private host: {host}");
         }
@@ -509,22 +572,36 @@ impl BrowserTool {
 
     /// Execute an agent-browser command
     async fn run_command(&self, args: &[&str]) -> anyhow::Result<AgentBrowserResponse> {
+        prepare_profile_dir(&self.profile_dir)?;
         let mut cmd = self.agent_browser_command();
 
         // Add --json for machine-readable output
         cmd.args(args).arg("--json");
+        // Cancelling the call (or the timeout below) drops the future; the browser
+        // CLI must not outlive it.
+        cmd.kill_on_drop(true);
 
+        let (shown_args, secrets) = redact_command_args(args);
         ::zeroclaw_log::record!(
             DEBUG,
             ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note),
-            &format!("Running: agent-browser {} --json", args.join(" "))
+            &format!("Running: agent-browser {shown_args} --json")
         );
 
-        let output = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await?;
+        let pending = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output();
+        let output = match tokio::time::timeout(self.command_timeout, pending).await {
+            Ok(result) => result?,
+            Err(_) => {
+                return Ok(AgentBrowserResponse {
+                    success: false,
+                    data: None,
+                    error: Some(format!(
+                        "agent-browser command timed out after {}s",
+                        self.command_timeout.as_secs()
+                    )),
+                });
+            }
+        };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -533,7 +610,7 @@ impl BrowserTool {
             ::zeroclaw_log::record!(
                 DEBUG,
                 ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note),
-                &format!("agent-browser stderr: {}", stderr)
+                &format!("agent-browser stderr: {}", scrub_secrets(&stderr, &secrets))
             );
         }
 
@@ -586,6 +663,14 @@ impl BrowserTool {
         if is_service_environment() {
             ensure_browser_env(&mut cmd);
         }
+
+        // Settings that could redirect the daemon to the user's own Chrome, another
+        // profile, a remote provider or an exposed port are not inherited.
+        for name in AGENT_BROWSER_AMBIENT_ENV {
+            cmd.env_remove(name);
+        }
+        // Documented global flag: `agent-browser --profile <dir> <command>`.
+        cmd.arg("--profile").arg(&self.profile_dir);
 
         // Add session if configured
         if let Some(ref session) = self.session_name {
@@ -759,6 +844,7 @@ impl BrowserTool {
                     self.native_headless,
                     &self.native_webdriver_url,
                     self.native_chrome_path.as_deref(),
+                    &self.profile_dir,
                 )
                 .await;
 
@@ -776,6 +862,7 @@ impl BrowserTool {
                             self.native_headless,
                             &self.native_webdriver_url,
                             self.native_chrome_path.as_deref(),
+                            &self.profile_dir,
                         )
                         .await
                         .with_context(|| "rust_native backend retry after session reset failed")?
@@ -1242,15 +1329,19 @@ impl BrowserTool {
                     }))
                     .unwrap_or_default();
 
-                    return Ok(ToolResult {
+                    let result = ToolResult {
                         success: true,
                         output: output.into(),
                         error: None,
-                    }
-                    .with_attachment(RenderedMarker {
-                        target: path_str.to_string(),
-                        kind: MarkerKind::Image,
-                    }));
+                    };
+                    return Ok(if self.attach_screenshots {
+                        result.with_attachment(RenderedMarker {
+                            target: path_str.to_string(),
+                            kind: MarkerKind::Image,
+                        })
+                    } else {
+                        result
+                    });
                 }
 
                 let output = parsed
@@ -1321,6 +1412,10 @@ impl BrowserTool {
         mut action: BrowserAction,
         backend: ResolvedBackend,
     ) -> anyhow::Result<ToolResult> {
+        if self.strict_local_policy {
+            deny_credential_entry(&action)?;
+        }
+
         // Validate screenshot path before any backend writes a file
         let mut screenshot_target: Option<String> = None;
         if matches!(action, BrowserAction::Screenshot { .. }) {
@@ -1361,7 +1456,7 @@ impl BrowserTool {
         // agent-browser backend, so it is declared here too; the
         // rust-native path still inlines the PNG instead of saving it.)
         match (result, screenshot_target) {
-            (Ok(mut result), Some(target)) if result.success => {
+            (Ok(mut result), Some(target)) if result.success && self.attach_screenshots => {
                 result = result.with_attachment(RenderedMarker {
                     target,
                     kind: MarkerKind::Image,
@@ -1628,10 +1723,11 @@ mod native_backend {
             headless: bool,
             webdriver_url: &str,
             chrome_path: Option<&str>,
+            profile_dir: &std::path::Path,
         ) -> Result<Value> {
             match action {
                 BrowserAction::Open { url } => {
-                    self.ensure_session(headless, webdriver_url, chrome_path)
+                    self.ensure_session(headless, webdriver_url, chrome_path, profile_dir)
                         .await?;
                     let client = self.active_client()?;
                     client
@@ -1971,14 +2067,22 @@ mod native_backend {
             headless: bool,
             webdriver_url: &str,
             chrome_path: Option<&str>,
+            profile_dir: &std::path::Path,
         ) -> Result<()> {
             if self.client.is_some() {
                 return Ok(());
             }
+            super::prepare_profile_dir(profile_dir)?;
 
             let mut capabilities: Map<String, Value> = Map::new();
             let mut chrome_options: Map<String, Value> = Map::new();
             let mut args: Vec<Value> = Vec::new();
+
+            // Always an agent-owned profile, never the user's Chrome profile.
+            args.push(Value::String(format!(
+                "--user-data-dir={}",
+                profile_dir.display()
+            )));
 
             if headless {
                 args.push(Value::String("--headless=new".to_string()));
@@ -2734,6 +2838,222 @@ fn endpoint_reachable(endpoint: &reqwest::Url, timeout: Duration) -> bool {
     };
 
     std::net::TcpStream::connect_timeout(&addr, timeout).is_ok()
+}
+
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Placeholder logged and scrubbed in place of text typed into a page.
+const REDACTED: &str = "<redacted>";
+
+/// Fallback profile location for callers that do not name one; the runtime always
+/// passes `<state dir>/browser-profile/<agent>` instead.
+fn default_profile_dir(workspace: &std::path::Path) -> std::path::PathBuf {
+    workspace.join(".browser-profile")
+}
+
+/// Directory names of real, user-owned browser profiles. The agent profile must never
+/// sit inside one of them (matched per path component, not as a substring).
+const USER_BROWSER_PROFILE_DIRS: &[&str] = &[
+    "chromium",
+    "google-chrome",
+    "google-chrome-beta",
+    "chrome",
+    "bravesoftware",
+    "brave-browser",
+    "microsoft edge",
+    "microsoft-edge",
+    "vivaldi",
+    "opera",
+    "opera software",
+    ".mozilla",
+    "firefox",
+];
+
+fn validate_agent_profile_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    if !dir.is_absolute() {
+        anyhow::bail!("browser profile directory must be an absolute path");
+    }
+    if dir
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        anyhow::bail!("browser profile directory must not contain '..'");
+    }
+    let names: Vec<String> = dir
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(n) => Some(n.to_string_lossy().to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+    if let Some(name) = names
+        .iter()
+        .find(|n| USER_BROWSER_PROFILE_DIRS.contains(&n.as_str()))
+    {
+        anyhow::bail!(
+            "browser profile directory must be agent-owned, not a user browser profile ({name})"
+        );
+    }
+    Ok(())
+}
+
+/// Create the agent profile directory (mode 0700 on Unix) and refuse a symlink in its
+/// place, so the profile cannot be redirected at a real browser profile.
+fn prepare_profile_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    validate_agent_profile_dir(dir)?;
+    if let Ok(meta) = std::fs::symlink_metadata(dir)
+        && meta.file_type().is_symlink()
+    {
+        anyhow::bail!("browser profile directory must not be a symlink");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .with_context(|| format!("failed to create browser profile {}", dir.display()))?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("failed to restrict browser profile {}", dir.display()))?;
+    }
+    #[cfg(not(unix))]
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("failed to create browser profile {}", dir.display()))?;
+    Ok(())
+}
+
+/// agent-browser settings that can point the daemon at the user's running Chrome, a
+/// remote provider, another profile or an exposed streaming port. They are removed
+/// from the child environment so only the arguments this tool passes apply.
+const AGENT_BROWSER_AMBIENT_ENV: &[&str] = &[
+    "AGENT_BROWSER_PROFILE",
+    "AGENT_BROWSER_CDP",
+    "AGENT_BROWSER_AUTO_CONNECT",
+    "AGENT_BROWSER_PROVIDER",
+    "AGENT_BROWSER_CONFIG",
+    "AGENT_BROWSER_STREAM_PORT",
+    "AGENT_BROWSER_EXTENSIONS",
+    "AGENT_BROWSER_PLUGINS",
+    "AGENT_BROWSER_INIT_SCRIPTS",
+];
+
+/// Argument text for the DEBUG log with typed values masked, plus the masked values so
+/// they can also be scrubbed from the child's stderr.
+fn redact_command_args(args: &[&str]) -> (String, Vec<String>) {
+    // Positions of text-bearing arguments: `fill <sel> <value>`, `type <sel> <text>`,
+    // `find <by> <value> fill <text>`.
+    let secret_from = match args.first().copied() {
+        Some("fill" | "type") => Some(2),
+        Some("find") if args.get(3) == Some(&"fill") => Some(4),
+        _ => None,
+    };
+    let mut secrets = Vec::new();
+    let shown: Vec<&str> = args
+        .iter()
+        .enumerate()
+        .map(|(i, arg)| match secret_from {
+            Some(from) if i >= from => {
+                secrets.push((*arg).to_string());
+                REDACTED
+            }
+            _ => *arg,
+        })
+        .collect();
+    (shown.join(" "), secrets)
+}
+
+fn scrub_secrets(text: &str, secrets: &[String]) -> String {
+    secrets
+        .iter()
+        .filter(|s| !s.is_empty())
+        .fold(text.to_string(), |acc, s| acc.replace(s.as_str(), REDACTED))
+}
+
+/// The local profile only talks to a WebDriver that listens on loopback.
+#[cfg_attr(not(feature = "browser-native"), allow(dead_code))]
+fn ensure_loopback_endpoint(endpoint: &str) -> anyhow::Result<()> {
+    let parsed = reqwest::Url::parse(endpoint)
+        .map_err(|e| anyhow::Error::msg(format!("Invalid WebDriver URL: {e}")))?;
+    match parsed.host_str() {
+        Some(host) if is_loopback_host(host) => Ok(()),
+        _ => anyhow::bail!("WebDriver endpoint must be loopback in the local browser profile"),
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']);
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Heuristic for production sign-in pages: well-known identity-provider host labels
+/// and sign-in URL paths. Not exhaustive; the allow-list stays the primary control.
+fn looks_like_production_login(parsed: &reqwest::Url) -> bool {
+    const LOGIN_LABELS: &[&str] = &[
+        "login", "signin", "sign-in", "accounts", "auth", "sso", "idp", "oauth", "id", "secure",
+        "passport",
+    ];
+    const LOGIN_PATHS: &[&str] = &[
+        "/login",
+        "/signin",
+        "/sign-in",
+        "/sign_in",
+        "/log-in",
+        "/sso",
+        "/oauth",
+        "/oauth2",
+        "/saml",
+        "/session/new",
+        "/users/sign_in",
+        "/accounts/login",
+        "/auth/login",
+    ];
+    let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+    let labels_hit = host
+        .split('.')
+        .take(host.matches('.').count().max(1))
+        .any(|label| LOGIN_LABELS.contains(&label));
+    let path = parsed.path().to_ascii_lowercase();
+    let path_hit = LOGIN_PATHS.iter().any(|p| {
+        path == *p || path.starts_with(&format!("{p}/")) || path.starts_with(&format!("{p}."))
+    });
+    labels_hit || path_hit
+}
+
+/// Local-profile action denial: typing into a password-looking field is refused so a
+/// credential is never entered by the agent.
+fn deny_credential_entry(action: &BrowserAction) -> anyhow::Result<()> {
+    let selector = match action {
+        BrowserAction::Fill { selector, .. } | BrowserAction::Type { selector, .. } => {
+            Some(selector.as_str())
+        }
+        BrowserAction::Find {
+            by,
+            value,
+            action,
+            fill_value: Some(_),
+        } if action == "fill" => {
+            let _ = by;
+            Some(value.as_str())
+        }
+        _ => None,
+    };
+    if selector.is_some_and(selector_targets_credential) {
+        anyhow::bail!(
+            "Action denied: entering a password is not allowed in the local browser profile"
+        );
+    }
+    Ok(())
+}
+
+fn selector_targets_credential(selector: &str) -> bool {
+    let lowered = selector.to_ascii_lowercase();
+    ["password", "passwd", "passcode"]
+        .iter()
+        .any(|needle| lowered.contains(needle))
 }
 
 /// Detect whether the current process is running inside a service environment
@@ -3808,6 +4128,7 @@ mod tests {
         let script = format!(
             "#!/bin/sh\n\
              set -e\n\
+             if [ \"$1\" = --profile ]; then shift 2; fi\n\
              # fake agent-browser: `screenshot <path> --json` writes a real PNG\n\
              case \"$2\" in -*|'') echo 'fake agent-browser: expected a path argument' >&2; exit 1 ;; esac\n\
              printf '{png}' > \"$2\"\n\
@@ -3834,7 +4155,7 @@ mod tests {
         let ws = tmp.path().join("ws");
         tokio::fs::create_dir_all(&ws).await.unwrap();
         let bin = write_fake_agent_browser(tmp.path());
-        let mut tool = screenshot_tool_with_workspace(&ws);
+        let mut tool = screenshot_tool_with_workspace(&ws).with_screenshot_attachments(true);
         tool.set_agent_browser_bin_for_tests(bin);
 
         let result = tool
@@ -3935,7 +4256,7 @@ mod tests {
         let ws = tmp.path().join("ws");
         tokio::fs::create_dir_all(&ws).await.unwrap();
         let bin = write_fake_agent_browser(tmp.path());
-        let mut tool = screenshot_tool_with_workspace(&ws);
+        let mut tool = screenshot_tool_with_workspace(&ws).with_screenshot_attachments(true);
         tool.set_agent_browser_bin_for_tests(bin);
 
         let result = tool
@@ -4482,7 +4803,8 @@ mod tests {
             config,
             Vec::new(),
         )
-        .unwrap();
+        .unwrap()
+        .with_screenshot_attachments(true);
 
         let result = tool
             .execute(json!({
