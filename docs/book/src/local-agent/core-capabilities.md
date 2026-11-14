@@ -14,7 +14,7 @@ What the `local-agent-minimal` profile contains, each item backed by [Minimal ru
 
 ## Not in this profile
 
-No gateway, ACP bridge, messaging channel, daemon listener, relay or enrollment, embedded web UI, voice wake, tunnel, or `service` command that installs or starts a unit. Browser and computer use are [planned](./browser-computer-use.md); an optional [AASM](./aasm.md) integration is planned.
+No gateway, ACP bridge, messaging channel, daemon listener, relay or enrollment, embedded web UI, voice wake, tunnel, or `service` command that installs or starts a unit. Browser and computer use are [planned](./browser-computer-use.md); an optional, opt-in [AASM](./aasm.md) governance mode exists only in builds with the `aasm-managed` feature and is not part of this profile.
 
 ## Inherited reference pages
 
