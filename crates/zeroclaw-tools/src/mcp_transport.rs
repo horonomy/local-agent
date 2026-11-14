@@ -856,20 +856,26 @@ impl StdioTransport {
         // saw. A server that honors EOF exits near-instantly, so this only adds
         // latency when a server ignores EOF and must be signalled regardless.
         // Escalate to a signal only if the child is still running afterward.
-        if timeout(STDIO_CLOSE_GRACE, child.wait()).await.is_err() {
-            child
-                .start_kill()
-                .with_context(|| format!("failed to kill MCP server `{server_name}` child"))?;
-            child
-                .wait()
-                .await
-                .with_context(|| format!("failed to reap MCP server `{server_name}` child"))?;
+        let reaped: Result<()> = async {
+            if timeout(STDIO_CLOSE_GRACE, child.wait()).await.is_err() {
+                child
+                    .start_kill()
+                    .with_context(|| format!("failed to kill MCP server `{server_name}` child"))?;
+                child
+                    .wait()
+                    .await
+                    .with_context(|| format!("failed to reap MCP server `{server_name}` child"))?;
+            }
+            Ok(())
         }
+        .await;
         // Sweep descendants the child left in its group (e.g. a browser or
-        // helper it forked) so none outlive the connection.
+        // helper it forked) so none outlive the connection, even when the
+        // direct kill or wait above failed.
         if let Some(pgid) = pgid {
             kill_process_group(pgid);
         }
+        reaped?;
         // The direct child is now gone regardless of stdout pipe state.
         child_exited.store(true, Ordering::Release);
         Ok(())

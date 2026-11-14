@@ -86,9 +86,6 @@ impl Shared {
         }
 
         let child = Arc::new(StdioTransport::new_with_group(&self.config, true)?);
-        if let Some(pgid) = child.process_group_id().await {
-            self.pgid.store(pgid, Ordering::Release);
-        }
         ::zeroclaw_log::record!(
             INFO,
             ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
@@ -98,6 +95,12 @@ impl Shared {
         if let Err(error) = handshake(child.as_ref(), self.name(), 0).await {
             self.retire(child, "handshake_failed").await;
             return Err(error);
+        }
+        // Published only once the child is installed: if this future is
+        // cancelled mid-handshake the child is dropped (killing its group) and
+        // no stale pgid is left for a later teardown to signal.
+        if let Some(pgid) = child.process_group_id().await {
+            self.pgid.store(pgid, Ordering::Release);
         }
         state.child = Some(Arc::clone(&child));
         Ok(child)
