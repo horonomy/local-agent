@@ -2,9 +2,6 @@
 //! commands, so the real process-group, timer and storage code runs while no
 //! screen is ever captured.
 
-// Helpers for the unix-only process-group tests are unused on other targets.
-#![cfg_attr(not(unix), allow(dead_code))]
-
 use super::*;
 use std::sync::atomic::AtomicUsize;
 use zeroclaw_config::autonomy::AutonomyLevel;
@@ -146,14 +143,12 @@ fn pid_alive(pid: i32) -> bool {
 
 #[cfg(unix)]
 async fn assert_gone(pidfile: &Path) {
-    let pid: i32 = loop {
-        if let Ok(raw) = std::fs::read_to_string(pidfile)
-            && let Ok(pid) = raw.trim().parse()
-        {
-            break pid;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    wait_for_file(pidfile).await;
+    let pid: i32 = std::fs::read_to_string(pidfile)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     for _ in 0..100 {
         if !pid_alive(pid) {
             return;
@@ -161,6 +156,22 @@ async fn assert_gone(pidfile: &Path) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("process {pid} is still alive: orphaned recorder");
+}
+
+/// Poll `status` until its text contains `needle`; fails after a deadline.
+async fn status_containing(tool: &CaptureTool, needle: &str) -> String {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = text(&run(tool, json!({"action": "status"})).await);
+        if status.contains(needle) {
+            return status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "never saw `{needle}` in: {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 #[cfg(unix)]
@@ -292,14 +303,14 @@ fn ttl_and_size_cap_purge_oldest_and_spare_the_active_file() {
     plant(&dir, "rec-live", "mov", 100, 10_000);
 
     // TTL: the 10_000s-old shot goes; the equally old active recording stays.
-    let removed = store.purge(Duration::from_secs(3600), u64::MAX, Some("rec-live"));
+    let removed = store.purge(Duration::from_secs(3600), u64::MAX, &["rec-live"]);
     assert_eq!(removed, 1);
     assert!(!dir.join("shot-old.png").exists());
     assert!(dir.join("rec-live.mov").exists());
 
     // Size cap 150 over 300 bytes: the protected active file is skipped, so both
     // older shots go (oldest first) and the active recording survives.
-    let removed = store.purge(Duration::from_secs(3600), 150, Some("rec-live"));
+    let removed = store.purge(Duration::from_secs(3600), 150, &["rec-live"]);
     assert_eq!(removed, 2);
     assert!(!dir.join("shot-a.png").exists());
     assert!(!dir.join("shot-b.png").exists());
@@ -319,7 +330,7 @@ fn purge_never_touches_foreign_files_or_symlinks() {
     std::fs::write(&outside, b"keep").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, dir.join("shot-link.png")).unwrap();
-    store.purge(Duration::ZERO, 0, None);
+    store.purge(Duration::ZERO, 0, &[]);
     assert!(dir.join("notes.txt").exists());
     assert!(outside.exists(), "a symlink is never followed");
     assert_eq!(store.delete_all(), 0);
@@ -517,9 +528,7 @@ async fn max_duration_timer_stops_the_recorder() {
     let tool = tool_with(&fx, fake(Some(pid.clone()), REC_WITH_HELPER), short);
     assert!(run(&tool, with_action("record_start")).await.success);
     wait_for_file(&pid).await;
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    let status = text(&run(&tool, json!({"action": "status"})).await);
-    assert!(status.contains("recording: no"), "{status}");
+    let status = status_containing(&tool, "recording: no").await;
     assert!(status.contains("maximum duration reached"), "{status}");
     assert_gone(&pid).await;
 }
@@ -551,10 +560,8 @@ async fn a_crashed_recorder_is_reaped_cleaned_and_does_not_block_a_new_one() {
     });
     let tool = tool_with(&fx, backend, limits());
     assert!(run(&tool, with_action("record_start")).await.success);
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let status = text(&run(&tool, json!({"action": "status"})).await);
+    let status = status_containing(&tool, "exited unexpectedly").await;
     assert!(status.contains("recording: no"), "{status}");
-    assert!(status.contains("exited unexpectedly"), "{status}");
     assert_eq!(count_files(&captures_dir(&fx)), 0, "partial file removed");
     assert!(run(&tool, with_action("record_start")).await.success);
 }
@@ -603,15 +610,12 @@ async fn a_cancelled_screenshot_call_kills_its_child_and_leaves_no_file() {
         rec_calls: AtomicUsize::new(0),
     });
     let tool = tool_with(&fx, backend, limits());
-    let cancelled = tokio::time::timeout(
-        Duration::from_millis(400),
-        tool.execute(with_action("screenshot")),
-    )
-    .await;
-    assert!(
-        cancelled.is_err(),
-        "the call was still running when cancelled"
-    );
+    let mut call = Box::pin(tool.execute(with_action("screenshot")));
+    tokio::select! {
+        _ = &mut call => panic!("the screenshot finished before it was cancelled"),
+        () = wait_for_file(&pid) => {}
+    }
+    drop(call); // cancel while the child is running
     assert_gone(&pid).await;
     assert_eq!(count_files(&captures_dir(&fx)), 0);
 }
@@ -702,4 +706,89 @@ async fn a_screenshot_never_purges_the_active_recording() {
     assert!(run(&tool, with_action("screenshot")).await.success);
     assert!(captures_dir(&fx).join(format!("{id}.mov")).exists());
     assert!(run(&tool, json!({"action": "record_stop"})).await.success);
+}
+
+#[tokio::test]
+async fn retention_zero_never_purges_the_active_recording_or_an_inflight_file() {
+    let fx = fixture();
+    let pid = fx.state.join("pid");
+    let zero = CaptureLimits {
+        retention_ttl: Duration::ZERO,
+        ..limits()
+    };
+    let tool = tool_with(&fx, fake(Some(pid.clone()), REC_SIMPLE), zero);
+    let id = id_from(&run(&tool, with_action("record_start")).await);
+    wait_for_file(&pid).await;
+    for action in ["list", "status"] {
+        assert!(run(&tool, json!({"action": action})).await.success);
+        assert!(captures_dir(&fx).join(format!("{id}.mov")).exists());
+    }
+    assert!(run(&tool, with_action("screenshot")).await.success);
+    assert!(captures_dir(&fx).join(format!("{id}.mov")).exists());
+    // The store-level rule: every id in the keep set survives, whatever its age.
+    let store = CaptureStore::open(&fx.state, &fx.workspace).unwrap();
+    plant(&captures_dir(&fx), "shot-inflight", "png", 5, 99_999);
+    store.purge(Duration::ZERO, 0, &["shot-inflight", &id]);
+    assert!(captures_dir(&fx).join("shot-inflight.png").exists());
+    assert!(captures_dir(&fx).join(format!("{id}.mov")).exists());
+    assert!(
+        run(&tool, json!({"action": "record_stop", "discard": true}))
+            .await
+            .success
+    );
+}
+
+#[tokio::test]
+async fn a_crashed_leader_does_not_orphan_its_helper() {
+    let fx = fixture();
+    let pid = fx.state.join("pid");
+    let backend = {
+        let pid = pid.clone();
+        Arc::new(FakeBackend {
+            preflight: Ok(()),
+            shot: Box::new(|out| sh("printf X > \"$1\"", out, &[])),
+            rec: Box::new(move |out| {
+                sh(
+                    "sleep 30 & echo $! > \"$2\"; printf P > \"$1\"; exit 3",
+                    out,
+                    &[pid.as_path()],
+                )
+            }),
+            shot_calls: AtomicUsize::new(0),
+            rec_calls: AtomicUsize::new(0),
+        })
+    };
+    let tool = tool_with(&fx, backend, limits());
+    assert!(run(&tool, with_action("record_start")).await.success);
+    status_containing(&tool, "exited unexpectedly").await;
+    assert_gone(&pid).await;
+}
+
+#[tokio::test]
+async fn a_recorder_that_ignores_sigint_is_reported_as_forcibly_stopped() {
+    let fx = fixture();
+    let pid = fx.state.join("pid");
+    let backend = {
+        let pid = pid.clone();
+        Arc::new(FakeBackend {
+            preflight: Ok(()),
+            shot: Box::new(|out| sh("printf X > \"$1\"", out, &[])),
+            rec: Box::new(move |out| {
+                sh(
+                    "trap '' INT; printf MOV > \"$1\"; sleep 30 & echo $! > \"$2\"; wait",
+                    out,
+                    &[pid.as_path()],
+                )
+            }),
+            shot_calls: AtomicUsize::new(0),
+            rec_calls: AtomicUsize::new(0),
+        })
+    };
+    let tool = tool_with(&fx, backend, limits());
+    assert!(run(&tool, with_action("record_start")).await.success);
+    wait_for_file(&pid).await;
+    let stop = run(&tool, json!({"action": "record_stop"})).await;
+    assert!(!stop.success, "a forced kill is not a clean stop");
+    assert!(stop.error.unwrap().contains("stopped forcibly"));
+    assert_gone(&pid).await;
 }
