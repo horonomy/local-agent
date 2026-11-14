@@ -349,6 +349,9 @@ pub struct DelegateTool {
     /// advertised roster so an agent is never offered itself as a
     /// delegation target. Empty when unset (legacy unit-test constructors).
     caller_alias: String,
+    /// Test fixtures only: let a bounded child without a root config run
+    /// permissively. Never set in production, where the child is denied.
+    permit_unrooted_child: bool,
     /// Aliases of the callers above this tool's `caller_alias`, root first;
     /// empty on a root tool. Combined with `caller_alias` when a background
     /// row is stamped and when a row's visibility is checked.
@@ -511,6 +514,7 @@ impl DelegateTool {
             live_config: None,
             execution_capability: None,
             caller_alias: String::new(),
+            permit_unrooted_child: false,
             originator_chain: Vec::new(),
             task_control_plane: Arc::new(tokio::sync::OnceCell::new()),
             prebuilt_cost_ctx: None,
@@ -569,6 +573,7 @@ impl DelegateTool {
             live_config: None,
             execution_capability: None,
             caller_alias: String::new(),
+            permit_unrooted_child: false,
             originator_chain: Vec::new(),
             task_control_plane: Arc::new(tokio::sync::OnceCell::new()),
             prebuilt_cost_ctx: None,
@@ -685,6 +690,12 @@ impl DelegateTool {
     /// Attach skill bundles for skills-directory resolution.
     pub fn with_skill_bundles(mut self, m: HashMap<String, SkillBundleConfig>) -> Self {
         self.skill_bundles = Arc::new(m);
+        self
+    }
+
+    #[cfg(test)]
+    fn permitting_unrooted_child(mut self) -> Self {
+        self.permit_unrooted_child = true;
         self
     }
 
@@ -1793,6 +1804,68 @@ impl DelegateTool {
         resolved
     }
 
+    /// Gate for a bounded child when no root config is attached. Production
+    /// always attaches one (`all_tools_with_runtime`), so absence means a
+    /// misassembled tool and every call is denied. A fixture opts out
+    /// explicitly with `permitting_unrooted_child`.
+    fn gate_without_root_config(&self) -> crate::security::policy_gate::PolicyGate {
+        #[cfg(test)]
+        if self.permit_unrooted_child {
+            return crate::security::policy_gate::PolicyGate::permit_all_for_test();
+        }
+        crate::security::policy_gate::PolicyGate::deny_all()
+    }
+
+    /// Policy gate for a bounded child: the target's profile narrowed by this
+    /// (calling) tool's own, with MCP grants taken from the caller.
+    fn bounded_child_policy(
+        &self,
+        child_alias: &str,
+        target: &SecurityPolicy,
+        target_tool_lists: &SecurityPolicy,
+    ) -> crate::security::policy_gate::PolicyGate {
+        use crate::security::policy_gate::{AgentPolicyInputs, PolicyGate};
+        // Without the root config there are no governance mode and no MCP
+        // grants to build from; fail closed instead of guessing a default.
+        let Some(root_config) = self.root_config.as_ref() else {
+            return self.gate_without_root_config();
+        };
+        // A dropped `[governance]` section reads as standalone; never let a
+        // child gate be built from it.
+        if crate::security::policy_gate::governance_degraded(root_config) {
+            return PolicyGate::deny_all();
+        }
+        let governance = root_config.governance.clone();
+        let servers: Vec<String> = root_config
+            .mcp_servers_for_agent(&self.caller_alias)
+            .into_iter()
+            .map(|server| server.name)
+            .collect();
+        let child = AgentPolicyInputs {
+            autonomy: target.autonomy,
+            allowed_tools: target_tool_lists.allowed_tools.as_deref(),
+            excluded_tools: target_tool_lists.excluded_tools.as_deref(),
+            always_ask: &target.always_ask,
+            mcp_servers: &servers,
+            caller_allowed: None,
+        };
+        let parent = AgentPolicyInputs {
+            autonomy: self.security.autonomy,
+            allowed_tools: self.security.allowed_tools.as_deref(),
+            excluded_tools: self.security.excluded_tools.as_deref(),
+            always_ask: &self.security.always_ask,
+            mcp_servers: &servers,
+            caller_allowed: None,
+        };
+        PolicyGate::bounded_child(
+            &governance,
+            child_alias,
+            &child,
+            &self.caller_alias,
+            &parent,
+        )
+    }
+
     fn resolve_tool_policy(&self, risk_profile: &str) -> Option<SecurityPolicy> {
         if risk_profile.is_empty() {
             return None;
@@ -1844,8 +1917,9 @@ impl DelegateTool {
         }
         match policy.allowed_tools.as_ref() {
             None => true,
-            Some(list) if list.is_empty() => false,
-            Some(list) => list.iter().any(|t| t == name) || name.contains("__"),
+            // ADR-019: containing `__` is not a grant; MCP tools under an
+            // allow-list must be listed.
+            Some(list) => list.iter().any(|t| t == name),
         }
     }
 
@@ -2361,6 +2435,8 @@ impl DelegateTool {
 
 #[async_trait]
 impl Tool for DelegateTool {
+    zeroclaw_api::declare_capability!(Subagent);
+
     fn requires_unrestricted_principal(&self) -> bool {
         true
     }
@@ -3341,6 +3417,7 @@ impl DelegateTool {
         let execution_capability = self.execution_capability.clone();
         let target_execution_admission = execution_admission;
         let caller_alias = self.caller_alias.clone();
+        let permit_unrooted_child = self.permit_unrooted_child;
         // The background wrapper re-executes the SAME hop as the outer tool
         // (depth ownership comment above), so the rebuilt inner tool carries
         // the outer chain verbatim rather than extending it.
@@ -3425,6 +3502,7 @@ impl DelegateTool {
                 // an unwind; the normal path drops it explicitly below.
                 let progress_stop_guard = progress_stop.drop_guard();
                 let inner = DelegateTool {
+                    permit_unrooted_child,
                     agents,
                     security,
                     global_credential,
@@ -3763,6 +3841,7 @@ impl DelegateTool {
             let execution_capability = self.execution_capability.clone();
             let target_execution_admission = execution_admissions[index].clone();
             let caller_alias = self.caller_alias.clone();
+            let permit_unrooted_child = self.permit_unrooted_child;
             // Same-hop re-executor (see the background spawn): the inherited
             // cost base is carried verbatim from the spawning tool.
             let inherited_cost_tracker = self.inherited_cost_tracker.clone();
@@ -3797,6 +3876,7 @@ impl DelegateTool {
             handles.push(zeroclaw_spawn::spawn!(
                 async move {
                     let inner = DelegateTool {
+                        permit_unrooted_child,
                         agents,
                         security,
                         global_credential,
@@ -4998,6 +5078,7 @@ impl DelegateTool {
                         live_config: self.live_config.clone(),
                         execution_capability: self.execution_capability.clone(),
                         caller_alias: agent_name.to_string(),
+                        permit_unrooted_child: self.permit_unrooted_child,
                         originator_chain: self.lineage(),
                         task_control_plane: nested_task_control_plane,
                         // A second hop arrives through Required admission and
@@ -5052,7 +5133,16 @@ impl DelegateTool {
                     },
                 )
                 .await;
-                assembled_bounded.registry
+                // `assemble` built the gate from the default policy above.
+                // The child runs the caller's tools, so it is governed by
+                // the target's profile narrowed by the caller's.
+                let mut bounded_registry = assembled_bounded.registry;
+                bounded_registry.bind_bounded_policy(self.bounded_child_policy(
+                    agent_name,
+                    &target_policy,
+                    &tool_policy,
+                ));
+                bounded_registry
             }
         };
 
@@ -5354,6 +5444,8 @@ impl ::zeroclaw_api::attribution::Attributable for ToolArcRef {
 
 #[async_trait]
 impl Tool for ToolArcRef {
+    zeroclaw_api::forward_policy_hooks!(self => self.inner);
+
     fn requires_unrestricted_principal(&self) -> bool {
         self.inner.requires_unrestricted_principal()
     }
@@ -7197,6 +7289,8 @@ mod tests {
 
     #[async_trait]
     impl Tool for EchoTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "echo_tool"
         }
@@ -7235,6 +7329,8 @@ mod tests {
 
     #[async_trait]
     impl Tool for PanickingTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "panic_tool"
         }
@@ -7259,6 +7355,8 @@ mod tests {
 
     #[async_trait]
     impl Tool for CountingEchoTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "echo_tool"
         }
@@ -9410,7 +9508,8 @@ mod tests {
         .with_risk_profiles(profiles)
         .with_parent_tools(Arc::new(RwLock::new(vec![Arc::new(CountingEchoTool {
             executions: Arc::clone(&executions),
-        })])));
+        })])))
+        .permitting_unrooted_child();
         if rooted {
             use zeroclaw_config::autonomy::{DelegationMode, DelegationPolicy};
 
@@ -9481,6 +9580,69 @@ mod tests {
             executions.load(std::sync::atomic::Ordering::SeqCst),
             messages,
         )
+    }
+
+    #[test]
+    fn bounded_child_with_degraded_governance_is_denied() {
+        let config = Config {
+            degraded_security: vec!["governance".to_owned()],
+            ..Config::default()
+        };
+        let tool = DelegateTool::new(HashMap::new(), None, test_security())
+            .with_root_config(Arc::new(config));
+        let gate = tool.bounded_child_policy(
+            "child",
+            &SecurityPolicy::default(),
+            &SecurityPolicy::default(),
+        );
+        let echo = EchoTool;
+        let outcome = futures_util::FutureExt::now_or_never(gate.decide(
+            &crate::security::policy_gate::CallFacts {
+                tool: &echo,
+                registry: &[],
+                args: &json!({}),
+                call_id: "c",
+                turn_id: "t",
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: true,
+            },
+        ))
+        .expect("deny-all decides without awaiting");
+        assert!(matches!(
+            outcome,
+            crate::security::policy_gate::GateOutcome::Deny { .. }
+        ));
+    }
+
+    #[test]
+    fn bounded_child_without_a_root_config_is_denied_in_production() {
+        // Without `permitting_unrooted_child` (never set outside fixtures) the
+        // child's gate is deny-all: this is the production path.
+        let tool = DelegateTool::new(HashMap::new(), None, test_security());
+        let gate = tool.bounded_child_policy(
+            "child",
+            &SecurityPolicy::default(),
+            &SecurityPolicy::default(),
+        );
+        let echo = EchoTool;
+        let outcome = futures_util::FutureExt::now_or_never(gate.decide(
+            &crate::security::policy_gate::CallFacts {
+                tool: &echo,
+                registry: &[],
+                args: &json!({}),
+                call_id: "c",
+                turn_id: "t",
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: true,
+            },
+        ))
+        .expect("deny-all decides without awaiting");
+        assert!(matches!(
+            outcome,
+            crate::security::policy_gate::GateOutcome::Deny { .. }
+        ));
     }
 
     #[tokio::test]
@@ -9578,7 +9740,8 @@ mod tests {
             .with_runtime(Arc::new(NativeRuntime::new()))
             .with_runtime_profiles(agentic_runtime_profiles(10))
             .with_risk_profiles(profiles)
-            .with_parent_tools(Arc::new(RwLock::new(vec![shell])));
+            .with_parent_tools(Arc::new(RwLock::new(vec![shell])))
+            .permitting_unrooted_child();
         let provider = ApprovalProbeModelProvider {
             tool_name: "shell",
             tool_arguments: serde_json::json!({
@@ -10469,7 +10632,8 @@ mod tests {
         let tool = DelegateTool::new(HashMap::new(), None, test_security())
             .with_runtime_profiles(agentic_runtime_profiles(10))
             .with_risk_profiles(agentic_risk_profiles_with_approved_echo())
-            .with_parent_tools(Arc::new(RwLock::new(vec![Arc::new(EchoTool)])));
+            .with_parent_tools(Arc::new(RwLock::new(vec![Arc::new(EchoTool)])))
+            .permitting_unrooted_child();
 
         let collector: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -10916,6 +11080,8 @@ mod tests {
 
     #[async_trait]
     impl Tool for GateTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "gate_tool"
         }
@@ -11864,7 +12030,7 @@ mod tests {
     }
 
     #[test]
-    fn delegate_admits_with_mcp_auto_admits_double_underscore_mcp_names() {
+    fn delegate_admits_with_mcp_does_not_admit_unlisted_double_underscore_names() {
         let tool = DelegateTool::new(HashMap::new(), None, test_security())
             .with_risk_profiles(agentic_risk_profiles(vec!["shell".to_string()]))
             .with_parent_tools(Arc::new(RwLock::new(Vec::new())));
@@ -11878,12 +12044,11 @@ mod tests {
             DelegateTool::delegate_admits_with_mcp(&policy, "shell"),
             "explicit allow-list entry must be admitted"
         );
-        // A runtime-discovered MCP wrapper (matching `<server>__<tool>`) is
-        // auto-admitted even though it is not in `allowed_tools`. This is
-        // the destructive capability the reviewer called out.
+        // A `<server>__<tool>` name is not a grant: an MCP wrapper missing
+        // from `allowed_tools` is rejected (ADR-019).
         assert!(
-            DelegateTool::delegate_admits_with_mcp(&policy, "filesystem__write_file"),
-            "double-underscore MCP name must be auto-admitted"
+            !DelegateTool::delegate_admits_with_mcp(&policy, "filesystem__write_file"),
+            "double-underscore MCP name must not be auto-admitted"
         );
         // Non-MCP names outside the allow-list still get rejected.
         assert!(
@@ -12163,6 +12328,8 @@ mod tests {
         }
         #[async_trait]
         impl Tool for MockShellTool {
+            zeroclaw_api::declare_capability!(Shell);
+
             fn name(&self) -> &str {
                 "shell"
             }
@@ -12315,6 +12482,8 @@ mod tests {
         }
         #[async_trait]
         impl Tool for MockShellTool {
+            zeroclaw_api::declare_capability!(Shell);
+
             fn name(&self) -> &str {
                 "shell"
             }
@@ -18403,6 +18572,8 @@ command = "rm independent-delegate-marker"
     struct FileReadTool;
     #[async_trait]
     impl Tool for FileReadTool {
+        zeroclaw_api::declare_capability!(FsRead);
+
         fn name(&self) -> &str {
             "file_read"
         }
@@ -18432,6 +18603,8 @@ command = "rm independent-delegate-marker"
     struct FileWriteTool;
     #[async_trait]
     impl Tool for FileWriteTool {
+        zeroclaw_api::declare_capability!(FsWrite);
+
         fn name(&self) -> &str {
             "file_write"
         }
@@ -18461,6 +18634,8 @@ command = "rm independent-delegate-marker"
     struct MockShellTool;
     #[async_trait]
     impl Tool for MockShellTool {
+        zeroclaw_api::declare_capability!(Shell);
+
         fn name(&self) -> &str {
             "shell"
         }
@@ -20570,6 +20745,8 @@ command = "rm independent-delegate-marker"
 
     #[async_trait]
     impl Tool for LiveConfigModeFlipTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "live_config_flip_tool"
         }
@@ -20934,6 +21111,8 @@ command = "rm independent-delegate-marker"
 
     #[async_trait]
     impl Tool for ConfigLoweringTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "config_lowering_tool"
         }
@@ -21046,6 +21225,8 @@ command = "rm independent-delegate-marker"
 
     #[async_trait]
     impl Tool for ConfigModeFlipTool {
+        zeroclaw_api::declare_capability!(AgentInternal);
+
         fn name(&self) -> &str {
             "config_mode_flip_tool"
         }

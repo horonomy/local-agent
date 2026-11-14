@@ -34,6 +34,7 @@ Accepted ADRs are immutable. If the architecture changes, write a new ADR and ma
 | [ADR-016](./ADR-016-holding-crate-exceptions.md) | proposed | Extraction is the default for holding-crate subsystems; bounded exceptions are recorded, scoped, and granted by the Core Team. |
 | [ADR-017](./ADR-017-inbound-authentication-and-principals.md) | proposed | Inbound authentication resolves credentials into canonical principals and permission-profile grants before privileged runtime surfaces act. |
 | [ADR-018](./ADR-018-runtime-security-and-provenance.md) | proposed | Runtime security and provenance use runtime-owned decision boundaries for protected actions, model admission, internal turns, and canonical evidence. |
+| [ADR-019](./ADR-019-policy-decision-contract.md) | proposed | Tool calls are decided through a versioned policy decision contract; an optional AASM adapter can only tighten local decisions and fails closed. |
 
 ADR-006 and ADR-007 are implementation-gated roadmap decisions from [FND-002](../../foundations/fnd-002-documentation-standards.md). Their target directions are recorded, but they remain proposed until the acceptance boundaries in each record ship.
 

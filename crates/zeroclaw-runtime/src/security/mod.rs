@@ -1,7 +1,10 @@
 //! Security subsystem for policy enforcement, sandboxing, and secret management.
 
+#[cfg(all(feature = "aasm-managed", unix))]
+pub mod aasm_adapter;
 pub mod audit;
 pub mod auth_provider;
+pub mod authority_factory;
 #[cfg(feature = "sandbox-bubblewrap")]
 pub mod bubblewrap;
 pub mod cert_ledger;
@@ -22,6 +25,10 @@ pub mod otp;
 pub mod pairing;
 pub mod playbook;
 pub mod policy;
+pub mod policy_audit;
+pub mod policy_contract;
+pub mod policy_engine;
+pub mod policy_gate;
 pub mod principal_resolver;
 pub mod prompt_guard;
 #[cfg(target_os = "macos")]

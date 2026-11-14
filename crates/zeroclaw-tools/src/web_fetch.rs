@@ -418,6 +418,8 @@ impl WebFetchTool {
 
 #[async_trait]
 impl Tool for WebFetchTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "web_fetch"
     }

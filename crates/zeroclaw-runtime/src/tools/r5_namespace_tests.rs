@@ -1350,14 +1350,17 @@ async fn late_tool_search_deferred_mcp_skill_pipeline_retirement() {
                 .find(|tool| tool.name() == "calculator")
                 .unwrap()
                 .clone();
-            let prebuilt: Arc<dyn Tool> = Arc::new(PipelineTool::new(
-                zeroclaw_config::schema::PipelineConfig {
-                    enabled: true,
-                    max_steps: 20,
-                    allowed_tools: vec!["calculator".into()],
-                },
-                vec![calc],
-            ));
+            let prebuilt: Arc<dyn Tool> = Arc::new(
+                PipelineTool::new(
+                    zeroclaw_config::schema::PipelineConfig {
+                        enabled: true,
+                        max_steps: 20,
+                        allowed_tools: vec!["calculator".into()],
+                    },
+                    vec![calc],
+                )
+                .with_step_admission(Arc::new(|_, _| Box::pin(async { Ok(()) }))),
+            );
             case.built
                 .as_mut()
                 .unwrap()

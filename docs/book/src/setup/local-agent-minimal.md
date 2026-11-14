@@ -79,7 +79,8 @@ Not covered here: the model catalog lookups (the `openai` family's `list_models(
 fetches models.dev, and `models refresh --all` is not probed), `auth login`, `auth paste-redirect` and
 `auth refresh` (public OAuth endpoints, ungated), update checks, the tool
 sandbox's own DNS allowance, LLM-invoked network tools such as `web_fetch`
-(approval-gated, not automatic), the `model_switch` catalog fallback and the open-skills
+(policy-gated: denied unless the agent's `allowed_tools` names it; once named it runs
+without a prompt under the default `auto_approve` list), the `model_switch` catalog fallback and the open-skills
 environment override. Those are tracked as open decisions for HORO-2385.
 
 ## Limits of the claim

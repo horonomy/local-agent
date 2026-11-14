@@ -112,6 +112,8 @@ impl CronRunTool {
 
 #[async_trait]
 impl Tool for CronRunTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "cron_run"
     }

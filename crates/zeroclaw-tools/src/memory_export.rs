@@ -37,6 +37,8 @@ fn entry_matches_filter(entry: &zeroclaw_memory::MemoryEntry, filter: &ExportFil
 
 #[async_trait]
 impl Tool for MemoryExportTool {
+    zeroclaw_api::declare_capability!(Memory);
+
     fn name(&self) -> &str {
         "memory_export"
     }

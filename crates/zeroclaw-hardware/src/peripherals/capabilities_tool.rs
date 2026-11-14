@@ -24,6 +24,8 @@ impl HardwareCapabilitiesTool {
 
 #[async_trait]
 impl Tool for HardwareCapabilitiesTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "hardware_capabilities"
     }

@@ -79,6 +79,8 @@ impl CronUpdateTool {
 
 #[async_trait]
 impl Tool for CronUpdateTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "cron_update"
     }

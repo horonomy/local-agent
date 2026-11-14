@@ -177,6 +177,8 @@ struct PreparedFile {
 
 #[async_trait]
 impl Tool for FileUploadBundleTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "file_upload_bundle"
     }

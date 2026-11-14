@@ -55,6 +55,8 @@ rand = "0.10"
 regex = "1.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots-no-provider", "__rustls-ring", "blocking", "multipart", "stream", "socks"] }
 ring = "0.17"
+# Wire messages for the opt-in AASM adapter (`aasm-managed`); already a dev-dependency.
+prost = { version = "0.14", default-features = false, features = ["derive"], optional = true }
 rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 schemars = { version = "1.2", optional = true }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -108,6 +110,9 @@ default = ["observability-prometheus", "schema-export"]
 observability-prometheus = ["dep:prometheus"]
 observability-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
 sandbox-landlock = ["dep:landlock"]
+# Managed governance mode: client of an AASM runtime over a Unix socket (ADR-019).
+# Opt-in; not part of `default` or `local-agent-minimal`. Unix only.
+aasm-managed = ["dep:prost", "zeroclaw-config/aasm-managed"]
 schema-export = ["dep:schemars", "zeroclaw-config/schema-export", "zeroclaw-sop-graph/schema-export"]
 
 

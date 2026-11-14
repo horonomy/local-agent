@@ -33,6 +33,8 @@ impl EmailReadTool {
 
 #[async_trait]
 impl Tool for EmailReadTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "email_read"
     }

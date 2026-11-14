@@ -20,6 +20,8 @@ impl SopListTool {
 
 #[async_trait]
 impl Tool for SopListTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "sop_list"
     }

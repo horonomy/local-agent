@@ -108,7 +108,10 @@ async fn run_cron_once(config: Config, overrides: AgentRunOverrides) -> Vec<Stri
     }
 
     let prompt = "Any reminders to surface today? Pull anything relevant from memory.".to_string();
-    let _ = zeroclaw_runtime::agent::run(
+    // `run`'s future is very large in an unoptimized build. Awaited inline it
+    // sits on this test's 2 MiB thread stack, where the margin was under 64 KiB;
+    // production callers box or spawn it, so the test does too.
+    let _ = Box::pin(zeroclaw_runtime::agent::run(
         config,
         "default",
         Some(prompt),
@@ -121,7 +124,7 @@ async fn run_cron_once(config: Config, overrides: AgentRunOverrides) -> Vec<Stri
         None,
         zeroclaw_api::ingress::TurnOrigin::Cron,
         overrides,
-    )
+    ))
     .await;
 
     let bodies = captured.lock().await;

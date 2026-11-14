@@ -47,6 +47,8 @@ impl FileReadTool {
 
 #[async_trait]
 impl Tool for FileReadTool {
+    zeroclaw_api::declare_capability!(FsRead);
+
     fn name(&self) -> &str {
         "file_read"
     }

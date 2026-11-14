@@ -44,12 +44,49 @@ pub(crate) fn is_runtime_approved_arg_tool(tool_name: &str) -> bool {
     )
 }
 
+/// Nodes are surfaced as `node:<node_id>:<capability>` tools whose `execute`
+/// honours an `approved` argument for sensitive capabilities.
+const NODE_TOOL_PREFIX: &str = "node:";
+
+/// True when a call to `tool_name` reaches an executor that honours the
+/// model-visible `approved` argument: a built-in in the runtime-approved set,
+/// a node tool, or a wrapper (elevated skill tool) delegating to either.
+pub(crate) fn takes_runtime_approved_arg(
+    tool_name: &str,
+    tool: Option<&dyn zeroclaw_api::tool::Tool>,
+) -> bool {
+    fn target_takes(tool: &dyn zeroclaw_api::tool::Tool, depth: usize) -> bool {
+        if is_runtime_approved_arg_tool(tool.name()) || tool.name().starts_with(NODE_TOOL_PREFIX) {
+            return true;
+        }
+        if depth == 0 {
+            // Unbounded wrapper chain: treat as sensitive.
+            return true;
+        }
+        match tool.delegation_target() {
+            Some(zeroclaw_api::tool::DelegationTarget::Tool(inner)) => {
+                target_takes(inner, depth - 1)
+            }
+            Some(zeroclaw_api::tool::DelegationTarget::Builtin { name, .. }) => {
+                is_runtime_approved_arg_tool(name)
+            }
+            None => false,
+        }
+    }
+    is_runtime_approved_arg_tool(tool_name)
+        || tool_name.starts_with(NODE_TOOL_PREFIX)
+        || tool.is_some_and(|tool| target_takes(tool, 8))
+}
+
+/// Overwrite any model-supplied `approved` with the runtime decision for every
+/// call that reaches an `approved`-honouring executor.
 pub(crate) fn set_runtime_approved_arg(
     tool_name: &str,
+    tool: Option<&dyn zeroclaw_api::tool::Tool>,
     args: &mut serde_json::Value,
     approved: bool,
 ) {
-    if is_runtime_approved_arg_tool(tool_name)
+    if takes_runtime_approved_arg(tool_name, tool)
         && let Some(args) = args.as_object_mut()
     {
         args.insert("approved".to_string(), serde_json::Value::Bool(approved));

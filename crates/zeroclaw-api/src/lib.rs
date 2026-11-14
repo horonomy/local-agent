@@ -21,6 +21,7 @@ pub mod platform;
 pub mod plugin;
 pub mod plugin_egress;
 pub mod plugin_key;
+pub mod policy;
 pub mod principal;
 pub mod runtime_status;
 pub mod runtime_traits;

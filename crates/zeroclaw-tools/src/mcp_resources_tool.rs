@@ -41,6 +41,15 @@ zeroclaw_api::tool_attribution!(
 
 #[async_trait]
 impl Tool for McpResourcesTool {
+    zeroclaw_api::declare_capability!(Mcp);
+
+    /// `list` names its server in `server` (none means every server); `read`
+    /// carries it as the `<server>__` prefix of `uri`. An unparsable `uri`
+    /// yields an empty name, which policy denies.
+    fn mcp_servers_for_call(&self, args: &serde_json::Value) -> Option<Vec<String>> {
+        Some(McpRegistry::servers_named_in_args(args, "read", "uri"))
+    }
+
     fn name(&self) -> &str {
         "mcp_resources"
     }

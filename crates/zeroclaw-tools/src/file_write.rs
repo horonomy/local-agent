@@ -40,6 +40,8 @@ impl FileWriteTool {
 
 #[async_trait]
 impl Tool for FileWriteTool {
+    zeroclaw_api::declare_capability!(FsWrite);
+
     fn name(&self) -> &str {
         "file_write"
     }

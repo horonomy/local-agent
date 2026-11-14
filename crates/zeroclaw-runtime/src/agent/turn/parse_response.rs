@@ -595,6 +595,7 @@ mod argument_preservation_tests {
     ) -> InterpretedResponse {
         let pacing = zeroclaw_config::schema::PacingConfig::default();
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             parent_agent_alias: None,
             observer: &crate::observability::NoopObserver,
             provider_name: "test.provider",
@@ -980,6 +981,7 @@ mod cost_usd_regression_tests {
         let pacing = zeroclaw_config::schema::PacingConfig::default();
         let dedup_exempt_tools: Vec<String> = Vec::new();
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             parent_agent_alias: None,
             observer: &crate::observability::NoopObserver,
             provider_name: provider,
@@ -1131,6 +1133,7 @@ mod cost_usd_regression_tests {
         let pacing = zeroclaw_config::schema::PacingConfig::default();
         let dedup_exempt_tools = Vec::new();
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             parent_agent_alias: None,
             observer: &crate::observability::NoopObserver,
             provider_name: "requested.provider",
@@ -1211,6 +1214,7 @@ mod cost_usd_regression_tests {
         turn_id: &'a str,
     ) -> TurnCtx<'a> {
         TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             parent_agent_alias: None,
             observer: &crate::observability::NoopObserver,
             provider_name,

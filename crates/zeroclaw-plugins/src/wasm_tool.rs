@@ -149,6 +149,8 @@ where
 
 #[async_trait]
 impl Tool for WasmTool {
+    zeroclaw_api::declare_capability!(Plugin);
+
     fn name(&self) -> &str {
         &self.name
     }

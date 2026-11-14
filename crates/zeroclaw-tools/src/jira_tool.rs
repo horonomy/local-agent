@@ -945,6 +945,8 @@ impl JiraTool {
 
 #[async_trait]
 impl Tool for JiraTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "jira"
     }

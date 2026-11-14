@@ -137,6 +137,8 @@ const VALID_EXTRACT_FORMATS: &[&str] = &["text", "json", "summary"];
 
 #[async_trait]
 impl Tool for BrowserDelegateTool {
+    zeroclaw_api::declare_capability!(Browser);
+
     fn name(&self) -> &str {
         "browser_delegate"
     }

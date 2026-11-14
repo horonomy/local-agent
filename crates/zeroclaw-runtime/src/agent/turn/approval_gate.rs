@@ -25,11 +25,34 @@ pub(crate) async fn gate_tool_approval(
     tool_args: &serde_json::Value,
     iteration: usize,
     position: zeroclaw_api::channel::ApprovalPosition,
+    force_prompt: bool,
 ) -> ApprovalGateOutcome {
     let mut approval_requirement = ctx
         .approval
         .map(|mgr| mgr.approval_requirement(tool_name))
         .unwrap_or(ApprovalRequirement::NotRequired);
+    if force_prompt {
+        // A policy `Ask` (ADR-019) overrides every path that would skip the
+        // prompt: `auto_approve`, `Full` autonomy, a session allowlist, the
+        // non-interactive shell exemption. With no approval manager there is
+        // nobody to ask, and the answer is no.
+        if ctx.approval.is_none() {
+            let denied = format!(
+                "Tool call not executed: '{tool_name}' requires approval and no approval \
+                 channel is available, so the runtime denied it by policy."
+            );
+            return ApprovalGateOutcome::Deny(ToolExecutionOutcome {
+                output: denied.clone(),
+                attachments: Vec::new(),
+                success: false,
+                error_reason: Some(denied),
+                duration: Duration::ZERO,
+                receipt: None,
+                output_data: None,
+            });
+        }
+        approval_requirement = ApprovalRequirement::Prompt;
+    }
     if let Some(mgr) = ctx.approval
         && approval_requirement == ApprovalRequirement::Prompt
     {
@@ -90,7 +113,10 @@ pub(crate) async fn gate_tool_approval(
                 };
                 match response {
                     Ok(Some(a)) => Some(a),
-                    Ok(None) if mgr.unsupported_backchannel_may_fall_back(tool_name) => {
+                    Ok(None)
+                        if !force_prompt
+                            && mgr.unsupported_backchannel_may_fall_back(tool_name) =>
+                    {
                         return ApprovalGateOutcome::Proceed { approved: false };
                     }
                     Ok(None) => None,
@@ -327,6 +353,7 @@ mod tests {
         channel: Option<&'a dyn Channel>,
     ) -> TurnCtx<'a> {
         TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             parent_agent_alias: None,
             observer,
             provider_name: "stub",
@@ -441,6 +468,7 @@ mod tests {
         let approval = ApprovalManager::from_risk_profile(&profile);
         assert!(approval.needs_approval("shell"));
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             channel_name: "cli",
             ..test_ctx(&observer, &pacing, Some(&approval), None)
         };
@@ -450,6 +478,7 @@ mod tests {
             &serde_json::json!({"command": "true"}),
             0,
             zeroclaw_api::channel::ApprovalPosition { index: 1, total: 1 },
+            false,
         )
         .await;
         let unavailable = mode == "eof" || mode == "read_error";
@@ -561,6 +590,7 @@ mod tests {
             &serde_json::json!({"command": "ls"}),
             0,
             zeroclaw_api::channel::ApprovalPosition { index: 1, total: 1 },
+            false,
         )
         .await
         {
@@ -585,6 +615,7 @@ mod tests {
             &serde_json::json!({"path": "x"}),
             0,
             zeroclaw_api::channel::ApprovalPosition { index: 1, total: 1 },
+            false,
         )
         .await
         {
@@ -618,6 +649,7 @@ mod tests {
             &serde_json::json!({"command": "ls"}),
             0,
             zeroclaw_api::channel::ApprovalPosition { index: 1, total: 1 },
+            false,
         )
         .await
         {
@@ -646,6 +678,7 @@ mod tests {
             &serde_json::json!({"path": "x"}),
             0,
             zeroclaw_api::channel::ApprovalPosition { index: 1, total: 1 },
+            false,
         )
         .await
         {
@@ -682,6 +715,7 @@ mod tests {
         let pacing = PacingConfig::default();
         let cancel = CancellationToken::new();
         let ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             observer: &observer,
             provider_name: "test",
             model: "test-model",
@@ -713,6 +747,7 @@ mod tests {
             &arguments,
             0,
             zeroclaw_api::channel::ApprovalPosition { index: 1, total: 1 },
+            false,
         );
         tokio::pin!(approval_wait);
         let line = tokio::select! {

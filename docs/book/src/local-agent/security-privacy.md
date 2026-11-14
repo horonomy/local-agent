@@ -12,7 +12,7 @@ Everything here is stated by [Minimal runtime profile](../setup/local-agent-mini
 
 - Inference requests go only to a provider you configured and referenced from the agent. `--model-provider` must name a configured `<family>.<alias>`; a bare family or a URL is refused.
 - The minimal dependency closure contains no Prometheus exporter. That is the only metrics or telemetry crate the check looks for.
-- Not covered by the evidence: model catalog lookups, `auth login`, `auth paste-redirect` and `auth refresh`, update checks, the tool sandbox's own DNS allowance, LLM-invoked network tools such as `web_fetch` (approval-gated), the `model_switch` catalog fallback and the open-skills environment override.
+- Not covered by the evidence: model catalog lookups, `auth login`, `auth paste-redirect` and `auth refresh`, update checks, the tool sandbox's own DNS allowance, LLM-invoked network tools such as `web_fetch` (policy-gated: denied unless the agent's `allowed_tools` names the tool, and once named it runs without a prompt because the default `auto_approve` list includes it; `allowed_domains = ["*"]` then permits any host), the `model_switch` `list_models` action (a live provider catalog request, network-class and therefore denied unless the agent's `allowed_tools` names `model_switch`) and the open-skills environment override.
 - Provider OAuth sign-in uses a short-lived, user-initiated loopback callback listener that is not gated.
 
 ## What the agent may do

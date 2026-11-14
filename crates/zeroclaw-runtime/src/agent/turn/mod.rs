@@ -1860,6 +1860,7 @@ async fn run_tool_call_loop_impl<'a>(
     // owns stays a loop local passed as an explicit argument (RUN_SHEET
     // `turn.context.TurnCtx`).
     let base_ctx = TurnCtx {
+        policy: tools_registry.policy(),
         observer,
         provider_name,
         model,
@@ -3308,6 +3309,7 @@ async fn run_tool_call_loop_impl<'a>(
         if let Some(warned_call) = warned_call {
             let mut recovery_admitted = false;
             let dispatch = ToolDispatchContext {
+                policy: tools_registry.policy(),
                 tools_registry,
                 activated_tools,
                 excluded_tools,
@@ -3386,6 +3388,7 @@ async fn run_tool_call_loop_impl<'a>(
                 if allow_parallel_execution && executable_calls.len() > 1 {
                     let meta = ctx.meta();
                     let dispatch = ToolDispatchContext {
+                        policy: tools_registry.policy(),
                         tools_registry,
                         activated_tools,
                         excluded_tools,
@@ -3404,6 +3407,7 @@ async fn run_tool_call_loop_impl<'a>(
                 } else {
                     let meta = ctx.meta();
                     let dispatch = ToolDispatchContext {
+                        policy: tools_registry.policy(),
                         tools_registry,
                         activated_tools,
                         excluded_tools,
@@ -6481,6 +6485,7 @@ mod active_route_context_tests {
         let dedup_exempt_tools = Vec::new();
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(4);
         let base_ctx = TurnCtx {
+            policy: crate::security::policy_gate::test_permit_all(),
             observer: &observer,
             provider_name: "custom.text",
             model: "text-model",

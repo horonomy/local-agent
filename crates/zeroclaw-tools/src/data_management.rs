@@ -120,6 +120,8 @@ impl DataManagementTool {
 
 #[async_trait]
 impl Tool for DataManagementTool {
+    zeroclaw_api::declare_capability!(FsWrite);
+
     fn name(&self) -> &str {
         "data_management"
     }

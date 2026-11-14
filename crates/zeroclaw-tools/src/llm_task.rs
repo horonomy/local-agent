@@ -104,6 +104,8 @@ impl LlmTaskTool {
 
 #[async_trait]
 impl Tool for LlmTaskTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "llm_task"
     }

@@ -17,7 +17,7 @@ The [minimal runtime profile](./setup/local-agent-minimal.md) (`local-agent-mini
 - agent memory, MCP servers over stdio granted per agent, and Skills
 - diagnostics and configuration commands
 
-It is standalone. An optional integration with AASM is planned for a later milestone and is not implemented.
+It is standalone and does not require AASM. An optional, opt-in managed governance mode exists in the `release/mvp-3.0` source behind the `aasm-managed` build feature; it is not in this profile, not in the published MVP-1.0 and MVP-2.0 artifacts, and not verified against a live AASM runtime. See [AASM (optional)](./local-agent/aasm.md).
 
 The gateway, ACP bridge, messaging channels, the daemon and its listeners, relay and enrollment, the embedded web UI, voice wake, tunnels and the `service` commands that install or start a unit are not part of this profile. This site has no install or quickstart instructions for them as Local Agent features; see [what is excluded](./setup/local-agent-minimal.md#what-is-excluded).
 
@@ -28,7 +28,8 @@ The gateway, ACP bridge, messaging channels, the daemon and its listeners, relay
 - Granting an MCP tool server or managing Skills: [MCP and Skills](./local-agent/mcp-skills.md)
 - Where data can leave the machine and what the agent may do: [Security and Privacy](./local-agent/security-privacy.md)
 - How the profile is composed: [Architecture](./local-agent/architecture.md) and [ADR-0001](./architecture/decisions/ADR-0001-upstream-foundation.md)
-- Planned, not implemented: [Browser and Computer Use](./local-agent/browser-computer-use.md) and [AASM](./local-agent/aasm.md)
+- Planned, not implemented: [Browser and Computer Use](./local-agent/browser-computer-use.md)
+- Optional AASM governance, its lifecycle, setup and threat model: [AASM (optional)](./local-agent/aasm.md)
 
 Supported platform: the profile has been exercised on macOS (`aarch64-apple-darwin`) only. Linux and Windows are not verified for it.
 

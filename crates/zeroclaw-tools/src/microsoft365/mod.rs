@@ -576,6 +576,8 @@ impl Microsoft365Tool {
 
 #[async_trait]
 impl Tool for Microsoft365Tool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "microsoft365"
     }

@@ -2228,6 +2228,28 @@ pub(crate) fn prepare_skill_tools_with_runtime<T>(
                 );
                 continue;
             }
+            // A skill tool that runs a command is `shell` by another name, and
+            // one that makes a request is `http_request`: an operator who
+            // excluded the built-in has excluded the skill's version too.
+            let delegated_builtin = match tool.kind.as_str() {
+                "shell" | "script" => Some("shell"),
+                "http" => Some("http_request"),
+                _ => None,
+            };
+            if let Some(builtin) = delegated_builtin
+                && security.is_tool_excluded(builtin)
+            {
+                ::zeroclaw_log::record!(
+                    WARN,
+                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
+                        .with_outcome(::zeroclaw_log::EventOutcome::Unknown),
+                    &format!(
+                        "Skill tool {}.{} of kind '{}' skipped: `{builtin}` is excluded",
+                        skill.name, tool.name, tool.kind
+                    )
+                );
+                continue;
+            }
             match tool.kind.as_str() {
                 "shell" | "script" => {
                     let inner = crate::skills::skill_tool::SkillShellTool::new_with_runtime(

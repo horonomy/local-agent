@@ -373,7 +373,15 @@ enable_and_discover() {
     configure plugins.auto_discover true
 }
 
+# A plugin tool needs two operator acts: naming it in allowed_tools (the policy
+# gate denies an extension tool that is not listed, ADR-019) and approving it.
+#
+# allowed_tools also restricts the agent to what it lists, so the built-in
+# `file_read` stays listed: cases that approve a tool and then expect it to be
+# absent (removed, withheld, refused) still need a turn that offers the
+# provider some tool, or agent_turn rejects the turn as uninformative.
 approve() {
+    configure risk_profiles.default.allowed_tools "[\"$1\", \"file_read\"]" || return 1
     configure risk_profiles.default.auto_approve "[\"$1\"]"
 }
 
@@ -544,11 +552,29 @@ a_discovered_tool_waits_for_approval() {
     case "$turn_result" in
         *"text="*) fail "the plugin ran without approval: $turn_result" || return 1 ;;
     esac
-    # The runtime words the denial by whether an operator answered or none was
-    # available; both mean the call did not run.
+    # An unlisted extension tool is denied by policy before any approval is
+    # asked; a listed one is worded by whether an operator answered or none was
+    # available. All mean the call did not run.
+    case "$turn_result" in
+        *"denied by policy"* | *"the call did not run"* | *"no operator decision was available"*) ;;
+        *) fail "the tool result does not report a denied call: $turn_result" ;;
+    esac
+}
+
+# Listing the tool grants it to the policy gate but is not approval: the call
+# must still wait for an operator. (The unlisted case above is denied by policy.)
+a_listed_tool_still_waits_for_approval() {
+    expect_installed tool-fixture || return 1
+    configure plugins.auto_discover true || return 1
+    configure risk_profiles.default.allowed_tools "[\"$fixture_tool\", \"file_read\"]" || return 1
+    agent_turn "$fixture_tool" "$fixture_arguments" || return 1
+    expect_offered "$fixture_tool" || return 1
+    case "$turn_result" in
+        *"text="*) fail "the listed plugin ran without approval: $turn_result" || return 1 ;;
+    esac
     case "$turn_result" in
         *"the call did not run"* | *"no operator decision was available"*) ;;
-        *) fail "the tool result does not report a denied call: $turn_result" ;;
+        *) fail "a listed, unapproved tool did not wait for approval: $turn_result" ;;
     esac
 }
 
@@ -788,6 +814,7 @@ else
     run_case "discovery without enabling offers nothing" discovery_without_enabling_offers_nothing
     run_case "enabling without discovery offers nothing" enabling_without_discovery_offers_nothing
     run_case "a discovered tool waits for operator approval" a_discovered_tool_waits_for_approval
+    run_case "a listed tool still waits for operator approval" a_listed_tool_still_waits_for_approval
     run_case "an approved call returns the plugin's output" an_approved_call_returns_the_plugin_output
     run_case "remove uninstalls the package" remove_uninstalls_the_package
     run_case "a payload that is not WebAssembly is refused" a_payload_that_is_not_webassembly_is_refused

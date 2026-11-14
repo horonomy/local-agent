@@ -19,6 +19,8 @@ impl GlobSearchTool {
 
 #[async_trait]
 impl Tool for GlobSearchTool {
+    zeroclaw_api::declare_capability!(FsRead);
+
     fn name(&self) -> &str {
         "glob_search"
     }

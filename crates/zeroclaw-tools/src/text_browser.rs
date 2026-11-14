@@ -263,6 +263,8 @@ fn validate_text_browser_url(
 
 #[async_trait]
 impl Tool for TextBrowserTool {
+    zeroclaw_api::declare_capability!(Browser);
+
     fn name(&self) -> &str {
         "text_browser"
     }

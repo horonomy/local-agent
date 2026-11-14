@@ -36,6 +36,11 @@ pub enum ShellDialect {
 /// cron and schedule tools take a `command` argument that runs through the
 /// same interpreter and the same dialect validation, so an agent holding only
 /// those still needs to be told which language to write.
+///
+/// This is prompt guidance only, not an authority list. `cron_run` is absent on
+/// purpose: it takes a job id and authors no command, though policy still
+/// classes it `Shell` through `Tool::capability` (ADR-019). Nothing else
+/// consumes this constant.
 pub const SHELL_COMMAND_TOOLS: &[&str] = &["shell", "cron_add", "cron_update", "schedule"];
 
 /// Report whether any tool in `tool_names` accepts a model-authored shell
@@ -582,6 +587,8 @@ mod tests {
         // `cron_list` and `cron_remove` only name existing jobs; neither takes
         // a command for the model to write.
         assert!(!needs_shell_dialect_guidance(["cron_list", "cron_remove"]));
+        // Runs a stored job; the model writes no command.
+        assert!(!needs_shell_dialect_guidance(["cron_run"]));
     }
 
     #[test]

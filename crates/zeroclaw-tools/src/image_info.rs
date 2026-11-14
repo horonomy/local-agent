@@ -127,6 +127,8 @@ impl ImageInfoTool {
 
 #[async_trait]
 impl Tool for ImageInfoTool {
+    zeroclaw_api::declare_capability!(FsRead);
+
     fn name(&self) -> &str {
         "image_info"
     }

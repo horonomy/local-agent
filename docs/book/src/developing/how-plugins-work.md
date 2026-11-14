@@ -321,7 +321,7 @@ decisions, each of them off by default:
    channel through `provides`, activation under
    `[channels.<provides>.<alias>]` is recorded but not constructed yet; the
    same package bound under `[channels.plugin.<alias>]` runs.
-3. **Approve each tool call.** A plugin tool call needs operator approval like
+3. **List the tool, then approve each call.** The policy gate (ADR-019) denies a plugin tool unless the agent's risk profile `allowed_tools` names it; a wildcard or an unset list does not grant it. Naming it, for example `zeroclaw config set risk_profiles.default.allowed_tools '["<tool-name>"]'`, makes it callable. A plugin tool call then needs operator approval like
    any other tool that is not pre-approved: the CLI prompts on the terminal,
    channels send their approval card. To let an agent call a plugin tool
    unattended, add the tool to that agent's risk profile `auto_approve` list,

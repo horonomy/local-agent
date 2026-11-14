@@ -24,6 +24,8 @@ impl Default for ReportTemplateTool {
 
 #[async_trait]
 impl Tool for ReportTemplateTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "report_template"
     }

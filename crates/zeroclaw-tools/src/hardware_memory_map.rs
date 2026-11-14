@@ -48,6 +48,8 @@ impl HardwareMemoryMapTool {
 
 #[async_trait]
 impl Tool for HardwareMemoryMapTool {
+    zeroclaw_api::declare_capability!(Desktop);
+
     fn name(&self) -> &str {
         "hardware_memory_map"
     }

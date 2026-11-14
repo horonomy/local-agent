@@ -1340,6 +1340,32 @@ impl McpRegistry {
         dead
     }
 
+    /// The MCP servers a generic MCP tool call (resources, prompts) addresses,
+    /// for policy. `targeted_action` is the action that names one item by its
+    /// `<server>__` prefixed id in `targeted_key` (`read`/`uri`, `get`/`name`);
+    /// an unparsable id yields an empty server name, which policy denies. Any
+    /// other action (`list`) names its server in `server`; with none given the
+    /// call addresses every server, reported as an empty list.
+    pub fn servers_named_in_args(
+        args: &serde_json::Value,
+        targeted_action: &str,
+        targeted_key: &str,
+    ) -> Vec<String> {
+        if args.get("action").and_then(|v| v.as_str()) == Some(targeted_action) {
+            return vec![
+                args.get(targeted_key)
+                    .and_then(|v| v.as_str())
+                    .and_then(Self::split_prefixed)
+                    .map(|(server, _)| server)
+                    .unwrap_or_default(),
+            ];
+        }
+        args.get("server")
+            .and_then(|v| v.as_str())
+            .map(|s| vec![s.to_owned()])
+            .unwrap_or_default()
+    }
+
     /// Split a `<server>__<rest>` prefixed name. Returns None if no prefix.
     pub fn split_prefixed(prefixed: &str) -> Option<(String, String)> {
         prefixed
@@ -3589,5 +3615,42 @@ done
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("granted agent did not spawn the stub (control failed)");
+    }
+}
+
+#[cfg(test)]
+mod servers_named_in_args_tests {
+    use super::McpRegistry;
+    use serde_json::json;
+
+    #[test]
+    fn targeted_action_reads_the_prefix_of_its_id() {
+        let args = json!({"action": "read", "uri": "gh__file:///x"});
+        assert_eq!(
+            McpRegistry::servers_named_in_args(&args, "read", "uri"),
+            vec!["gh".to_string()]
+        );
+        // An id with no prefix yields an empty name, which policy denies.
+        let bad = json!({"action": "read", "uri": "noprefix"});
+        assert_eq!(
+            McpRegistry::servers_named_in_args(&bad, "read", "uri"),
+            vec![String::new()]
+        );
+        let missing = json!({"action": "get"});
+        assert_eq!(
+            McpRegistry::servers_named_in_args(&missing, "get", "name"),
+            vec![String::new()]
+        );
+    }
+
+    #[test]
+    fn other_actions_name_their_server_or_mean_all() {
+        let one = json!({"action": "list", "server": "gh"});
+        assert_eq!(
+            McpRegistry::servers_named_in_args(&one, "read", "uri"),
+            vec!["gh".to_string()]
+        );
+        let all = json!({"action": "list"});
+        assert!(McpRegistry::servers_named_in_args(&all, "read", "uri").is_empty());
     }
 }

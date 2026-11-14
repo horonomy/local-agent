@@ -46,6 +46,8 @@ struct RunView {
 
 #[async_trait]
 impl Tool for CronRunsTool {
+    zeroclaw_api::declare_capability!(AgentInternal);
+
     fn name(&self) -> &str {
         "cron_runs"
     }

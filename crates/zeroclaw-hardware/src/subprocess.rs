@@ -123,6 +123,8 @@ impl SubprocessTool {
 
 #[async_trait]
 impl Tool for SubprocessTool {
+    zeroclaw_api::declare_capability!(Plugin);
+
     fn name(&self) -> &str {
         &self.manifest.tool.name
     }

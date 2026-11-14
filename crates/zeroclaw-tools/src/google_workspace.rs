@@ -123,6 +123,8 @@ impl GoogleWorkspaceTool {
 
 #[async_trait]
 impl Tool for GoogleWorkspaceTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "google_workspace"
     }

@@ -173,6 +173,8 @@ fn schedule_error_result(error: String) -> ToolResult {
 
 #[async_trait]
 impl Tool for CronAddTool {
+    zeroclaw_api::declare_capability!(Shell);
+
     fn name(&self) -> &str {
         "cron_add"
     }

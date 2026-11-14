@@ -550,6 +550,8 @@ impl ComposioTool {
 
 #[async_trait]
 impl Tool for ComposioTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "composio"
     }

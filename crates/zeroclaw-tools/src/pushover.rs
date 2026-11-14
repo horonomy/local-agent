@@ -105,6 +105,8 @@ impl PushoverTool {
 
 #[async_trait]
 impl Tool for PushoverTool {
+    zeroclaw_api::declare_capability!(Network);
+
     fn name(&self) -> &str {
         "pushover"
     }

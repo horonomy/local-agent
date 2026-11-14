@@ -7,6 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::approval::ApprovalManager;
 use crate::observability::{Observer, ObserverEvent};
+use crate::security::policy_contract::ReasonCode;
+use crate::security::policy_gate::{CallFacts, PolicyGate, RedeemError, denial_message};
 use crate::tools::{ActivatedToolSet, Tool};
 use tokio::sync::mpsc::Sender;
 use zeroclaw_api::agent::{ToolArtifact, TurnEvent};
@@ -39,13 +41,13 @@ pub fn find_tool<'a>(tools: &'a [Box<dyn Tool>], name: &str) -> Option<&'a dyn T
     tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
 }
 
-enum ResolvedTool<'a> {
+pub(crate) enum ResolvedTool<'a> {
     Static(&'a dyn Tool),
     Activated(Arc<dyn Tool>),
 }
 
 impl ResolvedTool<'_> {
-    fn tool(&self) -> &dyn Tool {
+    pub(crate) fn tool(&self) -> &dyn Tool {
         match self {
             Self::Static(tool) => *tool,
             Self::Activated(tool) => tool.as_ref(),
@@ -53,7 +55,7 @@ impl ResolvedTool<'_> {
     }
 }
 
-fn resolve_tool<'a>(
+pub(crate) fn resolve_tool<'a>(
     tools_registry: &'a [Box<dyn Tool>],
     activated_tools: Option<&Arc<std::sync::Mutex<ActivatedToolSet>>>,
     name: &str,
@@ -97,6 +99,9 @@ pub(crate) struct ToolDispatchContext<'a> {
     pub activated_tools: Option<&'a std::sync::Arc<std::sync::Mutex<ActivatedToolSet>>>,
     pub excluded_tools: &'a [String],
     pub model_switch_callback: Option<&'a ModelSwitchCallback>,
+    /// The registry's policy gate; every call must redeem its ticket here
+    /// before the tool runs.
+    pub policy: &'a PolicyGate,
 }
 
 fn is_excluded_tool(name: &str, excluded_tools: &[String]) -> bool {
@@ -242,7 +247,7 @@ pub(crate) async fn execute_one_tool(
 
 async fn execute_one_tool_with_provenance(
     call_name: &str,
-    call_arguments: serde_json::Value,
+    mut call_arguments: serde_json::Value,
     tool_call_id: Option<&str>,
     dispatch: ToolDispatchContext<'_>,
     meta: &TurnMeta<'_>,
@@ -310,6 +315,66 @@ async fn execute_one_tool_with_provenance(
     };
     let tool = resolved.tool();
 
+    // Late-bound wrappers were unresolved at prepare time, which stripped any
+    // model-set `approved`. A runtime-set value is already present for
+    // resolved tools; default the rest to false so a model can never supply it.
+    if crate::agent::takes_runtime_approved_arg(call_name, Some(tool))
+        && let Some(map) = call_arguments.as_object_mut()
+    {
+        map.entry("approved")
+            .or_insert(serde_json::Value::Bool(false));
+    }
+
+    // The decision made in `prepare_tool_calls` must be for exactly this tool
+    // and these arguments; anything else is denied and never executed.
+    // A call without an id can hold no ticket; the empty id matches none.
+    // Boxed to keep the redemption state machine out of this future (stack
+    // depth in unoptimized builds).
+    let redeemed = Box::pin(dispatch.policy.redeem(&CallFacts {
+        tool,
+        registry: dispatch.tools_registry,
+        args: &call_arguments,
+        call_id: tool_call_id.unwrap_or_default(),
+        turn_id: meta.turn_id,
+        agent_alias: meta.agent_alias,
+        // Correlation only; see `decide_policy` in call_prep.
+        parent_agent_alias: None,
+        interactive: false,
+    }))
+    .await;
+    if let Err(error) = redeemed {
+        let reason = match error {
+            RedeemError::NoTicket => ReasonCode::LocalDeny,
+            RedeemError::Denied(reason) => reason,
+        };
+        let message = denial_message(call_name, reason);
+        let duration = start.elapsed();
+        observer.record_event(&ObserverEvent::ToolCall {
+            tool: call_name.to_string(),
+            tool_call_id: tool_call_id_owned,
+            duration,
+            success: false,
+            arguments: Some(full_args),
+            result: Some(scrub_credentials(&message)),
+            channel: Some(meta.channel_name.to_string()),
+            agent_alias: meta.agent_alias.map(|s| s.to_string()),
+            parent_agent_alias: meta.parent_agent_alias.map(|s| s.to_string()),
+            turn_id: Some(meta.turn_id.to_string()),
+        });
+        return Ok(CompletedToolExecution {
+            executed_tool_name: None,
+            outcome: ToolExecutionOutcome {
+                output: message.clone(),
+                success: false,
+                error_reason: Some(message),
+                duration,
+                receipt: None,
+                output_data: None,
+                attachments: Vec::new(),
+            },
+        });
+    }
+
     use ::zeroclaw_log::Instrument;
     let tool_span = ::zeroclaw_log::info_span!(
         target: "zeroclaw_log_internal_scope",
@@ -356,6 +421,8 @@ async fn execute_one_tool_with_provenance(
     let execute = context
         .run(tool.execute_with_context(call_arguments.clone(), &context))
         .instrument(tool_span.clone());
+    let execute =
+        crate::security::policy_gate::scope_caller_list(dispatch.policy.caller_list(), execute);
     let tool_result = if let Some(model_switch_callback) = dispatch.model_switch_callback {
         scope_model_switch_state(Arc::clone(model_switch_callback), execute).await
     } else {
@@ -701,6 +768,7 @@ pub(crate) async fn execute_tools_sequential(
                 .as_deref()
                 .unwrap_or(dispatch.excluded_tools),
             model_switch_callback: dispatch.model_switch_callback,
+            policy: dispatch.policy,
         };
         let outcome = match execute_one_tool_with_provenance(
             &call.name,
@@ -851,6 +919,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &crate::tools::scoped::ScopedToolRegistry::from_raw_for_test(
                     vec![],
                 ), // no static tools - force activated-tools path
@@ -971,6 +1040,7 @@ mod tests {
             super::execute_tools_sequential(
                 &calls,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &registry,
                     activated_tools: Some(&activated),
                     excluded_tools: &excluded,
@@ -1029,6 +1099,7 @@ mod tests {
             serde_json::json!({}),
             Some("call-1"),
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &crate::tools::scoped::ScopedToolRegistry::from_raw_for_test(
                     vec![],
                 ),
@@ -1171,6 +1242,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1221,6 +1293,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1315,6 +1388,7 @@ mod tests {
                 }),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -1410,6 +1484,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1495,6 +1570,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1568,6 +1644,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1693,6 +1770,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -1875,6 +1953,7 @@ mod tests {
                 serde_json::json!({}),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -1993,6 +2072,7 @@ mod tests {
                 serde_json::json!({}),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -2108,6 +2188,7 @@ mod tests {
                 }),
                 None,
                 ToolDispatchContext {
+                    policy: crate::security::policy_gate::test_permit_all(),
                     tools_registry: &tools,
                     activated_tools: None,
                     excluded_tools: &[],
@@ -2176,6 +2257,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2222,6 +2304,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2274,6 +2357,7 @@ mod tests {
             serde_json::json!({}),
             Some("call-1"),
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &tools,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2709,6 +2793,7 @@ mod tests {
             serde_json::json!({}),
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &registry,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2756,6 +2841,7 @@ mod tests {
             args,
             None,
             ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
                 tools_registry: &registry,
                 activated_tools: None,
                 excluded_tools: &[],
@@ -2941,5 +3027,334 @@ mod tests {
         })
         .await
         .expect("cancelled shell child stopped");
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_running_call_grants_no_further_calls_in_the_batch() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let child = Arc::new(Mutex::new(None));
+        let later_calls = Arc::new(AtomicUsize::new(0));
+        let registry = crate::tools::scoped::ScopedToolRegistry::from_raw_for_test(vec![
+            Box::new(ContextChildProbe {
+                started: Arc::clone(&started),
+                child: Arc::clone(&child),
+            }),
+            Box::new(CountingTool::new("later", Arc::clone(&later_calls))),
+        ]);
+        let meta = TurnMeta {
+            parent_agent_alias: None,
+            agent_alias: None,
+            turn_id: "test-turn",
+            channel_name: "test",
+        };
+        let calls = vec![
+            ParsedToolCall {
+                name: "context_child_probe".into(),
+                arguments: serde_json::json!({"scope": "fixed"}),
+                tool_call_id: None,
+            },
+            parsed_tool_call("later"),
+        ];
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        let run = super::execute_tools_sequential(
+            &calls,
+            ToolDispatchContext {
+                policy: crate::security::policy_gate::test_permit_all(),
+                tools_registry: &registry,
+                activated_tools: None,
+                excluded_tools: &[],
+                model_switch_callback: None,
+            },
+            &meta,
+            &NoopObserver,
+            Some(&token),
+            None,
+            None,
+        );
+        let cancel = async {
+            tokio::time::timeout(Duration::from_secs(3), started.notified())
+                .await
+                .expect("first call started");
+            canceller.cancel();
+        };
+        let (slots, ()) =
+            tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(run, cancel) })
+                .await
+                .expect("cancellation ends the batch");
+        let slots = slots.expect("cancellation is not an error");
+        assert!(slots.iter().all(Option::is_none), "no call completes");
+        assert_eq!(
+            later_calls.load(Ordering::SeqCst),
+            0,
+            "a queued call must not run after the user stopped the turn"
+        );
+        let child = child.lock().unwrap().take().expect("child was started");
+        tokio::time::timeout(Duration::from_secs(3), child)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}
+
+/// Executor behaviour against a real enforcing gate (not `test_permit_all`).
+#[cfg(test)]
+mod real_gate_tests {
+    use super::{ToolDispatchContext, execute_tools_parallel};
+    use crate::agent::loop_::ParsedToolCall;
+    use crate::agent::turn::TurnMeta;
+    use crate::observability::noop::NoopObserver;
+    use crate::security::policy_engine::PolicyProfile;
+    use crate::security::policy_gate::{CallFacts, GateOutcome, PolicyGate};
+    use async_trait::async_trait;
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use zeroclaw_api::policy::ToolCapability;
+    use zeroclaw_api::tool::Tool;
+    use zeroclaw_config::autonomy::AutonomyLevel;
+
+    struct Counter {
+        name: &'static str,
+        runs: Arc<AtomicUsize>,
+    }
+
+    zeroclaw_api::mock_tool_attribution!(Counter);
+
+    #[async_trait]
+    impl Tool for Counter {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            "counts executions"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn capability(&self) -> ToolCapability {
+            ToolCapability::FsRead
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: "ran".to_string().into(),
+                error: None,
+            })
+        }
+    }
+
+    fn real_gate(ask: &[&str]) -> PolicyGate {
+        PolicyGate::standalone(
+            "main",
+            AutonomyLevel::Full,
+            PolicyProfile {
+                allowed_tools: None,
+                ask_tools: ask.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>(),
+                autonomy_ceiling: AutonomyLevel::Full,
+                ..PolicyProfile::default()
+            },
+            Vec::new(),
+        )
+    }
+
+    fn call(name: &str, id: &str) -> ParsedToolCall {
+        ParsedToolCall {
+            name: name.into(),
+            arguments: serde_json::json!({}),
+            tool_call_id: Some(id.into()),
+        }
+    }
+
+    const META: TurnMeta<'static> = TurnMeta {
+        parent_agent_alias: None,
+        agent_alias: None,
+        turn_id: "real-gate-turn",
+        channel_name: "test",
+    };
+
+    async fn run_batch(
+        gate: &PolicyGate,
+        registry: &[Box<dyn Tool>],
+        calls: &[ParsedToolCall],
+    ) -> Vec<bool> {
+        execute_tools_parallel(
+            calls,
+            ToolDispatchContext {
+                policy: gate,
+                tools_registry: registry,
+                activated_tools: None,
+                excluded_tools: &[],
+                model_switch_callback: None,
+            },
+            &META,
+            &NoopObserver,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("batch runs")
+        .into_iter()
+        .map(|slot| slot.expect("not cancelled").outcome.success)
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn parallel_batch_refuses_calls_that_hold_no_ticket() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(Counter {
+            name: "counter",
+            runs: Arc::clone(&runs),
+        })];
+        let gate = real_gate(&[]);
+
+        // Only `ticketed` was decided; `bare` skipped the gate entirely.
+        let ticketed = call("counter", "ticketed");
+        let args = ticketed.arguments.clone();
+        let decided = gate
+            .decide(&CallFacts {
+                tool: registry[0].as_ref(),
+                registry: &registry,
+                args: &args,
+                call_id: "ticketed",
+                turn_id: META.turn_id,
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: false,
+            })
+            .await;
+        assert_eq!(decided, GateOutcome::Proceed { ask: false });
+
+        let results = run_batch(&gate, &registry, &[call("counter", "bare"), ticketed]).await;
+        assert_eq!(results, vec![false, true]);
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "only the ticketed call ran");
+    }
+
+    #[tokio::test]
+    async fn deferred_call_runs_only_on_outright_allow() {
+        let allowed_runs = Arc::new(AtomicUsize::new(0));
+        let asked_runs = Arc::new(AtomicUsize::new(0));
+        let registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(Counter {
+                name: "late_allowed",
+                runs: Arc::clone(&allowed_runs),
+            }),
+            Box::new(Counter {
+                name: "late_asked",
+                runs: Arc::clone(&asked_runs),
+            }),
+        ];
+        // `late_asked` is in the ask list: no prompt is possible at execution,
+        // so a deferred decision of Ask must not run it.
+        let gate = real_gate(&["late_asked"]);
+        let empty = serde_json::json!({});
+        gate.note_unresolved("allowed", &empty);
+        gate.note_unresolved("asked", &empty);
+
+        let results = run_batch(
+            &gate,
+            &registry,
+            &[call("late_allowed", "allowed"), call("late_asked", "asked")],
+        )
+        .await;
+        assert_eq!(results, vec![true, false]);
+        assert_eq!(allowed_runs.load(Ordering::SeqCst), 1);
+        assert_eq!(asked_runs.load(Ordering::SeqCst), 0);
+    }
+
+    struct ArgsWrapper {
+        inner: Counter,
+        seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    }
+
+    zeroclaw_api::mock_tool_attribution!(ArgsWrapper);
+
+    #[async_trait]
+    impl Tool for ArgsWrapper {
+        fn name(&self) -> &str {
+            "late_skill_wrapper"
+        }
+        fn description(&self) -> &str {
+            "wrapper over shell"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn capability(&self) -> ToolCapability {
+            ToolCapability::FsRead
+        }
+        fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+            Some(zeroclaw_api::tool::DelegationTarget::Tool(&self.inner))
+        }
+        async fn execute(
+            &self,
+            args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.seen.lock().unwrap().push(args.clone());
+            self.inner.execute(args).await
+        }
+    }
+
+    #[tokio::test]
+    async fn late_bound_wrapper_never_receives_a_model_approved_flag() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(ArgsWrapper {
+            inner: Counter {
+                name: "shell",
+                runs: Arc::new(AtomicUsize::new(0)),
+            },
+            seen: Arc::clone(&seen),
+        })];
+        let gate = real_gate(&[]);
+        // Prepare time stripped the model's `approved`, so the deferred call
+        // carries none; the digest ignores `approved` either way.
+        let args = serde_json::json!({"command": "ls"});
+        gate.note_unresolved("late", &args);
+        let results = run_batch(
+            &gate,
+            &registry,
+            &[ParsedToolCall {
+                name: "late_skill_wrapper".into(),
+                arguments: args,
+                tool_call_id: Some("late".into()),
+            }],
+        )
+        .await;
+        assert_eq!(results, vec![true]);
+        assert_eq!(
+            seen.lock().unwrap()[0]["approved"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_set_approval_survives_to_a_delegating_wrapper() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(ArgsWrapper {
+            inner: Counter {
+                name: "shell",
+                runs: Arc::new(AtomicUsize::new(0)),
+            },
+            seen: Arc::clone(&seen),
+        })];
+        let gate = real_gate(&[]);
+        let args = serde_json::json!({"command": "ls", "approved": true});
+        gate.note_unresolved("late", &args);
+        run_batch(
+            &gate,
+            &registry,
+            &[ParsedToolCall {
+                name: "late_skill_wrapper".into(),
+                arguments: args,
+                tool_call_id: Some("late".into()),
+            }],
+        )
+        .await;
+        assert_eq!(seen.lock().unwrap()[0]["approved"], serde_json::json!(true));
     }
 }
