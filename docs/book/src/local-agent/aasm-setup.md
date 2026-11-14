@@ -88,7 +88,7 @@ max_size_mb = 8
 generations = 3
 ```
 
-These are the defaults. `max_size_mb * (generations + 1)` may not exceed 64 MiB (`generations = 7` at 8 MiB is the maximum; 8 is rejected). Disabling the log (`enabled = false`) removes the evidence trail but not the policy. Details: [decision log](./aasm-policy-ipc.md#decision-log).
+These are the defaults. Validation rejects `max_size_mb * (generations + 1)` above 64 MiB (`generations = 7` at 8 MiB passes; 8 fails) and `max_size_mb = 0`. That is a validation rule only: config load turns a validation error into a warning and the log writer does not clamp, so do not treat 64 MiB as enforced at runtime. With `max_size_mb = 0` every record fails and every call is denied `audit_write_failed`. Disabling the log (`enabled = false`) removes the evidence trail but not the policy. Details: [decision log](./aasm-policy-ipc.md#decision-log).
 
 ## Managed examples: denial and disconnect
 

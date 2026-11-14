@@ -45,7 +45,7 @@ Two details that matter:
 
 Implemented and covered by tests in the source (cited in the linked pages):
 
-- standalone and managed authority selection, the `[governance]` validation rules and the 64 MiB audit ceiling;
+- standalone and managed authority selection, the `[governance]` validation rules and the 64 MiB audit-size validation rule (a warning at config load, not a runtime clamp);
 - fail-closed denial for every adapter error, timeout, malformed or oversize frame, and any AASM verdict other than allow;
 - the local-only, digest-only decision log and the single-use approval receipts.
 
