@@ -547,6 +547,10 @@ impl BrowserTool {
     /// Local profile: an allow-listed private host (loopback included) is reachable only
     /// on ports pinned with a `host:port` entry; a bare host entry grants nothing, so a
     /// devtools or driver port needs its own explicit entry.
+    ///
+    /// Only the `host:port` form pins (`127.0.0.1:8080`, `localhost:8080`,
+    /// `[::1]:8080`). A URL-form entry such as `http://127.0.0.1:8080` carries no
+    /// parseable pin here and therefore fails closed.
     fn check_private_port(&self, host: &str, port: Option<u16>) -> anyhow::Result<()> {
         let bare = host.trim_matches(['[', ']']);
         let port = port.unwrap_or(0);
@@ -562,7 +566,11 @@ impl BrowserTool {
         Ok(())
     }
 
-    /// Validate URL against allowlist
+    /// Validate URL against allowlist.
+    ///
+    /// Residual risk: this never resolves DNS. An allow-listed public name that
+    /// resolves (or is rebound) to a loopback or private address is not caught here;
+    /// the post-action page-URL guard sees only the URL, not the resolved address.
     fn validate_url(&self, url: &str) -> anyhow::Result<()> {
         let url = url.trim();
 
@@ -3201,8 +3209,14 @@ fn write_empty_config(path: &std::path::Path) -> anyhow::Result<()> {
     {
         anyhow::bail!("agent-browser config path must be a regular file");
     }
+    let tighten = |path: &std::path::Path| -> anyhow::Result<()> {
+        #[cfg(unix)]
+        std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        let _ = path;
+        Ok(())
+    };
     if std::fs::read(path).is_ok_and(|current| current == b"{}") {
-        return Ok(());
+        return tighten(path);
     }
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -3210,7 +3224,8 @@ fn write_empty_config(path: &std::path::Path) -> anyhow::Result<()> {
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options.open(path)?;
     std::io::Write::write_all(&mut file, b"{}")?;
-    Ok(())
+    // `mode` above only applies when the file is created.
+    tighten(path)
 }
 
 /// Environment variables the isolated agent-browser child may inherit (plus `LC_*`).
@@ -5945,6 +5960,9 @@ mod isolation_tests {
     #[test]
     fn loopback_requires_a_pinned_port_in_every_host_form() {
         let tmp = tempfile::TempDir::new().unwrap();
+        // URL-form entries cannot pin a port and fail closed.
+        let url_form = strict_tool(tmp.path(), &["fixture.example"], &["http://127.0.0.1:8080"]);
+        assert!(url_form.validate_url("http://127.0.0.1:8080/").is_err());
         // A bare entry grants nothing.
         let bare = strict_tool(tmp.path(), &["fixture.example"], &["127.0.0.1"]);
         for port in [80, 8080, 9222, 9229, 9515, 4444] {
@@ -6688,6 +6706,19 @@ mod isolation_tests {
         );
         assert!(!leave.unwrap().success);
         let read = read.unwrap();
+        // Discriminating: without the lock the read's `get text` runs while the click is
+        // still sleeping, i.e. before the reset; serialized, it comes strictly after it.
+        let argv = site.state("argv");
+        let lines: Vec<&str> = argv.lines().collect();
+        let reset = lines
+            .iter()
+            .position(|l| l.contains("open about:blank"))
+            .expect("the reset must have run");
+        let get_text = lines
+            .iter()
+            .position(|l| l.contains("get text"))
+            .expect("the read must have run");
+        assert!(get_text > reset, "read ran before the reset: {argv}");
         // Serialized: the read runs after the reset, on about:blank, never on the evil page.
         assert!(
             !read.output.as_str().contains("evil.example")
@@ -6701,7 +6732,7 @@ mod isolation_tests {
     async fn overall_action_deadline_poisons_the_session_and_requests_close() {
         let mut site = site();
         site.tool
-            .set_action_deadline_for_tests(Duration::from_millis(800));
+            .set_action_deadline_for_tests(Duration::from_secs(2));
         let result = site
             .run_guarded_for_test(BrowserAction::Wait {
                 selector: None,
@@ -6769,6 +6800,22 @@ mod isolation_tests {
         std::fs::write(&path, r#"{"profile":"/Users/u/real"}"#).unwrap();
         write_empty_config(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+        // An existing config with the right content but loose permissions is tightened.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_empty_config(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        // A loose file with other content is rewritten and tightened.
+        std::fs::write(&path, "other").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        write_empty_config(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         let fresh = tmp.path().join("fresh.json");
         write_empty_config(&fresh).unwrap();
         assert_eq!(
