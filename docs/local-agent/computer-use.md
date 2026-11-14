@@ -29,7 +29,9 @@ desktop-input surface for the local profile.
   call drops the backend future, which a backend must turn into killing any
   helper it started.
 - Only a letter/digit, F1-F12 and a short list of named keys are accepted (no modifiers, chords or system keys); typed text
-  is limited to 500 characters and never appears in results, errors or debug
+  is limited to 500 characters, rejects control, private-use, invisible
+  formatting and noncharacter code points (other unassigned code points are not
+  screened), and never appears in results, errors or debug
   output.
 - Screenshots are out of scope here and answer "use the capture tool".
 
