@@ -56,7 +56,7 @@ If you need a control that the user cannot remove, managed mode alone does not p
 - Compromise of the user account, the Local Agent binary or the build.
 - Kernel or sandbox escapes. See [Sandboxing](../security/sandboxing.md).
 - The behavior, security or release status of AASM itself.
-- Compatibility with a live AASM runtime: the wire layout and handshake are hand-mirrored and unverified.
+- Compatibility with a live AASM runtime: the wire layout and handshake were checked against AASM source at `f6b0e2b70` by comparison and never exercised live.
 - Windows: managed mode is not supported.
 - AASM v0.0.1 (`f6b0e2b70`) hard-codes `/tmp/aa-runtime-<agent_id>.sock` with no override, which Local Agent refuses, so an unmodified runtime is denied 100% of the time. Only a runtime configured or patched to bind a private path can work, and that has never been verified live.
 
@@ -72,6 +72,6 @@ If you need a control that the user cannot remove, managed mode alone does not p
 
 1. Decide whether a same-user, user-removable, fail-closed check is enough for your requirement. If not, managed mode is not the control; treat it as one layer.
 2. Provision an `aasm-managed` build and the config only where an AASM runtime runs as the same user, in a private directory, on Unix. Do not request root-owned sockets, open ports or a listener: they are neither needed nor accepted.
-3. Verify against your real AASM version before rollout, since the wire layout has not been checked against a live runtime. Expect `malformed_response` or `authority_unavailable` if it disagrees.
+3. Verify against your real AASM version before rollout, since the wire layout has been checked against AASM source but never run against a live runtime. Expect `malformed_response` or `authority_unavailable` if it disagrees.
 4. Plan for the availability trade: a stopped runtime or a full log directory stops tool use.
 5. Do not rely on the audit `outcome` and `decision.aasm` fields; see [what the record does not tell you](./aasm-policy-ipc.md#what-the-record-does-not-tell-you).

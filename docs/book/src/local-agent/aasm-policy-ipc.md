@@ -94,11 +94,11 @@ The record is a **decision log**, not an execution log. Read the following befor
 | Item | Value |
 | --- | --- |
 | Policy contract version | `1`. Any other version in a request is denied `contract_version_mismatch`. |
-| AASM protocol mirrored | v0.0.1 at AASM revision `f6b0e2b70`. **Hand-mirrored, not verified against a live `aa-runtime`**; tested only against an in-process double. |
+| AASM protocol mirrored | v0.0.1 at AASM revision `f6b0e2b70`. Hand-mirrored; **verified against the AASM source at that revision by comparison, not exercised against a live `aa-runtime`**. Local tests use an in-process double. |
 | Transport | Unix domain socket, **client-initiated**. Local Agent connects out; it has no listener in this build. Unix only: there is no Windows named-pipe transport. |
 | Connection | A fresh connection per query, so every socket check is repeated every time. No pooling, no cache of a previous allow. |
 | Framing | One tag byte, a varint payload length, then a protobuf payload. Frames over 1 MiB (AASM itself accepts 8 MiB) are malformed. |
-| Exchange | Connect, verify peer uid, read the runtime's challenge (tag 5), send the handshake proof (tag 5) and the policy query (tag 1) back to back, read the response (tag 1). **No handshake acknowledgement is waited for or modeled**; whether a real runtime sends or requires one is unverified. |
+| Exchange | Connect, verify peer uid, read the runtime's challenge (tag 5), send the handshake proof (tag 5) and the policy query (tag 1) back to back, read the response (tag 1). **No handshake acknowledgement is waited for or modeled**; the AASM source at `f6b0e2b70` has no ack frame (source comparison, not live). |
 | Deadline | The whole exchange, including the socket checks, must finish within `timeout_ms` (default 2000, allowed 100 to 10000). |
 
 What is sent for one call: the agent alias as the agent id (organization and team ids are left empty because Local Agent does not know them), the turn id as trace id, the call id as span id, the action type tool call, the resolved tool name, a source of `mcp` or `function`, and for the parent alias, if any, the caller id. The argument field carries a small JSON object with `args_sha256`, the capability, the session id, the skill name and the MCP server name. **Raw arguments are never sent**, and the credential token field is always empty (the `credential_token_file` setting is never read). It is unverified whether AASM policy rules can match anything useful in a digest.
