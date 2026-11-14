@@ -57,10 +57,12 @@ action_timeout_ms = 5000
 
 - The session and rate budgets live in the tool instance; every tool-registry
   rebuild (each agent build and each channel turn) starts a fresh budget.
-- Typed text is kept out of this tool's results and errors and out of the
-  turn-loop argument logs in `call_prep.rs`. It is still part of the call
-  arguments, which approval prompts, transcripts and any other logging path may
-  carry; this is not verified exhaustively.
+- Typed text is kept out of this tool's results and errors, of turn-loop and
+  approval-gate argument logs, of observer events (channel notices, OTel) and
+  of SOP step records; the `text` argument is replaced by `[redacted]`. It is
+  still part of the call arguments themselves, which approval prompts and
+  transcripts may carry, and other logging paths were not checked
+  exhaustively.
 
 - The window check and the dispatch are separate backend calls; a window change
   between them is not detected.
