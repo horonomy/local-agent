@@ -4936,6 +4936,108 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn computer_use_screenshot_is_path_only_when_attachments_are_off() {
+        use wiremock::matchers::{body_partial_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        // Positive remote-sidecar contract: the validated destination is NOT
+        // transmitted to the sidecar (the path is removed before the request),
+        // and the returned PNG is written only to the validated local target.
+        // A non-loopback sidecar address exercises the same flow — the old
+        // filesystem-sharing rejection (endpoint_is_remote_filesystem) is gone.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ws = tmp.path().join("ws");
+        tokio::fs::create_dir_all(&ws).await.unwrap();
+
+        let server = MockServer::start().await;
+        // The sidecar must NOT receive a `path` field in the screenshot params.
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(
+                serde_json::json!({"action": "screenshot"}),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "success": true,
+                    "data": { "png_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" }
+                })),
+            )
+            .mount(&server)
+            .await;
+
+        let mut config = test_computer_use_config();
+        config.endpoint = server.uri();
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: ws.clone(),
+            allowed_roots: vec![ws.clone()],
+            ..SecurityPolicy::default()
+        });
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["*".into()],
+            None,
+            "computer_use".into(),
+            None,
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            config,
+            Vec::new(),
+        )
+        .unwrap();
+
+        let result = tool
+            .execute(json!({
+                "action": "screenshot",
+                "path": "screenshot.png"
+            }))
+            .await
+            .expect("execute must succeed");
+        assert!(
+            result.success,
+            "a valid screenshot from the sidecar must write the validated local target: {:?}",
+            result.error
+        );
+
+        // The local target was written with the PNG bytes.
+        let written = tokio::fs::read(ws.join("screenshot.png"))
+            .await
+            .expect("the validated local target must be written");
+        assert!(
+            written.starts_with(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']),
+            "the written bytes must be a PNG, not arbitrary decoded data"
+        );
+
+        // The destination was not transmitted: every sidecar request body must
+        // be free of a `path` field.
+        let requests = server.received_requests().await.expect("infallible");
+        for req in &requests {
+            let body: serde_json::Value = req.body_json().expect("request body is JSON");
+            assert!(
+                body.get("params").and_then(|p| p.get("path")).is_none(),
+                "the validated destination must NOT be forwarded to the sidecar: {body}"
+            );
+        }
+
+        // Attachments are off by default: path-only text, no Image declaration.
+        assert!(
+            result.output.attachments().is_empty(),
+            "default screenshot result must carry no attachment"
+        );
+        assert!(
+            result.output.as_str().contains("\"path\""),
+            "the text still carries the path field verbatim: {}",
+            result.output.as_str()
+        );
+        assert!(
+            !result.output.as_str().contains("[IMAGE:"),
+            "the declaration never rides the text as marker syntax"
+        );
+    }
+
     /// Fail-closed contract for a path-bearing screenshot: the tool must NOT
     /// report success (or write the destination) unless the sidecar returned a
     /// well-formed ComputerUseResponse with success != false and a valid
@@ -5486,12 +5588,16 @@ mod isolation_tests {
              printf '%s\\n' \"$*\" >> \"$state.argv\"\n\
              if [ \"$1\" = --profile ]; then printf '%s' \"$2\" > \"$state.profile\"; shift 2; fi\n\
              case \"$1\" in\n\
-             open) printf '{{\"success\":true,\"data\":{{\"url\":\"%s\",\"title\":\"Synthetic Fixture\"}}}}\\n' \"$2\" ;;\n\
+             open) printf '%s' \"$2\" > \"$state.url\"; printf '{{\"success\":true,\"data\":{{\"url\":\"%s\",\"title\":\"Synthetic Fixture\"}}}}\\n' \"$2\" ;;\n\
              snapshot) printf '{{\"success\":true,\"data\":{{\"snapshot\":\"textbox @e2 Name; button @e1 Submit\"}}}}\\n' ;;\n\
-             click) printf '{{\"success\":true,\"data\":{{\"clicked\":\"%s\"}}}}\\n' \"$2\" ;;\n\
+             click) case \"$2\" in\n\
+               @leave) printf '%s' 'https://evil.example:8443/landing?x=1' > \"$state.url\" ;;\n\
+               @signin) printf '%s' 'https://accounts.google.com/signin' > \"$state.url\" ;;\n\
+               @stay) printf '%s' 'https://fixture.example/next' > \"$state.url\" ;;\n\
+             esac; printf '{{\"success\":true,\"data\":{{\"clicked\":\"%s\",\"text\":\"EVIL-PAGE-TEXT\"}}}}\\n' \"$2\" ;;\n\
              fill|type) printf '%s\\n' \"$3\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
              find) printf '%s\\n' \"$5\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
-             get) printf '{{\"success\":true,\"data\":{{\"text\":\"Synthetic page body\"}}}}\\n' ;;\n\
+             get) if [ \"$2\" = url ]; then u=$(cat \"$state.url\" 2>/dev/null); printf '{{\"success\":true,\"data\":{{\"url\":\"%s\"}}}}\\n' \"${{u:-about:blank}}\"; else printf '{{\"success\":true,\"data\":{{\"text\":\"Synthetic page body\"}}}}\\n'; fi ;;\n\
              screenshot) printf '{png}' > \"$2\"; printf '{{\"success\":true,\"data\":{{\"path\":\"%s\"}}}}\\n' \"$2\" ;;\n\
              wait) echo $$ > \"$state.pid\"; exec sleep 30 ;;\n\
              *) echo 'unknown' >&2; exit 2 ;;\n\
@@ -5777,6 +5883,84 @@ mod isolation_tests {
         if captured.contains("Running: agent-browser") {
             assert!(captured.contains("<redacted>"));
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn click_leading_to_denied_domain_is_reset_and_returns_host_only() {
+        for (selector, host) in [
+            ("@leave", "evil.example"),
+            ("@signin", "accounts.google.com"),
+        ] {
+            let site = site();
+            site.run(BrowserAction::Open {
+                url: "https://fixture.example/".into(),
+            })
+            .await
+            .unwrap();
+            let result = site
+                .run(BrowserAction::Click {
+                    selector: selector.into(),
+                })
+                .await
+                .unwrap();
+            assert!(!result.success);
+            let error = result.error.clone().unwrap();
+            assert!(error.contains(&format!("host: {host})")), "{error}");
+            assert!(
+                !error.contains("landing") && !error.contains(":8443"),
+                "{error}"
+            );
+            assert!(!result.output.as_str().contains("EVIL-PAGE-TEXT"));
+            assert!(!error.contains("EVIL-PAGE-TEXT"));
+            let argv = site.state("argv");
+            assert!(
+                argv.lines()
+                    .last()
+                    .unwrap()
+                    .ends_with("open about:blank --json"),
+                "session must be reset to about:blank: {argv}"
+            );
+            assert_eq!(site.state("url"), "about:blank");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn click_staying_on_allowed_domain_returns_normal_result() {
+        let site = site();
+        site.run(BrowserAction::Open {
+            url: "https://fixture.example/".into(),
+        })
+        .await
+        .unwrap();
+        let result = site
+            .run(BrowserAction::Click {
+                selector: "@stay".into(),
+            })
+            .await
+            .unwrap();
+        assert!(result.success, "{:?}", result.error);
+        assert!(result.output.as_str().contains("EVIL-PAGE-TEXT"));
+        assert!(!site.state("argv").contains("about:blank"));
+    }
+
+    #[test]
+    fn extract_url_accepts_string_url_and_output_shapes() {
+        assert_eq!(
+            extract_url(&json!("https://a.example/")).unwrap(),
+            "https://a.example/"
+        );
+        assert_eq!(
+            extract_url(&json!({"url": "https://a.example/"})).unwrap(),
+            "https://a.example/"
+        );
+        assert_eq!(
+            extract_url(&json!({"output": " about:blank\n"})).unwrap(),
+            "about:blank"
+        );
+        assert!(extract_url(&json!({"text": "x"})).is_none());
+        assert_eq!(host_of("https://evil.example:8443/p?q=1"), "evil.example");
     }
 
     #[test]
