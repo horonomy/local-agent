@@ -605,9 +605,12 @@ impl BrowserTool {
             host_str.to_lowercase()
         };
 
+        // `Url::host_str()` brackets IPv6 literals; allow-list entries are normalised
+        // without brackets, so match on the bare form.
+        let bare_host = host.trim_matches(['[', ']']);
         let private_host = domain_guard::is_private_or_local_host(&host);
         let private_host_allowed = private_host
-            && domain_guard::host_matches_allowlist(&host, &self.allowed_private_hosts);
+            && domain_guard::host_matches_allowlist(bare_host, &self.allowed_private_hosts);
 
         // Local profile: an allow-listed production sign-in page is still refused, so
         // the agent never drives a real account login. Loopback fixtures are exempt.
@@ -626,7 +629,7 @@ impl BrowserTool {
             return Ok(());
         }
 
-        if !domain_guard::host_matches_allowlist(&host, &self.allowed_domains) {
+        if !domain_guard::host_matches_allowlist(bare_host, &self.allowed_domains) {
             anyhow::bail!("Host '{host}' not in browser.allowed_domains");
         }
 
