@@ -333,8 +333,8 @@ aasm-managed = ["agent-core", "zeroclaw-runtime/aasm-managed"]
 # automation_enabled` plus an explicit tool grant (HORO-2399).
 local-browser = ["agent-core", "zeroclaw-runtime/local-browser", "zeroclaw-tools/local-browser"]
 
-# Local Agent opt-in capability: desktop interaction. Feature plumbing only; the
-# desktop tools that use it land with HORO-2400/HORO-2401. Same isolation rules as
+# Local Agent opt-in capability: desktop interaction. It compiles the `capture` tool
+# (HORO-2401); HORO-2400 adds further desktop tools. Same isolation rules as
 # `local-browser`.
 local-desktop = ["agent-core", "zeroclaw-runtime/local-desktop", "zeroclaw-tools/local-desktop"]
 
