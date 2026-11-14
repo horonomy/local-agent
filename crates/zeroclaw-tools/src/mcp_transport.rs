@@ -566,10 +566,32 @@ struct StdioConn {
     child_exited: Arc<AtomicBool>,
     /// Background task that watches the direct child for exit.
     exit_watcher: tokio::task::JoinHandle<()>,
+    /// Process group led by the child, set only when the transport was created
+    /// with its own group. `reap_conn` takes it after the courtesy window; a
+    /// connection dropped without reaping still kills the whole group.
+    pgid: Option<i32>,
 }
+
+/// SIGKILL every process in `pgid`. A missing group (already gone) is fine.
+#[cfg(unix)]
+pub(crate) fn kill_process_group(pgid: i32) {
+    if pgid > 1 {
+        // SAFETY: killpg has no memory-safety preconditions; pgid > 1 keeps it
+        // from signalling the caller's own group or "all processes".
+        unsafe {
+            libc::killpg(pgid, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn kill_process_group(_pgid: i32) {}
 
 impl Drop for StdioConn {
     fn drop(&mut self) {
+        if let Some(pgid) = self.pgid.take() {
+            kill_process_group(pgid);
+        }
         // Abort the background tasks so their `Arc<Mutex<Child>>` clone is
         // released. This lets the last `Child` owner drop, which — combined
         // with `kill_on_drop(true)` — reaps the direct child when a connection
@@ -597,6 +619,10 @@ pub struct StdioTransport {
     /// child-exit watcher when the direct child process exits. Read
     /// synchronously by `health_check`.
     child_exited: Arc<AtomicBool>,
+    /// Start the child in its own process group so the whole tree can be
+    /// killed on reap (used by on-demand servers; eager servers keep the
+    /// legacy shared group).
+    own_group: bool,
     #[cfg(all(test, unix))]
     write_test_hook: ParkingMutex<Option<Arc<StdioWriteTestHook>>>,
 }
@@ -655,6 +681,12 @@ impl StdioWriteTestHook {
 
 impl StdioTransport {
     pub fn new(config: &McpServerConfig) -> Result<Self> {
+        Self::new_with_group(config, false)
+    }
+
+    /// Like [`Self::new`], optionally isolating the child in its own process
+    /// group so `close`/`reset` also kill any descendants it left behind.
+    pub(crate) fn new_with_group(config: &McpServerConfig, own_group: bool) -> Result<Self> {
         let pending = Arc::new(ParkingMutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(false));
         let active_generation = Arc::new(AtomicU64::new(1));
@@ -666,6 +698,7 @@ impl StdioTransport {
             Arc::clone(&alive),
             Arc::clone(&active_generation),
             Arc::clone(&child_exited),
+            own_group,
         )?;
         Ok(Self {
             config: config.clone(),
@@ -677,9 +710,20 @@ impl StdioTransport {
             alive,
             active_generation,
             child_exited,
+            own_group,
             #[cfg(all(test, unix))]
             write_test_hook: ParkingMutex::new(None),
         })
+    }
+
+    /// Process group led by the live child, when created with its own group.
+    pub(crate) async fn process_group_id(&self) -> Option<i32> {
+        self.state
+            .lock()
+            .await
+            .conn
+            .as_ref()
+            .and_then(|conn| conn.pgid)
     }
 
     #[cfg(all(test, unix))]
@@ -694,18 +738,30 @@ impl StdioTransport {
         alive: Arc<AtomicBool>,
         active_generation: Arc<AtomicU64>,
         child_exited: Arc<AtomicBool>,
+        own_group: bool,
     ) -> Result<StdioConn> {
-        let mut child = Command::new(&config.command)
+        let mut command = Command::new(&config.command);
+        command
             .args(&config.args)
             .env_clear()
             .envs(stdio_child_env(std::env::vars(), &config.env))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        if own_group {
+            command.process_group(0);
+        }
+        let mut child = command
             .spawn()
             .with_context(|| format!("failed to spawn MCP server `{}`", config.name))?;
 
+        let pgid = if own_group {
+            child.id().and_then(|pid| i32::try_from(pid).ok())
+        } else {
+            None
+        };
         let stdin = child.stdin.take().ok_or_else(|| {
             ::zeroclaw_log::record!(
                 ERROR,
@@ -758,6 +814,7 @@ impl StdioTransport {
             reader,
             child_exited,
             exit_watcher,
+            pgid,
         })
     }
 
@@ -780,7 +837,8 @@ impl StdioTransport {
         Ok(())
     }
 
-    async fn reap_conn(conn: StdioConn, server_name: &str) -> Result<()> {
+    async fn reap_conn(mut conn: StdioConn, server_name: &str) -> Result<()> {
+        let pgid = conn.pgid.take();
         // Clone the shared handles needed after the connection is gone.
         let child = Arc::clone(&conn.child);
         let child_exited = Arc::clone(&conn.child_exited);
@@ -798,15 +856,26 @@ impl StdioTransport {
         // saw. A server that honors EOF exits near-instantly, so this only adds
         // latency when a server ignores EOF and must be signalled regardless.
         // Escalate to a signal only if the child is still running afterward.
-        if timeout(STDIO_CLOSE_GRACE, child.wait()).await.is_err() {
-            child
-                .start_kill()
-                .with_context(|| format!("failed to kill MCP server `{server_name}` child"))?;
-            child
-                .wait()
-                .await
-                .with_context(|| format!("failed to reap MCP server `{server_name}` child"))?;
+        let reaped: Result<()> = async {
+            if timeout(STDIO_CLOSE_GRACE, child.wait()).await.is_err() {
+                child
+                    .start_kill()
+                    .with_context(|| format!("failed to kill MCP server `{server_name}` child"))?;
+                child
+                    .wait()
+                    .await
+                    .with_context(|| format!("failed to reap MCP server `{server_name}` child"))?;
+            }
+            Ok(())
         }
+        .await;
+        // Sweep descendants the child left in its group (e.g. a browser or
+        // helper it forked) so none outlive the connection, even when the
+        // direct kill or wait above failed.
+        if let Some(pgid) = pgid {
+            kill_process_group(pgid);
+        }
+        reaped?;
         // The direct child is now gone regardless of stdout pipe state.
         child_exited.store(true, Ordering::Release);
         Ok(())
@@ -1180,6 +1249,7 @@ impl SharedMcpTransportConn for StdioTransport {
             Arc::clone(&self.alive),
             Arc::clone(&self.active_generation),
             Arc::clone(&self.child_exited),
+            self.own_group,
         )?;
         state.conn = Some(conn);
         Ok(())

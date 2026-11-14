@@ -1293,3 +1293,77 @@ fn denial_text_is_a_closed_code_and_does_not_echo_arguments_or_hint_at_widening(
         assert!(!text.contains("config"), "{text}");
     }
 }
+
+// ── On-demand MCP children (HORO-2402) ──────────────────────────────────
+
+/// A call the gate denies must never start an on-demand MCP child; the same
+/// wrapper, once granted, spawns exactly one. The "server" is a local script
+/// that records each spawn to a temp file.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_mcp_call_never_spawns_an_on_demand_child() {
+    use zeroclaw_config::policy::SecurityPolicy;
+    use zeroclaw_config::schema::{McpServerConfig, McpSpawnMode};
+    use zeroclaw_tools::mcp_client::McpRegistry;
+    use zeroclaw_tools::mcp_tool::McpToolWrapper;
+
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("server.sh");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+echo "$$" >> "$REC_DIR/spawns"
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  [ -z "$id" ] && continue
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"capabilities":{}}}\n' "$id" ;;
+    *'"method":"tools/call"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"ok"}]}}\n' "$id" ;;
+  esac
+done
+"#,
+    )
+    .unwrap();
+    let spawns = dir.path().join("spawns");
+    let config = McpServerConfig {
+        name: "srv".into(),
+        command: "/bin/sh".into(),
+        args: vec![script.display().to_string()],
+        env: [("REC_DIR".to_string(), dir.path().display().to_string())].into(),
+        spawn: McpSpawnMode::OnDemand,
+        declared_tools: vec!["echo".into()],
+        idle_timeout_secs: Some(1),
+        ..McpServerConfig::default()
+    };
+    let registry = Arc::new(McpRegistry::connect_all(&[config]).await.unwrap());
+    let def = registry.get_tool_def("srv__echo").await.unwrap();
+    let tool = McpToolWrapper::new(
+        "srv__echo".into(),
+        def,
+        Arc::clone(&registry),
+        Arc::new(SecurityPolicy::default()),
+    );
+    let args = json!({});
+
+    // Ungranted: the gate refuses, so the turn never executes the tool.
+    let ungranted = gate(&Spec::default());
+    assert_eq!(
+        decide(&ungranted, &tool, &args, "c1").await,
+        deny(ReasonCode::LocalDeny)
+    );
+    assert!(!spawns.exists(), "denied call spawned a child");
+
+    // Granted: decide, redeem, then execute, as the turn executor does.
+    let granted = gate(&Spec {
+        mcp: names(&["srv"]),
+        ..Spec::default()
+    });
+    assert_eq!(decide(&granted, &tool, &args, "c2").await, PROCEED);
+    redeem(&granted, &tool, &args, "c2").await.unwrap();
+    assert!(!spawns.exists(), "gate approval alone spawned a child");
+    let result = tool.execute(args.clone()).await.unwrap();
+    assert!(result.success, "{:?}", result.error);
+    assert_eq!(std::fs::read_to_string(&spawns).unwrap().lines().count(), 1);
+}
