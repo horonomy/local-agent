@@ -5838,6 +5838,110 @@ mod isolation_tests {
         }
     }
 
+    // ---- domain and action control -----------------------------------------
+
+    #[test]
+    fn local_profile_empty_or_wildcard_allowlist_denies_open() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        for domains in [&[][..], &["*"][..]] {
+            let tool = strict_tool(tmp.path(), domains, &[]);
+            let err = tool.validate_url("https://fixture.example/").unwrap_err();
+            assert!(err.to_string().contains("no allowed_domains"), "{err}");
+        }
+        // Standard builds keep the wildcard meaning.
+        let standard = BrowserTool::new(security(tmp.path()), vec!["*".into()], None).unwrap();
+        assert!(standard.validate_url("https://fixture.example/").is_ok());
+    }
+
+    #[test]
+    fn local_profile_denies_unlisted_domain_and_wildcard_private_hosts() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Neither a wildcard nor a bare loopback entry grants anything.
+        let tool = strict_tool(tmp.path(), &["fixture.example"], &["*", "127.0.0.1"]);
+        assert!(tool.validate_url("https://fixture.example/page").is_ok());
+        assert!(tool.validate_url("https://sub.fixture.example/").is_ok());
+        assert!(tool.validate_url("https://evil.example/").is_err());
+        assert!(tool.validate_url("http://127.0.0.1:8080/").is_err());
+        assert!(tool.validate_url("http://[::1]:8080/").is_err());
+        assert!(tool.validate_url("http://169.254.169.254/").is_err());
+        assert!(tool.validate_url("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn local_profile_refuses_production_login_even_when_listed() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tool = strict_tool(
+            tmp.path(),
+            &[
+                "google.com",
+                "microsoftonline.com",
+                "github.com",
+                "okta.com",
+                "fixture.example",
+            ],
+            // Loopback needs a pinned port; a bare entry would grant nothing.
+            &["127.0.0.1:8080"],
+        );
+        for url in [
+            "https://accounts.google.com/signin",
+            "https://login.microsoftonline.com/common/oauth2",
+            "https://github.com/login",
+            "https://github.com/users/sign_in",
+            "https://acme.okta.com/sso/saml",
+            "https://fixture.example/login",
+        ] {
+            let err = tool.validate_url(url).unwrap_err();
+            assert!(err.to_string().contains("production login"), "{url}: {err}");
+        }
+        assert!(
+            tool.validate_url("https://fixture.example/dashboard")
+                .is_ok()
+        );
+        // A loopback synthetic site may serve its own login form.
+        assert!(tool.validate_url("http://127.0.0.1:8080/login").is_ok());
+        assert!(tool.validate_url("http://127.0.0.1:8081/login").is_err());
+    }
+
+    #[test]
+    fn local_profile_requires_loopback_endpoints() {
+        for ok in [
+            "http://127.0.0.1:9515",
+            "http://localhost:9515",
+            "http://[::1]:9515",
+        ] {
+            assert!(ensure_loopback_endpoint(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://0.0.0.0:9515",
+            "http://192.168.1.20:9515",
+            "http://10.0.0.5:9515",
+            "https://driver.example.com",
+            "not a url",
+        ] {
+            assert!(ensure_loopback_endpoint(bad).is_err(), "{bad}");
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config = ComputerUseConfig {
+            endpoint: "http://192.168.1.20:8787/v1/actions".into(),
+            ..ComputerUseConfig::default()
+        };
+        let tool = BrowserTool::new_with_backend(
+            security(tmp.path()),
+            vec![],
+            None,
+            "computer_use".into(),
+            None,
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            config,
+            vec![],
+        )
+        .unwrap()
+        .with_strict_local_policy();
+        assert!(tool.computer_use_endpoint_url().is_err());
+    }
+
     #[test]
     fn loopback_requires_a_pinned_port_in_every_host_form() {
         let tmp = tempfile::TempDir::new().unwrap();
