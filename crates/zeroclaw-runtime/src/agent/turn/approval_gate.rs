@@ -226,7 +226,7 @@ pub(crate) async fn gate_tool_approval(
                         "model": ctx.model,
                         "iteration": iteration + 1,
                         "tool": tool_name,
-                        "arguments": scrub_credentials(&loggable_args(tool_name, &tool_args)),
+                        "arguments": scrub_credentials(&loggable_args(tool_name, tool_args)),
                         "result": denied,
                         "trace_id": ctx.turn_id,
                         // Operator-facing only. The remedy lives here rather than
@@ -290,7 +290,7 @@ pub(crate) async fn gate_tool_approval(
                         "model": ctx.model,
                         "iteration": iteration + 1,
                         "tool": tool_name,
-                        "arguments": scrub_credentials(&loggable_args(tool_name, &tool_args)),
+                        "arguments": scrub_credentials(&loggable_args(tool_name, tool_args)),
                         "replaced": true,
                         "output": scrub_credentials(replacement),
                         "trace_id": ctx.turn_id,
