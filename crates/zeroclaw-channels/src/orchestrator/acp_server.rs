@@ -3395,6 +3395,7 @@ fn map_tool_kind(name: &str) -> &'static str {
         | "composio" | "delegate" | "escalate_to_human" | "execute_pipeline" | "gemini_cli"
         | "jira" | "llm_task" | "opencode_cli" | "schedule" | "security_ops" | "shell"
         | "sop_advance" | "sop_approve" | "sop_execute" | "vi_verify" => "execute",
+        "computer_use" => "execute",
         "backup" | "browser_open" | "canvas" | "cloud_ops" | "file_edit" | "file_write"
         | "memory_export" | "memory_store" | "report_template" => "edit",
         "cron_add" | "poll" | "reaction" => "edit",

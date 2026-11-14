@@ -418,6 +418,73 @@ async fn desktop_and_browser_need_an_explicit_listing_not_a_wildcard() {
 }
 
 #[tokio::test]
+async fn computer_use_is_an_ask_per_call_bound_to_its_arguments_and_single_use() {
+    // `always_ask` is empty and the tool is explicitly listed: the gate still
+    // asks, the ticket is unredeemable until an operator answers, it covers
+    // only the approved arguments, and it is spent by one execution.
+    let spec = Spec {
+        allowed: Some(names(&["computer_use"])),
+        ..Spec::default()
+    };
+    let g = gate(&spec);
+    let tool = fake("computer_use", ToolCapability::Desktop);
+    let click = json!({"action": "click", "app": "Notes", "x": 10, "y": 10});
+    let other = json!({"action": "click", "app": "Notes", "x": 11, "y": 10});
+    assert_eq!(decide(&g, &tool, &click, "c").await, ASK);
+    assert_eq!(
+        redeem(&g, &tool, &click, "c").await,
+        Err(RedeemError::NoTicket)
+    );
+    assert!(g.approve("c", "computer_use", &click));
+    // Different arguments under the same call id: not covered.
+    assert_eq!(
+        redeem(&g, &tool, &other, "c").await,
+        Err(RedeemError::NoTicket)
+    );
+    assert_eq!(redeem(&g, &tool, &click, "c").await, Ok(()));
+    // Replay of the spent ticket.
+    assert_eq!(
+        redeem(&g, &tool, &click, "c").await,
+        Err(RedeemError::NoTicket)
+    );
+}
+
+#[tokio::test]
+async fn browser_listed_without_computer_use_cannot_drive_the_desktop() {
+    let spec = Spec {
+        allowed: Some(names(&["browser"])),
+        ..Spec::default()
+    };
+    let g = gate(&spec);
+    let args = json!({"action": "click", "app": "Notes", "x": 1, "y": 1});
+    assert_eq!(
+        decide(
+            &g,
+            &fake("computer_use", ToolCapability::Desktop),
+            &args,
+            "d"
+        )
+        .await,
+        deny(ReasonCode::NetworkNotGranted)
+    );
+    // A wildcard grants nothing either.
+    let wild = gate(&Spec {
+        allowed: Some(names(&["*", "browser"])),
+        ..Spec::default()
+    });
+    assert_eq!(
+        decide(
+            &wild,
+            &fake("computer_use", ToolCapability::Desktop),
+            &args,
+            "d"
+        )
+        .await,
+        deny(ReasonCode::NetworkNotGranted)
+    );
+}
+
+#[tokio::test]
 async fn read_only_autonomy_refuses_every_acting_capability() {
     let spec = Spec {
         autonomy: AutonomyLevel::ReadOnly,

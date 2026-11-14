@@ -1,6 +1,7 @@
 //! The per-tool-call approval gate: CLI prompt, channel inline approval, or
 //! auto-deny, plus decision recording.
 
+use super::call_prep::loggable_args;
 use super::context::TurnCtx;
 use super::events::StreamDelta;
 use super::redact::scrub_credentials;
@@ -225,7 +226,7 @@ pub(crate) async fn gate_tool_approval(
                         "model": ctx.model,
                         "iteration": iteration + 1,
                         "tool": tool_name,
-                        "arguments": scrub_credentials(&tool_args.to_string()),
+                        "arguments": scrub_credentials(&loggable_args(tool_name, tool_args)),
                         "result": denied,
                         "trace_id": ctx.turn_id,
                         // Operator-facing only. The remedy lives here rather than
@@ -289,7 +290,7 @@ pub(crate) async fn gate_tool_approval(
                         "model": ctx.model,
                         "iteration": iteration + 1,
                         "tool": tool_name,
-                        "arguments": scrub_credentials(&tool_args.to_string()),
+                        "arguments": scrub_credentials(&loggable_args(tool_name, tool_args)),
                         "replaced": true,
                         "output": scrub_credentials(replacement),
                         "trace_id": ctx.turn_id,

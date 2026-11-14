@@ -27,6 +27,8 @@ use crate::cloud_patterns::CloudPatternsTool;
 use crate::codex_cli::CodexCliTool;
 #[cfg(feature = "tool-composio")]
 use crate::composio::ComposioTool;
+#[cfg(feature = "local-desktop")]
+use crate::computer_use::ComputerUseTool;
 use crate::content_search::ContentSearchTool;
 use crate::data_management::DataManagementTool;
 use crate::discord_search::DiscordSearchTool;
@@ -99,6 +101,8 @@ tool_attribution!(AskUserTool, ToolKind::Wait);
 tool_attribution!(BackupTool, ToolKind::Plugin);
 #[cfg(any(feature = "tools-external", feature = "local-browser"))]
 tool_attribution!(BrowserTool, ToolKind::Plugin);
+#[cfg(feature = "local-desktop")]
+tool_attribution!(ComputerUseTool, ToolKind::Plugin);
 #[cfg(feature = "tools-external")]
 tool_attribution!(BrowserDelegateTool, ToolKind::Plugin);
 #[cfg(feature = "tools-external")]
