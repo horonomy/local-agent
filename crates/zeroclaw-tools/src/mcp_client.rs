@@ -1700,6 +1700,9 @@ mod tests {
             url: None,
             headers: std::collections::HashMap::default(),
             tls_ca_cert_path: None,
+            spawn: Default::default(),
+            declared_tools: Vec::new(),
+            idle_timeout_secs: None,
             max_response_bytes: None,
         };
         let result = McpServer::connect(config).await;
@@ -1722,6 +1725,9 @@ mod tests {
             url: None,
             headers: std::collections::HashMap::default(),
             tls_ca_cert_path: None,
+            spawn: Default::default(),
+            declared_tools: Vec::new(),
+            idle_timeout_secs: None,
             max_response_bytes: None,
         }];
         let registry = McpRegistry::connect_all(&configs)
@@ -2682,6 +2688,9 @@ done
             url: None,
             headers: std::collections::HashMap::default(),
             tls_ca_cert_path: None,
+            spawn: Default::default(),
+            declared_tools: Vec::new(),
+            idle_timeout_secs: None,
             max_response_bytes: None,
         };
 

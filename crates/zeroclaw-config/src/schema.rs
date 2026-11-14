@@ -5818,6 +5818,24 @@ pub enum McpTransport {
     Sse,
 }
 
+/// When a stdio MCP server's child process is started.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, zeroclaw_macros::ConfigEnum,
+)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum McpSpawnMode {
+    /// Spawn the child when the agent is assembled (legacy behavior).
+    #[default]
+    Eager,
+    /// Spawn the child only when one of its declared tools is first called,
+    /// and reap it after `idle_timeout_secs` without in-flight calls.
+    OnDemand,
+}
+
+/// Default idle window before an on-demand MCP child is reaped.
+pub const DEFAULT_MCP_IDLE_TIMEOUT_SECS: u64 = 60;
+
 impl McpTransport {
     /// Wire token for this transport, matching the `rename_all = "lowercase"`
     /// serde representation (`stdio`/`http`/`sse`). The exhaustive match makes
@@ -5961,6 +5979,20 @@ pub struct McpServerConfig {
     /// plaintext URLs and downgrade redirects are rejected. Ignored by stdio.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tls_ca_cert_path: Option<String>,
+    /// Child start policy for stdio servers. `eager` (default) spawns at agent
+    /// assembly; `on_demand` defers the spawn to the first call of a declared
+    /// tool. Requires `transport = "stdio"` and a non-empty `declared_tools`.
+    #[serde(default)]
+    pub spawn: McpSpawnMode,
+    /// Tool names an `on_demand` server is allowed to expose. Registered
+    /// without starting the child; a tool the server later advertises that is
+    /// not listed here is never callable. Ignored when `spawn = "eager"`.
+    #[serde(default)]
+    pub declared_tools: Vec<String>,
+    /// Seconds without an in-flight call before an `on_demand` child is
+    /// reaped (default 60; 0 reaps as soon as the last call finishes).
+    #[serde(default)]
+    pub idle_timeout_secs: Option<u64>,
 }
 
 /// External MCP client configuration (`[mcp]` section).
