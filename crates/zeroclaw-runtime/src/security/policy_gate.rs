@@ -176,6 +176,8 @@ enum Mode {
 
 struct Enforcing {
     authority: Arc<dyn PolicyAuthority>,
+    /// Which authority composition decides; recorded on every audit line.
+    mode: GovernanceMode,
     agent_alias: String,
     autonomy: AutonomyLevel,
     /// Folded per-run caller allow-list. Checked in addition to the engine,
@@ -289,7 +291,14 @@ impl PolicyGate {
         parents: Vec<(String, PolicyProfile)>,
     ) -> Self {
         let authority = standalone_authority_with_parents(profile.clone(), parents.clone());
-        Self::enforcing(agent_alias, autonomy, authority, profile, parents)
+        Self::enforcing(
+            GovernanceMode::Standalone,
+            agent_alias,
+            autonomy,
+            authority,
+            profile,
+            parents,
+        )
     }
 
     /// Managed gate: the local profiles composed with the AASM adapter, which
@@ -305,7 +314,14 @@ impl PolicyGate {
     ) -> Self {
         let local = standalone_authority_with_parents(profile.clone(), parents.clone());
         match super::aasm_adapter::build_managed_authority(governance, local) {
-            Ok(authority) => Self::enforcing(agent_alias, autonomy, authority, profile, parents),
+            Ok(authority) => Self::enforcing(
+                GovernanceMode::Managed,
+                agent_alias,
+                autonomy,
+                authority,
+                profile,
+                parents,
+            ),
             Err(_) => Self::with_mode(Mode::Unavailable),
         }
     }
@@ -323,6 +339,7 @@ impl PolicyGate {
     }
 
     fn enforcing(
+        mode: GovernanceMode,
         agent_alias: &str,
         autonomy: AutonomyLevel,
         authority: Arc<dyn PolicyAuthority>,
@@ -334,6 +351,7 @@ impl PolicyGate {
             .collect();
         Self::with_mode(Mode::Enforce(Box::new(Enforcing {
             authority,
+            mode,
             agent_alias: agent_alias.to_owned(),
             autonomy,
             caller_allowed: None,
@@ -672,7 +690,13 @@ impl PolicyGate {
             _ => (Verdict::Deny, ReasonCode::LocalDeny),
         };
         let mut record = self.sink.as_ref().map(|_| {
-            let mut record = decision_record(facts, request.as_ref().ok(), verdict, reason);
+            let mut record = decision_record(
+                enforcing.mode,
+                facts,
+                request.as_ref().ok(),
+                verdict,
+                reason,
+            );
             if verdict != Verdict::Deny {
                 record.decision_id = Some(self.next_decision_id());
             }
@@ -734,6 +758,7 @@ fn bounded_id(id: &str) -> String {
 }
 
 fn decision_record(
+    mode: GovernanceMode,
     facts: &CallFacts<'_>,
     request: Option<&PolicyRequest>,
     verdict: Verdict,
@@ -764,7 +789,11 @@ fn decision_record(
             reason,
         },
         authority: AuthorityInfo {
-            mode: "standalone".to_owned(),
+            mode: match mode {
+                GovernanceMode::Standalone => "standalone",
+                GovernanceMode::Managed => "managed",
+            }
+            .to_owned(),
             contract_version: CONTRACT_VERSION,
             aasm_decision_id: None,
         },
