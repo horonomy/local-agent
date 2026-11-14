@@ -63,8 +63,13 @@ never started.
   session end. A normal stop sends SIGINT first so the movie is finalized,
   then SIGKILL after 3 seconds. A recorder that crashes is reaped, its partial
   file is deleted, and a new recording may start.
-- With `delete_on_session_end = true` every capture is deleted when the tool is
-  dropped at session end.
+- With `delete_on_session_end = true` every capture is deleted, and any running
+  recorder killed, when the last `capture` tool instance for the captures
+  directory is dropped. The tool registry is rebuilt per agent build and per
+  channel turn; instances on the same directory share one recording slot and one
+  active-file protection, so an overlapping rebuild keeps a recording alive, but
+  a rebuild that drops every instance first ends it (fail-safe: recording lost,
+  no orphan).
 
 ### Delete everything
 
