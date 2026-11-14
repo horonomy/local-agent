@@ -132,7 +132,13 @@ async fn concurrent_first_calls_share_one_child() {
     let calls: Vec<_> = (0..8)
         .map(|_| {
             let registry = Arc::clone(&registry);
-            tokio::spawn(async move { registry.call_tool("srv__echo", json!({})).await })
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "test needs real concurrent callers; handles are awaited below"
+            )]
+            let handle =
+                tokio::spawn(async move { registry.call_tool("srv__echo", json!({})).await });
+            handle
         })
         .collect();
     for call in calls {
@@ -167,7 +173,14 @@ async fn zero_idle_window_does_not_race_the_next_call() {
     for _ in 0..5 {
         registry.call_tool("srv__echo", json!({})).await.unwrap();
     }
-    assert!(!fixture.spawns().is_empty());
+    assert!(
+        fixture.spawns().len() >= 2,
+        "idle 0 should reap between calls"
+    );
+    assert!(
+        wait_all_dead(&fixture.all_pids(), Duration::from_secs(10)).await,
+        "tree left running after the last call"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -177,6 +190,8 @@ async fn crash_then_next_call_respawns() {
     registry.call_tool("srv__echo", json!({})).await.unwrap();
     let first = fixture.all_pids();
 
+    // The call errors whether or not the client replays it; only "at least one
+    // respawn" is guaranteed, so do not assert an exact spawn count.
     assert!(
         registry
             .call_tool("srv__crash_me", json!({}))
@@ -185,7 +200,7 @@ async fn crash_then_next_call_respawns() {
     );
     registry.call_tool("srv__echo", json!({})).await.unwrap();
 
-    assert_eq!(fixture.spawns().len(), 2);
+    assert!(fixture.spawns().len() >= 2);
     assert!(
         wait_all_dead(&first, Duration::from_secs(10)).await,
         "crashed child's tree was not cleaned up"
@@ -197,13 +212,17 @@ async fn cancelled_call_leaves_no_orphan() {
     let fixture = Fixture::new();
     // The short idle window is a backstop; reset-on-cancel normally reaps first.
     let registry = registry(fixture.config(3)).await;
-    let call = tokio::time::timeout(
-        Duration::from_millis(500),
-        registry.call_tool("srv__hang_me", json!({})),
-    )
-    .await;
-    assert!(call.is_err(), "hang_me must not complete");
+    let call_registry = Arc::clone(&registry);
+    let call =
+        zeroclaw_spawn::spawn!(
+            async move { call_registry.call_tool("srv__hang_me", json!({})).await }
+        );
+    // Cancel only once the child exists, so the cancel hits an in-flight call
+    // rather than a handshake that was merely slow under load.
     wait_for_spawns(&fixture, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    call.abort();
+    assert!(call.await.unwrap_err().is_cancelled());
     assert!(
         wait_all_dead(&fixture.all_pids(), Duration::from_secs(15)).await,
         "cancelled call left a process behind"
