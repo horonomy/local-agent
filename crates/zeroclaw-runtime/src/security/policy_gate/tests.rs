@@ -474,6 +474,22 @@ async fn managed_mode_fails_closed() {
     );
 }
 
+#[tokio::test]
+async fn degraded_governance_section_denies_instead_of_standalone() {
+    let config = Config {
+        degraded_security: vec!["governance".to_owned()],
+        ..Config::default()
+    };
+    let g = PolicyGate::for_agent(&config, "main", &inputs(None, None, None));
+    let read = mock("file_read", ToolCapability::FsRead);
+    assert_eq!(
+        decide(&g, &read, &json!({}), "c").await,
+        GateOutcome::Deny {
+            reason: ReasonCode::AuthorityUnavailable
+        }
+    );
+}
+
 #[test]
 fn fold_rule() {
     assert_eq!(fold_name("  TodoWrite ").as_deref(), Some("todowrite"));
