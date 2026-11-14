@@ -9,7 +9,8 @@ a real desktop.
 
 A separate tool, `computer_use`, for click, type and key actions in one
 allowlisted window. It is built only with the `local-desktop` feature and
-registered only when `[computer_use] enabled = true`.
+registered only when `[computer_use] enabled = true` and `[tools].optional`
+includes `computer_use` or `*`.
 
 It is **not** the `browser` tool. The `browser` tool's legacy `computer_use`
 backend (an HTTP sidecar on 127.0.0.1:8787 that is not in this repository) is
@@ -21,7 +22,7 @@ desktop-input surface for the local profile.
 - Empty `window_allowlist` denies every action.
 - Each call names the target `app` (name or bundle id). The frontmost window
   must be that app and match an allowlist entry; a title substring is optional
-  (`"Notes"`, `"com.apple.Notes"`, `"Notes::Meeting"`). `*` is rejected.
+  (`"Notes"`, `"com.apple.Notes"`, `"Notes::Meeting"`). `*` is rejected and a title part needs at least 3 characters. Prefer bundle ids: an app name or short title substring can match more windows than intended.
 - Click coordinates must be inside that window's bounds.
 - `max_actions_per_session` and `max_actions_per_minute` limit dispatches;
   each action has an `action_timeout_ms` deadline. A timeout or a cancelled
@@ -52,10 +53,12 @@ action_timeout_ms = 5000
 
 ## Known limits
 
-- The session and rate budgets live in the tool instance; a rebuilt registry
-  (for example after a config reload) starts a fresh budget.
-- Typed text is kept out of this tool's results and errors, but it is part of
-  the call arguments, which approval prompts and transcripts may carry.
+- The session and rate budgets live in the tool instance; every tool-registry
+  rebuild (each agent build and each channel turn) starts a fresh budget.
+- Typed text is kept out of this tool's results and errors and out of the
+  turn-loop argument logs in `call_prep.rs`. It is still part of the call
+  arguments, which approval prompts, transcripts and any other logging path may
+  carry; this is not verified exhaustively.
 
 - The window check and the dispatch are separate backend calls; a window change
   between them is not detected.
