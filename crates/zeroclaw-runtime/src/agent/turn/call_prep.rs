@@ -42,7 +42,7 @@ pub(crate) struct StreamToolCall {
 }
 
 /// Arguments as they may appear in logs. Typed desktop text is never logged.
-fn loggable_args(tool_name: &str, args: &serde_json::Value) -> String {
+pub(crate) fn loggable_args(tool_name: &str, args: &serde_json::Value) -> String {
     if tool_name == "computer_use"
         && let Some(object) = args.as_object()
         && object.contains_key("text")
