@@ -1476,4 +1476,91 @@ mod tests {
             }
         );
     }
+
+    use crate::security::policy_contract::{DecisionRecord, DecisionSink};
+
+    #[derive(Default)]
+    struct CollectSink(Mutex<Vec<DecisionRecord>>);
+
+    impl DecisionSink for CollectSink {
+        fn record(&self, record: &DecisionRecord) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(record.clone());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn managed_decision_is_recorded_as_managed_with_the_aasm_decision_id() {
+        let double = Double::start(allow());
+        let sink = Arc::new(CollectSink::default());
+        let gate = managed_gate(&double.socket, 2000).with_sink(sink.clone());
+        gate_decide(&gate).await;
+        let records = sink.0.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].authority.mode, "managed");
+        assert_eq!(
+            records[0].authority.aasm_decision_id.as_deref(),
+            Some("01-abc")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_aasm_deny_leaves_nothing_to_redeem_and_is_recorded_as_managed() {
+        use crate::security::policy_gate::{CallFacts, RedeemError};
+        let double = Double::start(Reply::Decision {
+            code: 2,
+            decision_id: "",
+        });
+        let sink = Arc::new(CollectSink::default());
+        let gate = managed_gate(&double.socket, 2000).with_sink(sink.clone());
+        gate_decide(&gate).await;
+        let registry: Vec<Box<dyn zeroclaw_api::tool::Tool>> = Vec::new();
+        let args = serde_json::json!({"command": "ls"});
+        let redeemed = gate
+            .redeem(&CallFacts {
+                tool: &ShellTool,
+                registry: &registry,
+                args: &args,
+                call_id: "call-1",
+                turn_id: "turn-1",
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: false,
+            })
+            .await;
+        assert_eq!(redeemed, Err(RedeemError::NoTicket));
+        let records = sink.0.lock().unwrap();
+        assert_eq!(records[0].authority.mode, "managed");
+        assert_eq!(records[0].decision.reason, ReasonCode::AasmDeny);
+    }
+
+    #[tokio::test]
+    async fn a_local_deny_is_final_and_never_reaches_the_aasm_peer() {
+        use crate::security::policy_gate::{AgentPolicyInputs, GateOutcome, PolicyGate};
+        // The double would allow; the local exclusion must win without a query.
+        let double = Double::start(allow());
+        let mut config = zeroclaw_config::schema::Config::default();
+        config.governance.mode = GovernanceMode::Managed;
+        config.governance.aasm.socket_path = Some(double.socket.to_string_lossy().into_owned());
+        let excluded = vec!["shell".to_owned()];
+        let gate = PolicyGate::for_agent(
+            &config,
+            "main",
+            &AgentPolicyInputs {
+                autonomy: AutonomyLevel::Supervised,
+                allowed_tools: None,
+                excluded_tools: Some(&excluded),
+                always_ask: &[],
+                mcp_servers: &[],
+                caller_allowed: None,
+            },
+        );
+        assert_eq!(
+            gate_decide(&gate).await,
+            GateOutcome::Deny {
+                reason: ReasonCode::Excluded
+            }
+        );
+        assert_eq!(double.accepted.load(Ordering::SeqCst), 0);
+    }
 }
