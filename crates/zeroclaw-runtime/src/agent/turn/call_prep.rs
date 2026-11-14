@@ -41,6 +41,27 @@ pub(crate) struct StreamToolCall {
     pub(crate) tool_provenance: Option<ToolProvenance>,
 }
 
+/// Arguments as they may appear in logs, events and persisted records. Typed
+/// desktop text is never exported.
+pub(crate) fn loggable_args_value(tool_name: &str, args: &serde_json::Value) -> serde_json::Value {
+    if tool_name == "computer_use"
+        && let Some(object) = args.as_object()
+        && object.contains_key("text")
+    {
+        let mut redacted = object.clone();
+        redacted.insert(
+            "text".into(),
+            serde_json::Value::String("[redacted]".into()),
+        );
+        return serde_json::Value::Object(redacted);
+    }
+    args.clone()
+}
+
+pub(crate) fn loggable_args(tool_name: &str, args: &serde_json::Value) -> String {
+    loggable_args_value(tool_name, args).to_string()
+}
+
 fn tool_call_signature(tool_name: &str, tool_args: &serde_json::Value) -> (String, String) {
     let canonical_args = canonicalize_json_for_tool_signature(tool_args);
     let args_json = serde_json::to_string(&canonical_args).unwrap_or_else(|_| "{}".to_string());
@@ -64,7 +85,7 @@ async fn record_duplicate_tool_call(
                 "model": ctx.model,
                 "iteration": iteration + 1,
                 "tool": tool_name,
-                "arguments": scrub_credentials(&tool_args.to_string()),
+                "arguments": scrub_credentials(&loggable_args(tool_name, tool_args)),
                 "result": duplicate,
                 "deduplicated": true,
                 "trace_id": ctx.turn_id,
@@ -149,7 +170,7 @@ async fn policy_denial_outcome(
                 "model": ctx.model,
                 "iteration": iteration + 1,
                 "tool": tool_name,
-                "arguments": scrub_credentials(&tool_args.to_string()),
+                "arguments": scrub_credentials(&loggable_args(tool_name, tool_args)),
                 "result": denied,
                 "policy_reason": reason,
                 "trace_id": ctx.turn_id,
@@ -321,7 +342,7 @@ pub(crate) async fn prepare_tool_calls(
                                 "model": ctx.model,
                                 "iteration": iteration + 1,
                                 "tool": call.name,
-                                "arguments": scrub_credentials(&tool_args.to_string()),
+                                "arguments": scrub_credentials(&loggable_args(&call.name, &tool_args)),
                                 "result": cancelled,
                                 "trace_id": ctx.turn_id,
                             })),
@@ -449,7 +470,7 @@ pub(crate) async fn prepare_tool_calls(
                             "model": ctx.model,
                             "iteration": iteration + 1,
                             "tool": tool_name.clone(),
-                            "arguments": scrub_credentials(&tool_args.to_string()),
+                            "arguments": scrub_credentials(&loggable_args(&tool_name, &tool_args)),
                             "result": repeated,
                             "trace_id": ctx.turn_id,
                         })),
@@ -612,7 +633,7 @@ pub(crate) async fn prepare_tool_calls(
                     "model": ctx.model,
                     "iteration": iteration + 1,
                     "tool": tool_name.clone(),
-                    "arguments": scrub_credentials(&tool_args.to_string()),
+                    "arguments": scrub_credentials(&loggable_args(&tool_name, &tool_args)),
                     "trace_id": ctx.turn_id,
                 })),
             "tool_call_start"
@@ -1874,5 +1895,18 @@ mod tests {
             ],
             "a fully aborted execution batch abandons every executable context"
         );
+    }
+}
+
+#[cfg(test)]
+mod loggable_args_tests {
+    use super::loggable_args;
+
+    #[test]
+    fn computer_use_text_is_redacted_other_tools_untouched() {
+        let args = serde_json::json!({"action": "type", "text": "s3cret-words"});
+        let logged = loggable_args("computer_use", &args);
+        assert!(!logged.contains("s3cret-words") && logged.contains("[redacted]"));
+        assert!(loggable_args("shell", &args).contains("s3cret-words"));
     }
 }

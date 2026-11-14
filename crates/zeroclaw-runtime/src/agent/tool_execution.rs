@@ -256,7 +256,8 @@ async fn execute_one_tool_with_provenance(
     receipt_generator: Option<&super::tool_receipts::ReceiptGenerator>,
     event_tx: Option<&Sender<TurnEvent>>,
 ) -> Result<CompletedToolExecution> {
-    let full_args = call_arguments.to_string();
+    // Observers, channel notices and OTel get the redacted form.
+    let full_args = super::turn::call_prep::loggable_args(call_name, &call_arguments);
     let tool_call_id_owned = tool_call_id.map(str::to_string);
     observer.record_event(&ObserverEvent::ToolCallStart {
         tool: call_name.to_string(),
@@ -393,7 +394,7 @@ async fn execute_one_tool_with_provenance(
             .with_attrs(::serde_json::json!({
                 "tool": call_name,
                 "tool_call_id": tool_call_id,
-                "input": call_arguments,
+                "input": super::turn::call_prep::loggable_args_value(call_name, &call_arguments),
             })),
         format!("tool call: {call_name}")
     );
@@ -453,7 +454,7 @@ async fn execute_one_tool_with_provenance(
                         .with_attrs(::serde_json::json!({
                             "tool": call_name,
                             "tool_call_id": tool_call_id,
-                            "input": call_arguments,
+                            "input": super::turn::call_prep::loggable_args_value(call_name, &call_arguments),
                             "output": r.output,
                         })),
                         format!("tool result: {call_name}")
@@ -468,7 +469,7 @@ async fn execute_one_tool_with_provenance(
                             .with_attrs(::serde_json::json!({
                                 "tool": call_name,
                                 "tool_call_id": tool_call_id,
-                                "input": call_arguments,
+                                "input": super::turn::call_prep::loggable_args_value(call_name, &call_arguments),
                                 "error": r.error.clone().unwrap_or_default(),
                                 "output": r.output,
                             })),
@@ -569,7 +570,7 @@ async fn execute_one_tool_with_provenance(
                         .with_attrs(::serde_json::json!({
                             "tool": call_name,
                             "tool_call_id": tool_call_id,
-                            "input": call_arguments,
+                            "input": super::turn::call_prep::loggable_args_value(call_name, &call_arguments),
                             "error": format!("{e:?}"),
                         })),
                     format!("tool error: {call_name}")
@@ -3460,5 +3461,19 @@ mod real_gate_tests {
         )
         .await;
         assert_eq!(seen.lock().unwrap()[0]["approved"], serde_json::json!(true));
+    }
+}
+
+#[cfg(test)]
+mod computer_use_redaction_tests {
+    use super::super::turn::call_prep::loggable_args;
+
+    #[test]
+    fn tool_call_start_arguments_for_computer_use_omit_typed_text() {
+        let args = serde_json::json!({"action": "type", "app": "Notes", "text": "typed-secret-42"});
+        // `full_args`, the string handed to every ObserverEvent, is built by this call.
+        let full_args = loggable_args("computer_use", &args);
+        assert!(!full_args.contains("typed-secret-42"));
+        assert!(full_args.contains("Notes"));
     }
 }

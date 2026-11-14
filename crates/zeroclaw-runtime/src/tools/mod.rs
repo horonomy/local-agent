@@ -2026,6 +2026,32 @@ fn all_tools_with_runtime_on_thread(
         }
     }
 
+    // Scoped desktop control: its own opt-in (`[computer_use] enabled`), its
+    // own build feature, and the `Desktop` capability, so it also needs an
+    // explicit `allowed_tools` listing and is an Ask on every call. The
+    // `browser` tool's legacy computer_use backend stays refused under the
+    // local profile; this is the only desktop-input surface there.
+    #[cfg(feature = "local-desktop")]
+    if root_config.computer_use.enabled && select_tool!("computer_use") {
+        match zeroclaw_tools::computer_use::ComputerUseTool::new(
+            zeroclaw_tools::computer_use::platform_backend(),
+            &root_config.computer_use,
+        ) {
+            Ok(tool) => {
+                tool_arcs.push(Arc::new(RateLimitedTool::new(tool, security.clone())));
+            }
+            Err(e) => {
+                ::zeroclaw_log::record!(
+                    WARN,
+                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
+                        .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
+                        .with_attrs(::serde_json::json!({"error": format!("{}", e)})),
+                    "computer_use: failed to construct tool, skipping registration"
+                );
+            }
+        }
+    }
+
     // Local screenshot/recording lifecycle: disabled by default, stores only under
     // `<data_dir>/captures`, and every call asks the operator (see the policy engine).
     #[cfg(any(feature = "tools-external", feature = "local-desktop"))]
@@ -7774,6 +7800,8 @@ permissions = ["http_client"]
         cfg.skills.prompt_injection_mode = SkillsPromptInjectionMode::Compact;
         cfg.sop.procedural_memory_enabled = true;
         cfg.browser_delegate.enabled = true;
+        cfg.computer_use.enabled = true;
+        cfg.capture.enabled = true;
         cfg.text_browser.enabled = true;
         cfg.web_search.enabled = true;
         cfg.notion.enabled = true;
@@ -8011,7 +8039,7 @@ permissions = ["http_client"]
 
     fn capability_rows() -> (CapabilityRows, CapabilityRows) {
         use zeroclaw_api::policy::ToolCapability::{
-            AgentInternal, Browser, FsRead, FsWrite, Memory, Network, Shell, Subagent,
+            AgentInternal, Browser, Desktop, FsRead, FsWrite, Memory, Network, Shell, Subagent,
         };
         let required = vec![
             ("shell", Shell),
@@ -8035,6 +8063,8 @@ permissions = ["http_client"]
             ("ask_user", AgentInternal),
             ("browser_open", Browser),
             ("browser", Browser),
+            ("computer_use", Desktop),
+            ("capture", Desktop),
             ("deliver_file", FsRead),
             ("content_search", FsRead),
             ("glob_search", FsRead),

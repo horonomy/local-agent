@@ -207,3 +207,23 @@ fn browser_module_is_gated_by_tools_external_or_local_browser_only() {
         );
     }
 }
+
+#[test]
+fn computer_use_module_is_gated_by_local_desktop_only() {
+    let lib = include_str!("../../crates/zeroclaw-tools/src/lib.rs");
+    assert!(
+        lib.contains("#[cfg(feature = \"local-desktop\")]\npub mod computer_use;"),
+        "`computer_use` must compile only under `local-desktop`"
+    );
+    let features = root_features();
+    let reached = closure(&features, "local-desktop");
+    for needed in [
+        "zeroclaw-runtime/local-desktop",
+        "zeroclaw-tools/local-desktop",
+    ] {
+        assert!(
+            reached.contains(needed),
+            "`local-desktop` must forward to `{needed}`"
+        );
+    }
+}

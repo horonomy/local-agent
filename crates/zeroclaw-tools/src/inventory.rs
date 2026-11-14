@@ -62,9 +62,11 @@ pub enum BuiltinToolCompilation {
     /// The `browser` automation tool: compiled by `tools-external` or the
     /// narrower `local-browser` opt-in.
     Browser,
+    /// The `computer_use` tool: compiled only by the `local-desktop` opt-in.
+    Desktop,
     /// The `capture` tool: compiled by `tools-external` or the narrower
     /// `local-desktop` opt-in.
-    Desktop,
+    DesktopCapture,
     /// An existing SaaS or coding-CLI compilation group.
     OptIn(OptInTool),
 }
@@ -76,7 +78,10 @@ impl BuiltinToolCompilation {
             Self::Always => true,
             Self::External => cfg!(feature = "tools-external"),
             Self::Browser => cfg!(any(feature = "tools-external", feature = "local-browser")),
-            Self::Desktop => cfg!(any(feature = "tools-external", feature = "local-desktop")),
+            Self::Desktop => cfg!(feature = "local-desktop"),
+            Self::DesktopCapture => {
+                cfg!(any(feature = "tools-external", feature = "local-desktop"))
+            }
             Self::OptIn(tool) => {
                 // A consumer can enable config features without compiling the concrete owner.
                 let owner_compiled = match tool {
@@ -467,7 +472,7 @@ pub const BUILTIN_TOOLS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         name: "capture",
         tier: ToolTier::Optional,
-        compilation: BuiltinToolCompilation::Desktop,
+        compilation: BuiltinToolCompilation::DesktopCapture,
     },
     BuiltinToolSpec {
         name: "image_info",
@@ -484,6 +489,11 @@ pub const BUILTIN_TOOLS: &[BuiltinToolSpec] = &[
         name: "browser",
         tier: ToolTier::Optional,
         compilation: BuiltinToolCompilation::Browser,
+    },
+    BuiltinToolSpec {
+        name: "computer_use",
+        tier: ToolTier::Optional,
+        compilation: BuiltinToolCompilation::Desktop,
     },
     BuiltinToolSpec {
         name: "browser_delegate",
@@ -679,7 +689,7 @@ mod tests {
                     spec.compilation,
                     BuiltinToolCompilation::External
                         | BuiltinToolCompilation::Browser
-                        | BuiltinToolCompilation::Desktop
+                        | BuiltinToolCompilation::DesktopCapture
                 )
             })
             .map(|spec| spec.name)

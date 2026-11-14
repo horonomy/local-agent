@@ -533,6 +533,14 @@ pub struct Config {
     #[group = "Tools"]
     pub capture: crate::scattered_types::CaptureConfig,
 
+    /// Scoped desktop control (`[computer_use]`, HORO-2400). Disabled by
+    /// default; additive. Remove the section or keep `enabled = false` to
+    /// disable.
+    #[serde(default)]
+    #[nested]
+    #[group = "Tools"]
+    pub computer_use: crate::computer_use::ComputerUseConfig,
+
     /// HTTP request tool configuration (`[http_request]`).
     #[serde(default)]
     #[nested]
@@ -20993,6 +21001,7 @@ impl Default for Config {
             browser: BrowserConfig::default(),
             browser_delegate: crate::scattered_types::BrowserDelegateConfig::default(),
             capture: crate::scattered_types::CaptureConfig::default(),
+            computer_use: crate::computer_use::ComputerUseConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
             media_pipeline: MediaPipelineConfig::default(),
@@ -24300,6 +24309,12 @@ impl Config {
                     Some(url) => validate_http_base_url(&path, url)?,
                 }
             }
+        }
+
+        if self.computer_use.enabled
+            && let Some((path, message)) = self.computer_use.validation_error()
+        {
+            validation_bail!(InvalidFormat, path, "{path}: {message}");
         }
 
         for name in self.http_request.secrets.keys() {
@@ -33643,6 +33658,7 @@ auto_save = true
             browser: BrowserConfig::default(),
             browser_delegate: crate::scattered_types::BrowserDelegateConfig::default(),
             capture: crate::scattered_types::CaptureConfig::default(),
+            computer_use: crate::computer_use::ComputerUseConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
             media_pipeline: MediaPipelineConfig::default(),
@@ -35082,6 +35098,7 @@ default_temperature = 0.7
             browser: BrowserConfig::default(),
             browser_delegate: crate::scattered_types::BrowserDelegateConfig::default(),
             capture: crate::scattered_types::CaptureConfig::default(),
+            computer_use: crate::computer_use::ComputerUseConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
             media_pipeline: MediaPipelineConfig::default(),

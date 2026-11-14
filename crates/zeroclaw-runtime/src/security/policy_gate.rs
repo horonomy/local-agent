@@ -106,6 +106,8 @@ pub fn profile_from_inputs(inputs: &AgentPolicyInputs<'_>) -> PolicyProfile {
         allowed_tools,
         excluded_tools: fold_set(inputs.excluded_tools.unwrap_or_default()),
         mcp_grants: fold_set(inputs.mcp_servers),
+        // Per-call Ask for desktop tools is enforced by the engine itself
+        // (`ALWAYS_ASK_BUILTINS`), so it also holds for hand-built profiles.
         ask_tools: fold_set(inputs.always_ask),
         autonomy_ceiling: inputs.autonomy,
     }

@@ -82,7 +82,8 @@ pub(crate) fn record_step_tool_call(
                 return;
             }
             let index = u32::try_from(calls.len()).unwrap_or(u32::MAX);
-            let scrubbed_args = scrub_credentials(&args.to_string());
+            let scrubbed_args =
+                scrub_credentials(&crate::agent::turn::call_prep::loggable_args(tool, args));
             let args = serde_json::from_str(&scrubbed_args).unwrap_or(serde_json::Value::Null);
             let output =
                 truncate_tool_result(&scrub_credentials(&output), MAX_STEP_TOOL_OUTPUT_CHARS);
