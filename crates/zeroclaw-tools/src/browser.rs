@@ -78,6 +78,10 @@ pub struct BrowserTool {
     /// Upper bound for one agent-browser invocation; the child is killed when it is
     /// exceeded or when the call is cancelled.
     command_timeout: Duration,
+    /// Set when the page could not be confirmed back on `about:blank` after leaving the
+    /// allowed set; every action except `open`/`close` is refused until an allowed
+    /// `open` succeeds.
+    session_poisoned: std::sync::atomic::AtomicBool,
     #[cfg(feature = "browser-native")]
     native_headless: bool,
     #[cfg(feature = "browser-native")]
@@ -268,6 +272,7 @@ impl BrowserTool {
             strict_local_policy: false,
             attach_screenshots: false,
             command_timeout: DEFAULT_COMMAND_TIMEOUT,
+            session_poisoned: std::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "browser-native")]
             native_headless,
             #[cfg(feature = "browser-native")]
@@ -1446,14 +1451,29 @@ impl BrowserTool {
             }
         }
 
-        let may_navigate = matches!(
-            action,
-            BrowserAction::Click { .. }
-                | BrowserAction::Press { .. }
-                | BrowserAction::Fill { .. }
-                | BrowserAction::Type { .. }
-                | BrowserAction::Find { .. }
-        );
+        // Agent-browser page-URL guard. The page can navigate on its own (redirects,
+        // scripts, a previous click), so the current URL is validated before any action
+        // runs or returns content, and again afterwards whatever the outcome.
+        // NOTE: the rust-native (WebDriver) backend has no such guard; it only compiles
+        // with `browser-native`, which pulls in `tools-external` and is not part of the
+        // local profile. Documented limitation, not implemented for that backend.
+        let guarded = backend == ResolvedBackend::AgentBrowser
+            && !matches!(action, BrowserAction::Open { .. } | BrowserAction::Close);
+        let is_open = matches!(action, BrowserAction::Open { .. });
+        if guarded {
+            if self
+                .session_poisoned
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Ok(denial(
+                    "Browser session is locked after leaving the allowed set; open an allowed URL first",
+                ));
+            }
+            if let Some(denied) = self.deny_if_navigated_away().await {
+                return Ok(denied);
+            }
+        }
+
         let mut result = match backend {
             ResolvedBackend::AgentBrowser => self.execute_agent_browser_action(action).await,
             ResolvedBackend::RustNative => self.execute_rust_native_action(action).await,
@@ -1462,6 +1482,18 @@ impl BrowserTool {
             ),
         };
 
+        // Re-check after every action, success, failure or error: a failing click can
+        // still have navigated. An `open` rejected before reaching the browser (Err)
+        // did nothing, so it is not re-checked.
+        if backend == ResolvedBackend::AgentBrowser && (guarded || (is_open && result.is_ok())) {
+            if let Some(denied) = self.deny_if_navigated_away().await {
+                result = Ok(denied);
+            } else if is_open && matches!(&result, Ok(r) if r.success) {
+                self.session_poisoned
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
         // A screenshot the backend wrote to the validated target is a
         // produced image: declare it so the model can see it. Nothing
         // downstream infers attachments from the path printed in the text,
@@ -1469,14 +1501,6 @@ impl BrowserTool {
         // argument is allocated a workspace target before dispatch on the
         // agent-browser backend, so it is declared here too; the
         // rust-native path still inlines the PNG instead of saving it.)
-        if may_navigate
-            && backend == ResolvedBackend::AgentBrowser
-            && matches!(&result, Ok(r) if r.success)
-            && let Some(denial) = self.deny_if_navigated_away().await
-        {
-            result = Ok(denial);
-        }
-
         match (result, screenshot_target) {
             (Ok(mut result), Some(target)) if result.success && self.attach_screenshots => {
                 result = result.with_attachment(RenderedMarker {
@@ -1489,29 +1513,43 @@ impl BrowserTool {
         }
     }
 
-    /// After an action that can navigate, re-check the page's current URL with the
-    /// same rules as `open`. A page outside the allowed set is replaced by
-    /// `about:blank` and the model gets a denial naming only the host, never the page
-    /// content. An unreadable URL fails closed the same way.
-    async fn deny_if_navigated_away(&self) -> Option<ToolResult> {
-        let current = match self.run_command(&["get", "url"]).await {
+    async fn current_page_url(&self) -> Option<String> {
+        match self.run_command(&["get", "url"]).await {
             Ok(resp) if resp.success => resp.data.as_ref().and_then(extract_url),
             _ => None,
-        };
+        }
+    }
+
+    /// Validate the page's current URL with the same rules as `open`. A page outside
+    /// the allowed set is replaced by `about:blank` and the model gets a denial naming
+    /// only the host, never page content. An unreadable URL fails closed the same way.
+    /// If the reset cannot be confirmed the browser is closed and the session poisoned.
+    async fn deny_if_navigated_away(&self) -> Option<ToolResult> {
+        let current = self.current_page_url().await;
         let verdict = match &current {
             Some(url) if url == "about:blank" => return None,
             Some(url) => self.validate_url(url).map_err(|_| host_of(url)),
             None => Err("unknown".to_string()),
         };
         let host = verdict.err()?;
-        let _ = self.run_command(&["open", "about:blank"]).await;
-        Some(ToolResult {
-            success: false,
-            output: ToolOutput::default(),
-            error: Some(format!(
-                "Navigation denied: page left the allowed set (host: {host}); session reset to about:blank"
-            )),
-        })
+        let reset_ok = matches!(
+            self.run_command(&["open", "about:blank"]).await,
+            Ok(r) if r.success
+        );
+        let confirmed = reset_ok && self.current_page_url().await.as_deref() == Some("about:blank");
+        if !confirmed {
+            let _ = self.run_command(&["close"]).await;
+            self.session_poisoned
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        Some(denial(&format!(
+            "Navigation denied: page left the allowed set (host: {host}); {}",
+            if confirmed {
+                "session reset to about:blank"
+            } else {
+                "session closed and locked until an allowed open"
+            }
+        )))
     }
 
     #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
@@ -3038,6 +3076,14 @@ fn extract_url(data: &Value) -> Option<String> {
     (!raw.is_empty()).then(|| raw.to_string())
 }
 
+fn denial(message: &str) -> ToolResult {
+    ToolResult {
+        success: false,
+        output: ToolOutput::default(),
+        error: Some(message.to_string()),
+    }
+}
+
 fn host_of(url: &str) -> String {
     reqwest::Url::parse(url)
         .ok()
@@ -4193,6 +4239,7 @@ mod tests {
             "#!/bin/sh\n\
              set -e\n\
              if [ \"$1\" = --profile ]; then shift 2; fi\n\
+             if [ \"$1\" = get ] && [ \"$2\" = url ]; then printf '{{\"success\":true,\"data\":{{\"url\":\"about:blank\"}}}}\\n'; exit 0; fi\n\
              # fake agent-browser: `screenshot <path> --json` writes a real PNG\n\
              case \"$2\" in -*|'') echo 'fake agent-browser: expected a path argument' >&2; exit 1 ;; esac\n\
              printf '{png}' > \"$2\"\n\
@@ -4381,6 +4428,8 @@ mod tests {
         let script = format!(
             "#!/bin/sh\n\
              set -e\n\
+             if [ \"$1\" = --profile ]; then shift 2; fi\n\
+             if [ \"$2\" = url ]; then printf '{{\"success\":true,\"data\":{{\"url\":\"about:blank\"}}}}\\n'; exit 0; fi\n\
              # fake agent-browser: `get title --json` echoes a fixed title\n\
              printf '{{\"success\":true,\"data\":{{\"title\":\"%s\"}}}}\\n' '{title}'\n"
         );
@@ -5588,17 +5637,19 @@ mod isolation_tests {
              printf '%s\\n' \"$*\" >> \"$state.argv\"\n\
              if [ \"$1\" = --profile ]; then printf '%s' \"$2\" > \"$state.profile\"; shift 2; fi\n\
              case \"$1\" in\n\
-             open) printf '%s' \"$2\" > \"$state.url\"; printf '{{\"success\":true,\"data\":{{\"url\":\"%s\",\"title\":\"Synthetic Fixture\"}}}}\\n' \"$2\" ;;\n\
+             open) if [ \"$2\" = about:blank ] && [ -e \"$state.breakreset\" ]; then printf '{{\"success\":true,\"data\":{{}}}}\\n'; exit 0; fi; printf '%s' \"$2\" > \"$state.url\"; printf '{{\"success\":true,\"data\":{{\"url\":\"%s\",\"title\":\"Synthetic Fixture\"}}}}\\n' \"$2\" ;;\n\
              snapshot) printf '{{\"success\":true,\"data\":{{\"snapshot\":\"textbox @e2 Name; button @e1 Submit\"}}}}\\n' ;;\n\
              click) case \"$2\" in\n\
                @leave) printf '%s' 'https://evil.example:8443/landing?x=1' > \"$state.url\" ;;\n\
                @signin) printf '%s' 'https://accounts.google.com/signin' > \"$state.url\" ;;\n\
+               @failleave) printf '%s' 'https://evil.example/boom' > \"$state.url\"; printf '{{\"success\":false,\"error\":\"EVIL-PAGE-TEXT\"}}\\n'; exit 0 ;;\n\
                @stay) printf '%s' 'https://fixture.example/next' > \"$state.url\" ;;\n\
              esac; printf '{{\"success\":true,\"data\":{{\"clicked\":\"%s\",\"text\":\"EVIL-PAGE-TEXT\"}}}}\\n' \"$2\" ;;\n\
              fill|type) printf '%s\\n' \"$3\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
              find) printf '%s\\n' \"$5\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
              get) if [ \"$2\" = url ]; then u=$(cat \"$state.url\" 2>/dev/null); printf '{{\"success\":true,\"data\":{{\"url\":\"%s\"}}}}\\n' \"${{u:-about:blank}}\"; else printf '{{\"success\":true,\"data\":{{\"text\":\"Synthetic page body\"}}}}\\n'; fi ;;\n\
              screenshot) printf '{png}' > \"$2\"; printf '{{\"success\":true,\"data\":{{\"path\":\"%s\"}}}}\\n' \"$2\" ;;\n\
+             close) echo closed >> \"$state.closed\"; printf '{{\"success\":true,\"data\":{{}}}}\\n' ;;\n\
              wait) echo $$ > \"$state.pid\"; exec sleep 30 ;;\n\
              *) echo 'unknown' >&2; exit 2 ;;\n\
              esac\n"
@@ -5915,14 +5966,131 @@ mod isolation_tests {
             assert!(!error.contains("EVIL-PAGE-TEXT"));
             let argv = site.state("argv");
             assert!(
-                argv.lines()
-                    .last()
-                    .unwrap()
-                    .ends_with("open about:blank --json"),
+                argv.contains("open about:blank --json"),
                 "session must be reset to about:blank: {argv}"
             );
             assert_eq!(site.state("url"), "about:blank");
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_after_out_of_band_navigation_is_denied_without_content() {
+        let site = site();
+        site.run(BrowserAction::Open {
+            url: "https://fixture.example/".into(),
+        })
+        .await
+        .unwrap();
+        for action in [
+            BrowserAction::GetText {
+                selector: "body".into(),
+            },
+            BrowserAction::Snapshot {
+                interactive_only: false,
+                compact: false,
+                depth: None,
+            },
+            BrowserAction::Screenshot {
+                path: None,
+                full_page: false,
+            },
+            BrowserAction::GetTitle,
+        ] {
+            // The page navigates on its own between actions.
+            std::fs::write(
+                site.tmp.path().join("state.url"),
+                "https://evil.example/oob",
+            )
+            .unwrap();
+            let result = site.run(action).await.unwrap();
+            assert!(!result.success);
+            assert!(result.error.unwrap().contains("host: evil.example)"));
+            assert!(result.output.as_str().is_empty());
+        }
+        let argv = site.state("argv");
+        for read in ["get text", "snapshot", "screenshot", "get title"] {
+            assert!(
+                !argv.contains(read),
+                "{read} must not reach the page: {argv}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failing_action_followed_by_navigation_is_still_denied() {
+        let site = site();
+        site.run(BrowserAction::Open {
+            url: "https://fixture.example/".into(),
+        })
+        .await
+        .unwrap();
+        let result = site
+            .run(BrowserAction::Click {
+                selector: "@failleave".into(),
+            })
+            .await
+            .unwrap();
+        let error = result.error.unwrap();
+        assert!(error.contains("host: evil.example)"), "{error}");
+        assert!(!error.contains("EVIL-PAGE-TEXT"));
+        assert_eq!(site.state("url"), "about:blank");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_reset_poisons_session_until_allowed_open() {
+        let site = site();
+        std::fs::write(site.tmp.path().join("state.breakreset"), "").unwrap();
+        site.run(BrowserAction::Open {
+            url: "https://fixture.example/".into(),
+        })
+        .await
+        .unwrap();
+        let denied = site
+            .run(BrowserAction::Click {
+                selector: "@leave".into(),
+            })
+            .await
+            .unwrap();
+        assert!(denied.error.unwrap().contains("locked"));
+        assert!(
+            site.state("closed").contains("closed"),
+            "browser must be closed"
+        );
+
+        let argv_before = site.state("argv");
+        let refused = site
+            .run(BrowserAction::GetText {
+                selector: "body".into(),
+            })
+            .await
+            .unwrap();
+        assert!(!refused.success && refused.output.as_str().is_empty());
+        assert!(refused.error.unwrap().contains("locked"));
+        assert_eq!(
+            site.state("argv"),
+            argv_before,
+            "refused calls must not reach the backend"
+        );
+
+        // Un-poison with an allowed open.
+        std::fs::remove_file(site.tmp.path().join("state.breakreset")).unwrap();
+        let open = site
+            .run(BrowserAction::Open {
+                url: "https://fixture.example/again".into(),
+            })
+            .await
+            .unwrap();
+        assert!(open.success);
+        let text = site
+            .run(BrowserAction::GetText {
+                selector: "body".into(),
+            })
+            .await
+            .unwrap();
+        assert!(text.success, "{:?}", text.error);
     }
 
     #[cfg(unix)]
