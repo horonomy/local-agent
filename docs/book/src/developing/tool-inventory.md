@@ -234,6 +234,7 @@ application-owned tool source and for an optional-tools feature (proposed as
 |---|---|---|
 | Utilities | `calculator`, `weather`, `pushover`, `screenshot`, `image_info` | Always |
 | Browser | `browser_open`, `browser`, `browser_delegate`, `text_browser` | `browser_open` yes, because the browser section is enabled by default; the others no |
+| Desktop | `computer_use` | No: needs a `local-desktop` build, `[computer_use].enabled` and an explicit `allowed_tools` listing |
 | Network | `http_request`, `web_search_tool` | Yes, both default to enabled |
 | SaaS integrations | `notion`, `jira`, `linkedin`, `composio`, `google_workspace`, `microsoft365` | No |
 | Reporting | `project_intel`, `report_template` | No |
