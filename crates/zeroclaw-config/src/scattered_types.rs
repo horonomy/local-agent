@@ -476,6 +476,73 @@ impl Default for BrowserDelegateConfig {
     }
 }
 
+// ── Local capture (screenshot / screen recording) ───────────────
+
+/// Hard ceiling for `[capture] max_recording_secs`; validation rejects more.
+pub const CAPTURE_MAX_RECORDING_SECS_LIMIT: u64 = 300;
+/// Hard ceiling for `[capture] max_total_bytes` (8 GiB).
+pub const CAPTURE_MAX_TOTAL_BYTES_LIMIT: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Opt-in local screenshot and screen-recording lifecycle (`[capture]`).
+///
+/// Disabled by default. Captures are stored only under `<data_dir>/captures/`;
+/// there is deliberately no directory key, and unknown keys are rejected.
+/// Compiled only with `local-desktop` (or `tools-external`).
+#[derive(Debug, Clone, Serialize, Deserialize, Configurable)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[prefix = "capture"]
+#[serde(default, deny_unknown_fields)]
+pub struct CaptureConfig {
+    /// Register the `capture` tool. Every capture action still asks the operator.
+    pub enabled: bool,
+    /// Seconds a capture is kept before it is purged (0 purges at the next lifecycle call).
+    pub retention_ttl_secs: u64,
+    /// Hard maximum length of one recording, in seconds (1 to 300). A timer stops the recorder.
+    pub max_recording_secs: u64,
+    /// Size cap for the whole captures directory, in bytes; oldest captures are purged first.
+    pub max_total_bytes: u64,
+    /// Delete every capture when the session ends.
+    pub delete_on_session_end: bool,
+    /// Let captured images be attached to model requests. Off by default and
+    /// never needed to use the tool: enabling it can send screen pixels to the
+    /// configured provider, which may be a remote service. Also governs
+    /// browser and legacy `screenshot` image attachments.
+    pub attach_images_to_provider: bool,
+}
+
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            retention_ttl_secs: 3600,
+            max_recording_secs: 60,
+            max_total_bytes: 512 * 1024 * 1024,
+            delete_on_session_end: true,
+            attach_images_to_provider: false,
+        }
+    }
+}
+
+impl CaptureConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if !(1..=CAPTURE_MAX_RECORDING_SECS_LIMIT).contains(&self.max_recording_secs) {
+            crate::validation_bail!(
+                InvalidNumericRange,
+                "capture.max_recording_secs",
+                "capture.max_recording_secs must be between 1 and {CAPTURE_MAX_RECORDING_SECS_LIMIT}"
+            );
+        }
+        if self.max_total_bytes == 0 || self.max_total_bytes > CAPTURE_MAX_TOTAL_BYTES_LIMIT {
+            crate::validation_bail!(
+                InvalidNumericRange,
+                "capture.max_total_bytes",
+                "capture.max_total_bytes must be between 1 and {CAPTURE_MAX_TOTAL_BYTES_LIMIT}"
+            );
+        }
+        Ok(())
+    }
+}
+
 // ── Trust config types ──────────────────────────────────────────
 
 fn default_initial_score() -> f64 {
@@ -1000,5 +1067,57 @@ mod tests {
     #[test]
     fn thinking_level_default_is_medium() {
         assert_eq!(ThinkingLevel::default(), ThinkingLevel::Medium);
+    }
+}
+
+#[cfg(test)]
+mod capture_config_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_disabled_closed_and_valid() {
+        let config = CaptureConfig::default();
+        assert!(!config.enabled);
+        assert!(!config.attach_images_to_provider);
+        assert!(config.delete_on_session_end);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn absent_section_in_root_config_is_default() {
+        let config: crate::schema::Config = toml::from_str("schema_version = 3\n").unwrap();
+        assert!(!config.capture.enabled);
+        assert!(!config.capture.attach_images_to_provider);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn directory_override_is_rejected_as_unknown_key() {
+        let parsed = toml::from_str::<CaptureConfig>("directory = \"/tmp/anywhere\"\n");
+        assert!(parsed.is_err(), "a capture directory key must not exist");
+    }
+
+    #[test]
+    fn recording_and_size_limits_are_bounded() {
+        for secs in [0, CAPTURE_MAX_RECORDING_SECS_LIMIT + 1] {
+            let config = CaptureConfig {
+                max_recording_secs: secs,
+                ..CaptureConfig::default()
+            };
+            assert!(config.validate().is_err(), "{secs}");
+        }
+        for bytes in [0, CAPTURE_MAX_TOTAL_BYTES_LIMIT + 1] {
+            let config = CaptureConfig {
+                max_total_bytes: bytes,
+                ..CaptureConfig::default()
+            };
+            assert!(config.validate().is_err(), "{bytes}");
+        }
+        let edge = CaptureConfig {
+            max_recording_secs: CAPTURE_MAX_RECORDING_SECS_LIMIT,
+            max_total_bytes: CAPTURE_MAX_TOTAL_BYTES_LIMIT,
+            ..CaptureConfig::default()
+        };
+        edge.validate().unwrap();
     }
 }

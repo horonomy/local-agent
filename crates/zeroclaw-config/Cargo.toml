@@ -86,6 +86,7 @@ ws-transport = [
 # in, reporting the section as compiled out otherwise.
 tools-external = []
 local-browser = []
+local-desktop = []
 tool-jira = []
 tool-notion = []
 tool-linkedin = []
