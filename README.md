@@ -38,8 +38,10 @@ The `local-agent-minimal` build profile
 - diagnostics and configuration commands (`config`, `doctor`, `status`,
   `self-test`, `auth`, `security`)
 
-It is standalone. An optional integration with AASM is planned for a later
-milestone and is not implemented; nothing here depends on it.
+It is standalone and nothing here depends on AASM. An optional, opt-in managed
+governance mode exists in the source behind the `aasm-managed` build feature; it
+is not part of this profile or the published artifacts. See the
+[AASM page](docs/book/src/local-agent/aasm.md).
 
 ### Not available in this profile
 
