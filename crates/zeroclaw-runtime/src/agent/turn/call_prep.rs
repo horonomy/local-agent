@@ -191,6 +191,29 @@ fn resolved_policy_name(
     .unwrap_or_else(|| tool_name.to_owned())
 }
 
+/// Resolve the tool with the executor's own resolver, then overwrite the
+/// model-supplied `approved` for it (and for what a wrapper delegates to).
+fn set_runtime_approved_for(
+    tools_registry: &[Box<dyn crate::tools::Tool>],
+    activated_tools: Option<&Arc<std::sync::Mutex<crate::tools::ActivatedToolSet>>>,
+    tool_name: &str,
+    tool_args: &mut serde_json::Value,
+    approved: bool,
+) {
+    let resolved = crate::agent::tool_execution::resolve_tool(
+        tools_registry,
+        activated_tools,
+        tool_name,
+        None,
+    );
+    crate::agent::set_runtime_approved_arg(
+        tool_name,
+        resolved.as_ref().map(|r| r.tool()),
+        tool_args,
+        approved,
+    );
+}
+
 /// Ask the registry's policy gate about one prepared call, resolving the tool
 /// with the executor's own resolver so both agree on what runs.
 async fn decide_policy(
@@ -338,7 +361,13 @@ pub(crate) async fn prepare_tool_calls(
             ctx.channel_reply_target,
         );
 
-        crate::agent::set_runtime_approved_arg(&tool_name, &mut tool_args, false);
+        set_runtime_approved_for(
+            tools_registry,
+            activated_tools,
+            &tool_name,
+            &mut tool_args,
+            false,
+        );
 
         // ── Policy decision (ADR-019) ───────────────────
         // After the hook and delivery defaults have settled the call, so the
@@ -546,7 +575,9 @@ pub(crate) async fn prepare_tool_calls(
             && ctx
                 .approval
                 .is_none_or(crate::approval::ApprovalManager::propagates_runtime_command_approval);
-        crate::agent::set_runtime_approved_arg(
+        set_runtime_approved_for(
+            tools_registry,
+            activated_tools,
             &tool_name,
             &mut tool_args,
             runtime_command_approved,
