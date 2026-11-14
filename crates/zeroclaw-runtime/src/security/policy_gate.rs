@@ -256,6 +256,12 @@ impl PolicyGate {
     /// if the adapter cannot be built, fails closed with no fallback to
     /// standalone.
     pub fn for_agent(config: &Config, agent_alias: &str, inputs: &AgentPolicyInputs<'_>) -> Self {
+        // A `[governance]` section that failed to load was reset to the
+        // standalone default; the operator's intent (possibly managed) is
+        // unknown, so deny everything rather than fall back to standalone.
+        if config.degraded_security.iter().any(|s| s == "governance") {
+            return Self::with_mode(Mode::Unavailable);
+        }
         Self::for_governance(&config.governance, agent_alias, inputs)
     }
 

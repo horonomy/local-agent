@@ -250,6 +250,9 @@ pub const SECURITY_CRITICAL_KEYS: &[&str] = &[
     "users",
     "oidc",
     "permission_profiles",
+    // A malformed `[governance]` (including `[governance.audit]`) must not
+    // silently turn `mode = "managed"` into the standalone default.
+    "governance",
 ];
 
 pub const WHOLE_CONFIG_SENTINEL: &str = "<entire-config>";
@@ -3237,6 +3240,30 @@ audit = "should-be-a-table-not-a-string"
             load.dropped.is_empty(),
             "security drop must not also appear in the plain dropped list"
         );
+    }
+
+    #[test]
+    fn malformed_governance_is_a_security_drop_not_a_silent_standalone() {
+        // Each defect sits inside an otherwise managed intent. Salvage resets
+        // the table to its standalone default, so it must be reported as a
+        // security-critical drop rather than a plain WARN.
+        for body in [
+            "mode = \"managed\"\n[governance.aasm]\ntimeout_ms = \"soon\"",
+            "mode = \"managd\"",
+            "mode = \"managed\"\n[governance.audit]\nmax_size_mb = \"big\"",
+        ] {
+            let raw = format!("schema_version = 3\n\n[governance]\n{body}\n");
+            let load = migrate_to_current_salvaged(&raw);
+            assert!(
+                load.dropped_security.iter().any(|p| p == "governance"),
+                "malformed [governance] must be a security-critical drop for {body:?}, got {:?}",
+                load.dropped_security
+            );
+            assert!(
+                !load.dropped.iter().any(|p| p == "governance"),
+                "governance drop must not be a plain drop for {body:?}"
+            );
+        }
     }
 
     #[test]
