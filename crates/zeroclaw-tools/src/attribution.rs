@@ -16,6 +16,8 @@ use crate::browser_delegate::BrowserDelegateTool;
 use crate::browser_open::BrowserOpenTool;
 use crate::calculator::CalculatorTool;
 use crate::canvas::CanvasTool;
+#[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+use crate::capture::CaptureTool;
 use crate::channel_room::ChannelRoomTool;
 #[cfg(feature = "tool-claude-code")]
 use crate::claude_code::ClaudeCodeTool;
@@ -108,6 +110,8 @@ tool_attribution!(BrowserDelegateTool, ToolKind::Plugin);
 #[cfg(feature = "tools-external")]
 tool_attribution!(BrowserOpenTool, ToolKind::Plugin);
 tool_attribution!(CalculatorTool, ToolKind::Plugin);
+#[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+tool_attribution!(CaptureTool, ToolKind::Plugin);
 tool_attribution!(CanvasTool, ToolKind::Plugin);
 tool_attribution!(ChannelRoomTool, ToolKind::Plugin);
 #[cfg(feature = "tool-claude-code")]

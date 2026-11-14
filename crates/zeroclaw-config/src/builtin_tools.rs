@@ -24,6 +24,7 @@ pub const EXTERNAL_TOOL_NAMES: &[&str] = &[
     "browser_open",
     "browser_delegate",
     "screenshot",
+    "capture",
     "text_browser",
     "pushover",
     "weather",

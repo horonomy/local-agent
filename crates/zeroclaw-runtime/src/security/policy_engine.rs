@@ -23,6 +23,11 @@ use super::policy_contract::{
 
 /// Wildcard entry in `allowed_tools` and `ask_tools`.
 const WILDCARD: &str = "*";
+/// Built-in desktop tools whose every call needs an operator prompt, whatever the
+/// risk profile's `always_ask` says: `computer_use` (HORO-2400, approval bound to
+/// the call's arguments) and `capture` (HORO-2401). Config cannot remove them. Keyed
+/// on name, not capability: other `Desktop` tools keep their configured behaviour.
+const ALWAYS_ASK_BUILTINS: &[&str] = &["computer_use", "capture"];
 /// Separator of composed MCP tool names (`<server>__<tool>`).
 const COMPOSE_SEPARATOR: &str = "__";
 
@@ -188,7 +193,10 @@ impl PolicyProfile {
             _ => return deny(ReasonCode::UnknownCapability),
         }
 
-        if self.ask_tools.contains(WILDCARD) || self.ask_tools.contains(&request.tool_name) {
+        if self.ask_tools.contains(WILDCARD)
+            || self.ask_tools.contains(&request.tool_name)
+            || ALWAYS_ASK_BUILTINS.contains(&request.tool_name.as_str())
+        {
             return decision(Verdict::Ask, ReasonCode::LocalAllow);
         }
         decision(Verdict::Allow, ReasonCode::LocalAllow)
@@ -566,6 +574,22 @@ mod tests {
         // Ask never rescues a denial.
         p.excluded_tools = set(&["shell"]);
         assert_deny(eval(&p, &r), ReasonCode::Excluded);
+    }
+
+    #[test]
+    fn capture_always_asks_even_under_full_with_empty_always_ask() {
+        for tool in ["capture", "computer_use"] {
+            let p = profile(Some(&[tool]));
+            let mut r = req(ToolCapability::Desktop, tool);
+            r.autonomy = AutonomyLevel::Full;
+            assert_eq!(eval(&p, &r).verdict, Verdict::Ask, "{tool}");
+            // Not listed: denied before Ask is considered. Wildcard never grants Desktop.
+            assert_deny(
+                eval(&profile(Some(&["*"])), &r),
+                ReasonCode::NetworkNotGranted,
+            );
+            assert_deny(eval(&profile(None), &r), ReasonCode::NetworkNotGranted);
+        }
     }
 
     #[test]

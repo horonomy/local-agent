@@ -64,6 +64,9 @@ pub enum BuiltinToolCompilation {
     Browser,
     /// The `computer_use` tool: compiled only by the `local-desktop` opt-in.
     Desktop,
+    /// The `capture` tool: compiled by `tools-external` or the narrower
+    /// `local-desktop` opt-in.
+    DesktopCapture,
     /// An existing SaaS or coding-CLI compilation group.
     OptIn(OptInTool),
 }
@@ -76,6 +79,9 @@ impl BuiltinToolCompilation {
             Self::External => cfg!(feature = "tools-external"),
             Self::Browser => cfg!(any(feature = "tools-external", feature = "local-browser")),
             Self::Desktop => cfg!(feature = "local-desktop"),
+            Self::DesktopCapture => {
+                cfg!(any(feature = "tools-external", feature = "local-desktop"))
+            }
             Self::OptIn(tool) => {
                 // A consumer can enable config features without compiling the concrete owner.
                 let owner_compiled = match tool {
@@ -464,6 +470,11 @@ pub const BUILTIN_TOOLS: &[BuiltinToolSpec] = &[
         compilation: BuiltinToolCompilation::External,
     },
     BuiltinToolSpec {
+        name: "capture",
+        tier: ToolTier::Optional,
+        compilation: BuiltinToolCompilation::DesktopCapture,
+    },
+    BuiltinToolSpec {
         name: "image_info",
         tier: ToolTier::Optional,
         compilation: BuiltinToolCompilation::Always,
@@ -676,7 +687,9 @@ mod tests {
             .filter(|spec| {
                 matches!(
                     spec.compilation,
-                    BuiltinToolCompilation::External | BuiltinToolCompilation::Browser
+                    BuiltinToolCompilation::External
+                        | BuiltinToolCompilation::Browser
+                        | BuiltinToolCompilation::DesktopCapture
                 )
             })
             .map(|spec| spec.name)

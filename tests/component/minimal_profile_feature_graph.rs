@@ -178,6 +178,16 @@ fn local_capabilities_stay_out_of_minimal_default_and_installer_rows() {
 }
 
 #[test]
+fn capture_module_is_gated_by_tools_external_or_local_desktop_only() {
+    let lib = include_str!("../../crates/zeroclaw-tools/src/lib.rs");
+    assert!(lib.contains(
+        "#[cfg(any(feature = \"tools-external\", feature = \"local-desktop\"))]\npub mod capture;"
+    ));
+    let tools = include_str!("../../crates/zeroclaw-tools/Cargo.toml");
+    assert!(tools.contains("local-desktop = [\"zeroclaw-config/local-desktop\"]"));
+}
+
+#[test]
 fn browser_module_is_gated_by_tools_external_or_local_browser_only() {
     let lib = include_str!("../../crates/zeroclaw-tools/src/lib.rs");
     assert!(lib.contains(

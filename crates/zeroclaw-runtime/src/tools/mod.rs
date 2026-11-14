@@ -59,6 +59,8 @@ pub use zeroclaw_tools::browser_open::BrowserOpenTool;
 pub use zeroclaw_tools::calculator::CalculatorTool;
 pub use zeroclaw_tools::canvas::{ALLOWED_CONTENT_TYPES, MAX_CONTENT_SIZE};
 pub use zeroclaw_tools::canvas::{CanvasStore, CanvasTool};
+#[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+pub use zeroclaw_tools::capture::{CaptureTool, ScreencaptureBackend};
 pub use zeroclaw_tools::channel_room::ChannelRoomTool;
 #[cfg(feature = "tool-claude-code")]
 pub use zeroclaw_tools::claude_code::ClaudeCodeTool;
@@ -2004,6 +2006,10 @@ fn all_tools_with_runtime_on_thread(
                 )
                 .map(BrowserTool::with_strict_local_policy)
             }
+        })
+        // One operator switch governs every screenshot producer; default is path-only.
+        .map(|tool| {
+            tool.with_screenshot_attachments(root_config.capture.attach_images_to_provider)
         }) {
             Ok(tool) => {
                 tool_arcs.push(Arc::new(RateLimitedTool::new(tool, security.clone())));
@@ -2041,6 +2047,31 @@ fn all_tools_with_runtime_on_thread(
                         .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
                         .with_attrs(::serde_json::json!({"error": format!("{}", e)})),
                     "computer_use: failed to construct tool, skipping registration"
+                );
+            }
+        }
+    }
+
+    // Local screenshot/recording lifecycle: disabled by default, stores only under
+    // `<data_dir>/captures`, and every call asks the operator (see the policy engine).
+    #[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+    if root_config.capture.enabled && select_tool!("capture") {
+        match CaptureTool::from_config(
+            security.clone(),
+            &root_config.capture,
+            &root_config.data_dir,
+            Arc::new(ScreencaptureBackend),
+        ) {
+            Ok(tool) => {
+                tool_arcs.push(Arc::new(RateLimitedTool::new(tool, security.clone())));
+            }
+            Err(e) => {
+                ::zeroclaw_log::record!(
+                    WARN,
+                    ::zeroclaw_log::Event::new(module_path!(), ::zeroclaw_log::Action::Note)
+                        .with_outcome(::zeroclaw_log::EventOutcome::Unknown)
+                        .with_attrs(::serde_json::json!({"error": format!("{}", e)})),
+                    "capture: failed to construct tool, skipping registration"
                 );
             }
         }
@@ -2569,7 +2600,10 @@ fn all_tools_with_runtime_on_thread(
     #[cfg(feature = "tools-external")]
     register_tool!(
         "screenshot",
-        Arc::new(ScreenshotTool::new(security.clone()))
+        Arc::new(
+            ScreenshotTool::new(security.clone())
+                .with_attachments(root_config.capture.attach_images_to_provider)
+        )
     );
     register_tool!(
         "image_info",
@@ -7767,6 +7801,7 @@ permissions = ["http_client"]
         cfg.sop.procedural_memory_enabled = true;
         cfg.browser_delegate.enabled = true;
         cfg.computer_use.enabled = true;
+        cfg.capture.enabled = true;
         cfg.text_browser.enabled = true;
         cfg.web_search.enabled = true;
         cfg.notion.enabled = true;
@@ -8029,6 +8064,7 @@ permissions = ["http_client"]
             ("browser_open", Browser),
             ("browser", Browser),
             ("computer_use", Desktop),
+            ("capture", Desktop),
             ("deliver_file", FsRead),
             ("content_search", FsRead),
             ("glob_search", FsRead),

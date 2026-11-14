@@ -525,6 +525,14 @@ pub struct Config {
     #[group = "Tools"]
     pub browser_delegate: crate::scattered_types::BrowserDelegateConfig,
 
+    /// Local screenshot and screen-recording lifecycle (`[capture]`). Disabled by
+    /// default; captures stay under `<data_dir>/captures/` and are never attached
+    /// to model requests unless `attach_images_to_provider` is set.
+    #[serde(default)]
+    #[nested]
+    #[group = "Tools"]
+    pub capture: crate::scattered_types::CaptureConfig,
+
     /// Scoped desktop control (`[computer_use]`, HORO-2400). Disabled by
     /// default; additive. Remove the section or keep `enabled = false` to
     /// disable.
@@ -20992,6 +21000,7 @@ impl Default for Config {
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             browser_delegate: crate::scattered_types::BrowserDelegateConfig::default(),
+            capture: crate::scattered_types::CaptureConfig::default(),
             computer_use: crate::computer_use::ComputerUseConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
@@ -23349,6 +23358,10 @@ impl Config {
                 if *name == "browser" && cfg!(feature = "local-browser") {
                     continue;
                 }
+                // `local-desktop` compiles the `capture` tool without `tools-external`.
+                if *name == "capture" && cfg!(feature = "local-desktop") {
+                    continue;
+                }
                 if self.tools.optional.iter().any(|entry| entry == name) {
                     warnings.push(crate::validation_warnings::ValidationWarning::new(
                         crate::validation_warnings::TOOL_COMPILED_OUT,
@@ -23361,6 +23374,16 @@ impl Config {
                     ));
                 }
             }
+        }
+        if self.capture.enabled && !cfg!(any(feature = "tools-external", feature = "local-desktop"))
+        {
+            warnings.push(crate::validation_warnings::ValidationWarning::new(
+                crate::validation_warnings::TOOL_COMPILED_OUT,
+                "[capture] is enabled, but this build lacks `local-desktop`; the capture tool is \
+                 not compiled in and runtime config cannot add it."
+                    .to_string(),
+                "capture.enabled".to_string(),
+            ));
         }
         for tool in crate::opt_in_tools::OptInTool::ALL {
             if tool.compiled() || !tool.enabled_in(self) {
@@ -24048,6 +24071,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         validate_memory_rerank_config(&self.memory)?;
         self.cost.rates.validate()?;
+        self.capture.validate()?;
         self.governance.validate()?;
 
         for (profile_alias, profile) in &self.runtime_profiles {
@@ -33633,6 +33657,7 @@ auto_save = true
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             browser_delegate: crate::scattered_types::BrowserDelegateConfig::default(),
+            capture: crate::scattered_types::CaptureConfig::default(),
             computer_use: crate::computer_use::ComputerUseConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),
@@ -35072,6 +35097,7 @@ default_temperature = 0.7
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             browser_delegate: crate::scattered_types::BrowserDelegateConfig::default(),
+            capture: crate::scattered_types::CaptureConfig::default(),
             computer_use: crate::computer_use::ComputerUseConfig::default(),
             http_request: HttpRequestConfig::default(),
             multimodal: MultimodalConfig::default(),

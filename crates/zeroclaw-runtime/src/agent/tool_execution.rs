@@ -3268,6 +3268,110 @@ mod real_gate_tests {
         assert_eq!(asked_runs.load(Ordering::SeqCst), 0);
     }
 
+    #[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+    struct CountingBackend(Arc<AtomicUsize>);
+
+    #[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+    impl zeroclaw_tools::capture::CaptureBackend for CountingBackend {
+        fn preflight(&self) -> Result<(), zeroclaw_tools::capture::CaptureError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn screenshot_command(
+            &self,
+            _target: &zeroclaw_tools::capture::CaptureTarget,
+            _out: &std::path::Path,
+        ) -> Result<zeroclaw_tools::capture::CaptureCommand, zeroclaw_tools::capture::CaptureError>
+        {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(zeroclaw_tools::capture::CaptureCommand {
+                program: "true".into(),
+                args: Vec::new(),
+            })
+        }
+        fn record_command(
+            &self,
+            _target: &zeroclaw_tools::capture::CaptureTarget,
+            _out: &std::path::Path,
+            _max_secs: u64,
+        ) -> Result<zeroclaw_tools::capture::CaptureCommand, zeroclaw_tools::capture::CaptureError>
+        {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(zeroclaw_tools::capture::CaptureCommand {
+                program: "true".into(),
+                args: Vec::new(),
+            })
+        }
+    }
+
+    /// The recorder is only ever reached through an approved ticket: under Full
+    /// autonomy and an empty `always_ask`, the gate still asks, and an unapproved
+    /// or undecided call never touches the backend (no preflight, no command).
+    #[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+    #[tokio::test]
+    async fn capture_always_asks_and_never_reaches_the_backend_unapproved() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let security = Arc::new(zeroclaw_config::policy::SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: workspace,
+            ..zeroclaw_config::policy::SecurityPolicy::default()
+        });
+        let backend_calls = Arc::new(AtomicUsize::new(0));
+        let tool = zeroclaw_tools::capture::CaptureTool::from_config(
+            security,
+            &zeroclaw_config::scattered_types::CaptureConfig::default(),
+            &root.path().join("state"),
+            Arc::new(CountingBackend(Arc::clone(&backend_calls))),
+        )
+        .unwrap();
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(tool)];
+        let gate = PolicyGate::standalone(
+            "main",
+            AutonomyLevel::Full,
+            PolicyProfile {
+                allowed_tools: Some(BTreeSet::from(["capture".to_owned()])),
+                ask_tools: BTreeSet::new(),
+                autonomy_ceiling: AutonomyLevel::Full,
+                ..PolicyProfile::default()
+            },
+            Vec::new(),
+        );
+        let args = serde_json::json!({"action": "record_start", "window_id": 42});
+        let decided = gate
+            .decide(&CallFacts {
+                tool: registry[0].as_ref(),
+                registry: &registry,
+                args: &args,
+                call_id: "cap",
+                turn_id: META.turn_id,
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: false,
+            })
+            .await;
+        assert_eq!(decided, GateOutcome::Proceed { ask: true });
+
+        let ticketed = ParsedToolCall {
+            name: "capture".into(),
+            arguments: args.clone(),
+            tool_call_id: Some("cap".into()),
+        };
+        let replayed = ParsedToolCall {
+            tool_call_id: Some("never-decided".into()),
+            ..ticketed.clone()
+        };
+        // The Ask ticket was never approved; a call that skipped the gate has none.
+        let results = run_batch(&gate, &registry, &[ticketed, replayed]).await;
+        assert_eq!(results, vec![false, false]);
+        assert_eq!(
+            backend_calls.load(Ordering::SeqCst),
+            0,
+            "recorder never started"
+        );
+    }
+
     struct ArgsWrapper {
         inner: Counter,
         seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
