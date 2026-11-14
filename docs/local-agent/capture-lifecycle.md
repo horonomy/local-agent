@@ -16,12 +16,14 @@ enabled = true                  # default: false (tool is not registered)
 retention_ttl_secs = 3600       # captures older than this are purged
 max_recording_secs = 60         # hard maximum for one recording, 1..=300
 max_total_bytes = 536870912     # size cap for the whole captures directory
-delete_on_session_end = true    # remove every capture when the session ends
+delete_on_session_end = false   # default; true removes captures when the last tool instance drops
 attach_images_to_provider = false   # see "What leaves the machine"
 ```
 
-The agent must also be granted the tool by name (`allowed_tools` containing
-`capture`); a wildcard never grants desktop tools. There is deliberately no
+Registration also needs the built-in selection to include it:
+`tools.optional = ["capture"]` (or `"*"`, the default). The agent must also be
+granted the tool by name (`allowed_tools` containing `capture`); a wildcard never
+grants desktop tools. There is deliberately no
 directory key, and unknown keys in `[capture]` are rejected.
 
 ## What is stored where
@@ -63,13 +65,19 @@ never started.
   session end. A normal stop sends SIGINT first so the movie is finalized,
   then SIGKILL after 3 seconds. A recorder that crashes is reaped, its partial
   file is deleted, and a new recording may start.
-- With `delete_on_session_end = true` every capture is deleted, and any running
-  recorder killed, when the last `capture` tool instance for the captures
-  directory is dropped. The tool registry is rebuilt per agent build and per
-  channel turn; instances on the same directory share one recording slot and one
-  active-file protection, so an overlapping rebuild keeps a recording alive, but
-  a rebuild that drops every instance first ends it (fail-safe: recording lost,
-  no orphan).
+- `delete_on_session_end` defaults to **false**. When true, every capture is
+  deleted, and any running recorder killed, when the last `capture` tool
+  instance for the captures directory is dropped. The tool registry is rebuilt
+  per agent build and per channel turn, so this can fire every turn; leave it
+  off and rely on retention and the size cap unless the host builds the registry
+  once per session.
+- **A recording cannot span a registry rebuild.** Instances on the same
+  directory share one recording slot and active-file protection, so an
+  overlapping rebuild keeps a recording alive, but a rebuild that drops every
+  instance first kills it (no orphan; the recording is lost).
+- A recorder that ignores SIGINT is killed after 3 seconds and `record_stop`
+  reports it as failed ("stopped forcibly; the file may be unplayable"); the
+  file is kept.
 
 ### Delete everything
 
@@ -103,9 +111,19 @@ at the captures directory.
 - **Window selection.** Only a numeric native `window_id` or a region is
   accepted. There is no title lookup and no allow-list of windows yet; the
   window allow-list from the computer-use work can feed `window_id` later.
-- **Redaction.** The tool bounds what is captured (one window or region) and
-  never returns pixels or paths. It cannot blur content inside the selected
-  area: do not select a window that shows secrets.
+- **No redaction.** The tool bounds what is captured (one window or region) and
+  never returns pixels or paths, but it cannot blur anything. Do not select a
+  window that shows secrets.
+- **No window allow-list.** Any positive numeric `window_id` is accepted.
+- **Other tools can read captures.** Under Full autonomy, `shell`, `file_read`
+  or `http_request` can still read or send files in the captures directory
+  (including by listing it); the `capture` tool's own output never includes
+  paths.
+- **Legacy `screenshot` tool.** It still writes into the workspace (which may
+  be git-tracked) in `tools-external` builds; only its image attachment is now
+  opt-in.
+- **Other platforms.** On Linux and Windows the tool registers when enabled, but
+  the real backend's preflight always reports "not supported".
 - **Hard kill.** If the agent process is SIGKILLed, no cleanup code runs. The
   recorder stops by itself at the `-V` limit and files are purged by the next
   purge. The tool does not read stale process-group ids from disk to kill them

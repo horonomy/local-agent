@@ -501,7 +501,9 @@ pub struct CaptureConfig {
     pub max_recording_secs: u64,
     /// Size cap for the whole captures directory, in bytes; oldest captures are purged first.
     pub max_total_bytes: u64,
-    /// Delete every capture when the session ends.
+    /// Delete every capture, and kill any recorder, when the last capture tool instance is
+    /// dropped. Off by default: the tool registry is rebuilt per agent build and per channel
+    /// turn, so this can fire every turn; retention and the size cap handle cleanup.
     pub delete_on_session_end: bool,
     /// Let captured images be attached to model requests. Off by default and
     /// never needed to use the tool: enabling it can send screen pixels to the
@@ -517,7 +519,7 @@ impl Default for CaptureConfig {
             retention_ttl_secs: 3600,
             max_recording_secs: 60,
             max_total_bytes: 512 * 1024 * 1024,
-            delete_on_session_end: true,
+            delete_on_session_end: false,
             attach_images_to_provider: false,
         }
     }
@@ -1079,7 +1081,7 @@ mod capture_config_tests {
         let config = CaptureConfig::default();
         assert!(!config.enabled);
         assert!(!config.attach_images_to_provider);
-        assert!(config.delete_on_session_end);
+        assert!(!config.delete_on_session_end);
         config.validate().unwrap();
     }
 
