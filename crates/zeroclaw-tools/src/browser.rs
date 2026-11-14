@@ -1446,7 +1446,15 @@ impl BrowserTool {
             }
         }
 
-        let result = match backend {
+        let may_navigate = matches!(
+            action,
+            BrowserAction::Click { .. }
+                | BrowserAction::Press { .. }
+                | BrowserAction::Fill { .. }
+                | BrowserAction::Type { .. }
+                | BrowserAction::Find { .. }
+        );
+        let mut result = match backend {
             ResolvedBackend::AgentBrowser => self.execute_agent_browser_action(action).await,
             ResolvedBackend::RustNative => self.execute_rust_native_action(action).await,
             ResolvedBackend::ComputerUse => anyhow::bail!(
@@ -1461,6 +1469,14 @@ impl BrowserTool {
         // argument is allocated a workspace target before dispatch on the
         // agent-browser backend, so it is declared here too; the
         // rust-native path still inlines the PNG instead of saving it.)
+        if may_navigate
+            && backend == ResolvedBackend::AgentBrowser
+            && matches!(&result, Ok(r) if r.success)
+            && let Some(denial) = self.deny_if_navigated_away().await
+        {
+            result = Ok(denial);
+        }
+
         match (result, screenshot_target) {
             (Ok(mut result), Some(target)) if result.success && self.attach_screenshots => {
                 result = result.with_attachment(RenderedMarker {
@@ -1471,6 +1487,31 @@ impl BrowserTool {
             }
             (result, _) => result,
         }
+    }
+
+    /// After an action that can navigate, re-check the page's current URL with the
+    /// same rules as `open`. A page outside the allowed set is replaced by
+    /// `about:blank` and the model gets a denial naming only the host, never the page
+    /// content. An unreadable URL fails closed the same way.
+    async fn deny_if_navigated_away(&self) -> Option<ToolResult> {
+        let current = match self.run_command(&["get", "url"]).await {
+            Ok(resp) if resp.success => resp.data.as_ref().and_then(extract_url),
+            _ => None,
+        };
+        let verdict = match &current {
+            Some(url) if url == "about:blank" => return None,
+            Some(url) => self.validate_url(url).map_err(|_| host_of(url)),
+            None => Err("unknown".to_string()),
+        };
+        let host = verdict.err()?;
+        let _ = self.run_command(&["open", "about:blank"]).await;
+        Some(ToolResult {
+            success: false,
+            output: ToolOutput::default(),
+            error: Some(format!(
+                "Navigation denied: page left the allowed set (host: {host}); session reset to about:blank"
+            )),
+        })
     }
 
     #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
@@ -2985,6 +3026,23 @@ fn ensure_loopback_endpoint(endpoint: &str) -> anyhow::Result<()> {
         Some(host) if is_loopback_host(host) => Ok(()),
         _ => anyhow::bail!("WebDriver endpoint must be loopback in the local browser profile"),
     }
+}
+
+/// The URL in an agent-browser `get url` response (plain string, `{"url"}` or `{"output"}`).
+fn extract_url(data: &Value) -> Option<String> {
+    let raw = data
+        .as_str()
+        .or_else(|| data.get("url").and_then(Value::as_str))
+        .or_else(|| data.get("output").and_then(Value::as_str))?;
+    let raw = raw.trim();
+    (!raw.is_empty()).then(|| raw.to_string())
+}
+
+fn host_of(url: &str) -> String {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn is_loopback_host(host: &str) -> bool {
