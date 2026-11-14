@@ -3,7 +3,7 @@
 //! screen is ever captured.
 
 use super::*;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use zeroclaw_config::autonomy::AutonomyLevel;
 
 type Builder = Box<dyn Fn(&Path) -> CaptureCommand + Send + Sync>;
