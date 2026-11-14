@@ -247,7 +247,7 @@ pub(crate) async fn execute_one_tool(
 
 async fn execute_one_tool_with_provenance(
     call_name: &str,
-    call_arguments: serde_json::Value,
+    mut call_arguments: serde_json::Value,
     tool_call_id: Option<&str>,
     dispatch: ToolDispatchContext<'_>,
     meta: &TurnMeta<'_>,
@@ -314,6 +314,16 @@ async fn execute_one_tool_with_provenance(
         }
     };
     let tool = resolved.tool();
+
+    // Late-bound wrappers were unresolved at prepare time, which stripped any
+    // model-set `approved`. A runtime-set value is already present for
+    // resolved tools; default the rest to false so a model can never supply it.
+    if crate::agent::takes_runtime_approved_arg(call_name, Some(tool))
+        && let Some(map) = call_arguments.as_object_mut()
+    {
+        map.entry("approved")
+            .or_insert(serde_json::Value::Bool(false));
+    }
 
     // The decision made in `prepare_tool_calls` must be for exactly this tool
     // and these arguments; anything else is denied and never executed.
@@ -3255,5 +3265,96 @@ mod real_gate_tests {
         assert_eq!(results, vec![true, false]);
         assert_eq!(allowed_runs.load(Ordering::SeqCst), 1);
         assert_eq!(asked_runs.load(Ordering::SeqCst), 0);
+    }
+
+    struct ArgsWrapper {
+        inner: Counter,
+        seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    }
+
+    zeroclaw_api::mock_tool_attribution!(ArgsWrapper);
+
+    #[async_trait]
+    impl Tool for ArgsWrapper {
+        fn name(&self) -> &str {
+            "late_skill_wrapper"
+        }
+        fn description(&self) -> &str {
+            "wrapper over shell"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn capability(&self) -> ToolCapability {
+            ToolCapability::FsRead
+        }
+        fn delegation_target(&self) -> Option<zeroclaw_api::tool::DelegationTarget<'_>> {
+            Some(zeroclaw_api::tool::DelegationTarget::Tool(&self.inner))
+        }
+        async fn execute(
+            &self,
+            args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.seen.lock().unwrap().push(args.clone());
+            self.inner.execute(args).await
+        }
+    }
+
+    #[tokio::test]
+    async fn late_bound_wrapper_never_receives_a_model_approved_flag() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(ArgsWrapper {
+            inner: Counter {
+                name: "shell",
+                runs: Arc::new(AtomicUsize::new(0)),
+            },
+            seen: Arc::clone(&seen),
+        })];
+        let gate = real_gate(&[]);
+        // Prepare time stripped the model's `approved`, so the deferred call
+        // carries none; the digest ignores `approved` either way.
+        let args = serde_json::json!({"command": "ls"});
+        gate.note_unresolved("late", &args);
+        let results = run_batch(
+            &gate,
+            &registry,
+            &[ParsedToolCall {
+                name: "late_skill_wrapper".into(),
+                arguments: args,
+                tool_call_id: Some("late".into()),
+            }],
+        )
+        .await;
+        assert_eq!(results, vec![true]);
+        assert_eq!(
+            seen.lock().unwrap()[0]["approved"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_set_approval_survives_to_a_delegating_wrapper() {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(ArgsWrapper {
+            inner: Counter {
+                name: "shell",
+                runs: Arc::new(AtomicUsize::new(0)),
+            },
+            seen: Arc::clone(&seen),
+        })];
+        let gate = real_gate(&[]);
+        let args = serde_json::json!({"command": "ls", "approved": true});
+        gate.note_unresolved("late", &args);
+        run_batch(
+            &gate,
+            &registry,
+            &[ParsedToolCall {
+                name: "late_skill_wrapper".into(),
+                arguments: args,
+                tool_call_id: Some("late".into()),
+            }],
+        )
+        .await;
+        assert_eq!(seen.lock().unwrap()[0]["approved"], serde_json::json!(true));
     }
 }

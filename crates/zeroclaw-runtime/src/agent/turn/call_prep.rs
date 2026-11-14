@@ -206,6 +206,16 @@ fn set_runtime_approved_for(
         tool_name,
         None,
     );
+    // A late-bound tool (not resolvable yet) could be a wrapper over an
+    // approved-honouring tool; drop any model-set value so the executor, which
+    // re-neutralizes after resolution, never sees one. `approved` is not part
+    // of the policy args digest, so the decision is unaffected.
+    if resolved.is_none()
+        && !crate::agent::takes_runtime_approved_arg(tool_name, None)
+        && let Some(map) = tool_args.as_object_mut()
+    {
+        map.remove("approved");
+    }
     crate::agent::set_runtime_approved_arg(
         tool_name,
         resolved.as_ref().map(|r| r.tool()),
@@ -662,6 +672,13 @@ pub(crate) async fn prepare_tool_calls(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unresolved_late_bound_call_loses_a_model_approved_flag() {
+        let mut args = serde_json::json!({"command": "ls", "approved": true});
+        super::set_runtime_approved_for(&[], None, "late_skill_wrapper", &mut args, false);
+        assert!(args.get("approved").is_none());
+    }
+
     use super::{PreparedToolCalls, prepare_tool_calls};
     use crate::agent::tool_execution::ToolExecutionOutcome;
     use crate::agent::turn::context::TurnCtx;
