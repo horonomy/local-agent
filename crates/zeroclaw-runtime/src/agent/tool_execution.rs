@@ -3086,3 +3086,174 @@ mod tests {
             .unwrap();
     }
 }
+
+/// Executor behaviour against a real enforcing gate (not `test_permit_all`).
+#[cfg(test)]
+mod real_gate_tests {
+    use super::{ToolDispatchContext, execute_tools_parallel};
+    use crate::agent::loop_::ParsedToolCall;
+    use crate::agent::turn::TurnMeta;
+    use crate::observability::noop::NoopObserver;
+    use crate::security::policy_engine::PolicyProfile;
+    use crate::security::policy_gate::{CallFacts, GateOutcome, PolicyGate};
+    use async_trait::async_trait;
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use zeroclaw_api::policy::ToolCapability;
+    use zeroclaw_api::tool::Tool;
+    use zeroclaw_config::autonomy::AutonomyLevel;
+
+    struct Counter {
+        name: &'static str,
+        runs: Arc<AtomicUsize>,
+    }
+
+    zeroclaw_api::mock_tool_attribution!(Counter);
+
+    #[async_trait]
+    impl Tool for Counter {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            "counts executions"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn capability(&self) -> ToolCapability {
+            ToolCapability::FsRead
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            self.runs.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: "ran".to_string().into(),
+                error: None,
+            })
+        }
+    }
+
+    fn real_gate(ask: &[&str]) -> PolicyGate {
+        PolicyGate::standalone(
+            "main",
+            AutonomyLevel::Full,
+            PolicyProfile {
+                allowed_tools: None,
+                ask_tools: ask.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>(),
+                autonomy_ceiling: AutonomyLevel::Full,
+                ..PolicyProfile::default()
+            },
+            Vec::new(),
+        )
+    }
+
+    fn call(name: &str, id: &str) -> ParsedToolCall {
+        ParsedToolCall {
+            name: name.into(),
+            arguments: serde_json::json!({}),
+            tool_call_id: Some(id.into()),
+        }
+    }
+
+    const META: TurnMeta<'static> = TurnMeta {
+        parent_agent_alias: None,
+        agent_alias: None,
+        turn_id: "real-gate-turn",
+        channel_name: "test",
+    };
+
+    async fn run_batch(
+        gate: &PolicyGate,
+        registry: &[Box<dyn Tool>],
+        calls: &[ParsedToolCall],
+    ) -> Vec<bool> {
+        execute_tools_parallel(
+            calls,
+            ToolDispatchContext {
+                policy: gate,
+                tools_registry: registry,
+                activated_tools: None,
+                excluded_tools: &[],
+                model_switch_callback: None,
+            },
+            &META,
+            &NoopObserver,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("batch runs")
+        .into_iter()
+        .map(|slot| slot.expect("not cancelled").outcome.success)
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn parallel_batch_refuses_calls_that_hold_no_ticket() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let registry: Vec<Box<dyn Tool>> = vec![Box::new(Counter {
+            name: "counter",
+            runs: Arc::clone(&runs),
+        })];
+        let gate = real_gate(&[]);
+
+        // Only `ticketed` was decided; `bare` skipped the gate entirely.
+        let ticketed = call("counter", "ticketed");
+        let args = ticketed.arguments.clone();
+        let decided = gate
+            .decide(&CallFacts {
+                tool: registry[0].as_ref(),
+                registry: &registry,
+                args: &args,
+                call_id: "ticketed",
+                turn_id: META.turn_id,
+                agent_alias: None,
+                parent_agent_alias: None,
+                interactive: false,
+            })
+            .await;
+        assert_eq!(decided, GateOutcome::Proceed { ask: false });
+
+        let results = run_batch(&gate, &registry, &[call("counter", "bare"), ticketed]).await;
+        assert_eq!(results, vec![false, true]);
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "only the ticketed call ran");
+    }
+
+    #[tokio::test]
+    async fn deferred_call_runs_only_on_outright_allow() {
+        let allowed_runs = Arc::new(AtomicUsize::new(0));
+        let asked_runs = Arc::new(AtomicUsize::new(0));
+        let registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(Counter {
+                name: "late_allowed",
+                runs: Arc::clone(&allowed_runs),
+            }),
+            Box::new(Counter {
+                name: "late_asked",
+                runs: Arc::clone(&asked_runs),
+            }),
+        ];
+        // `late_asked` is in the ask list: no prompt is possible at execution,
+        // so a deferred decision of Ask must not run it.
+        let gate = real_gate(&["late_asked"]);
+        let empty = serde_json::json!({});
+        gate.note_unresolved("allowed", &empty);
+        gate.note_unresolved("asked", &empty);
+
+        let results = run_batch(
+            &gate,
+            &registry,
+            &[call("late_allowed", "allowed"), call("late_asked", "asked")],
+        )
+        .await;
+        assert_eq!(results, vec![true, false]);
+        assert_eq!(allowed_runs.load(Ordering::SeqCst), 1);
+        assert_eq!(asked_runs.load(Ordering::SeqCst), 0);
+    }
+}
