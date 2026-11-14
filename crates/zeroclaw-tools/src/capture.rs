@@ -13,7 +13,6 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::process::{Child, Command};
@@ -374,13 +373,13 @@ impl CaptureStore {
 
     /// Remove captures older than `ttl`, then the oldest until the directory fits
     /// `max_total`. `keep` (an in-progress recording) is never removed.
-    pub fn purge(&self, ttl: Duration, max_total: u64, keep: Option<&str>) -> usize {
+    pub fn purge(&self, ttl: Duration, max_total: u64, keep: &[&str]) -> usize {
         let now = SystemTime::now();
         let mut removed = 0;
         let mut live = Vec::new();
         for entry in self.entries() {
             let age = now.duration_since(entry.modified).unwrap_or_default();
-            if keep != Some(entry.id.as_str()) && age >= ttl {
+            if !keep.contains(&entry.id.as_str()) && age >= ttl {
                 if std::fs::remove_file(&entry.path).is_ok() {
                     removed += 1;
                 }
@@ -394,7 +393,7 @@ impl CaptureStore {
             if total <= max_total {
                 break;
             }
-            if keep == Some(entry.id.as_str()) {
+            if keep.contains(&entry.id.as_str()) {
                 continue;
             }
             if std::fs::remove_file(&entry.path).is_ok() {
@@ -483,7 +482,18 @@ impl RunningChild {
         Ok(Self { child, pgid })
     }
 
+    /// Reap the leader if it has exited. The group is swept while the leader is
+    /// still an unreaped zombie, so its pid cannot have been reused yet; a helper
+    /// it left behind is killed rather than orphaned.
     fn try_exited(&mut self) -> Option<std::process::ExitStatus> {
+        #[cfg(unix)]
+        if self.pgid > 1 {
+            match leader_exited_unreaped(self.pgid) {
+                Some(false) => return None,
+                Some(true) => signal_group(self.pgid, SIGKILL),
+                None => {}
+            }
+        }
         match self.child.try_wait() {
             Ok(Some(status)) => {
                 self.pgid = 0;
@@ -493,41 +503,102 @@ impl RunningChild {
         }
     }
 
-    async fn wait(&mut self) -> Option<std::process::ExitStatus> {
-        let status = self.child.wait().await.ok();
-        self.pgid = 0;
-        status
+    /// Wait for the leader to exit (see [`Self::try_exited`] for the ordering).
+    async fn wait_exit(&mut self) -> Option<std::process::ExitStatus> {
+        loop {
+            if let Some(status) = self.try_exited() {
+                return Some(status);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
-    /// SIGINT so the recorder can finalize the movie, SIGKILL after the grace period.
-    async fn finish(mut self) -> Option<std::process::ExitStatus> {
+    async fn wait(&mut self) -> Option<std::process::ExitStatus> {
+        self.wait_exit().await
+    }
+
+    /// SIGINT so the recorder can finalize the movie; SIGKILL after the grace
+    /// period, in which case the result is `Forced`.
+    async fn finish(mut self) -> Finish {
         signal_group(self.pgid, SIGINT);
-        match tokio::time::timeout(STOP_GRACE, self.child.wait()).await {
-            Ok(Ok(status)) => {
-                // The leader is gone; sweep any helper it left in the group.
+        match tokio::time::timeout(STOP_GRACE, self.wait_exit()).await {
+            Ok(_) => Finish::Graceful,
+            Err(_) => {
                 signal_group(self.pgid, SIGKILL);
-                self.pgid = 0;
-                Some(status)
-            }
-            _ => {
-                signal_group(self.pgid, SIGKILL);
-                let _ = self.child.wait().await;
-                self.pgid = 0;
-                None
+                self.wait_exit().await;
+                Finish::Forced
             }
         }
     }
 
     async fn kill(mut self) {
         signal_group(self.pgid, SIGKILL);
-        let _ = self.child.wait().await;
-        self.pgid = 0;
+        self.wait_exit().await;
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Finish {
+    Graceful,
+    Forced,
+}
+
+/// Whether the leader has exited without reaping it (`waitid` with `WNOWAIT`).
+/// `None` when the state cannot be determined.
+#[cfg(unix)]
+fn leader_exited_unreaped(pid: i32) -> Option<bool> {
+    // SAFETY: a zeroed siginfo_t is a valid out-parameter for waitid.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` outlives the call; the flags only peek at the child's state.
+    let rc = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    #[cfg(target_os = "linux")]
+    // SAFETY: waitid filled `info`.
+    let who = unsafe { info.si_pid() };
+    #[cfg(not(target_os = "linux"))]
+    let who = info.si_pid;
+    Some(who != 0)
 }
 
 impl Drop for RunningChild {
     fn drop(&mut self) {
         signal_group(self.pgid, SIGKILL);
+    }
+}
+
+/// Marks a capture id as being written for the guard's lifetime.
+struct InflightGuard<'a> {
+    list: &'a std::sync::Mutex<Vec<String>>,
+    id: String,
+}
+
+impl<'a> InflightGuard<'a> {
+    fn register(list: &'a std::sync::Mutex<Vec<String>>, id: &str) -> Self {
+        list.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(id.to_owned());
+        Self {
+            list,
+            id: id.to_owned(),
+        }
+    }
+}
+
+impl Drop for InflightGuard<'_> {
+    fn drop(&mut self) {
+        self.list
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|id| *id != self.id);
     }
 }
 
@@ -580,8 +651,8 @@ struct Shared {
     /// Replaced by each newly built tool, so a config reload applies to the shared state.
     limits: std::sync::Mutex<CaptureLimits>,
     active: Mutex<Option<Active>>,
-    /// Mirrors the live recorder's group so `Drop` can kill it without the lock.
-    pgid: AtomicI32,
+    /// Ids of screenshots being written; purges never remove them.
+    inflight: std::sync::Mutex<Vec<String>>,
     last_event: std::sync::Mutex<Option<String>>,
 }
 
@@ -607,10 +678,23 @@ impl Shared {
             .clone()
     }
 
-    fn purge(&self, keep: Option<&str>) {
+    /// Purge while the caller holds the `active` lock (`slot` is its content), so
+    /// a concurrent `record_start` cannot have its fresh file removed.
+    fn purge_locked(&self, slot: &Option<Active>) {
+        self.purge_keeping(slot.as_ref().map(|a| a.id.as_str()));
+    }
+
+    fn purge_keeping(&self, active: Option<&str>) {
         let limits = self.limits();
+        let inflight = self
+            .inflight
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let mut keep: Vec<&str> = inflight.iter().map(String::as_str).collect();
+        keep.extend(active);
         self.store
-            .purge(limits.retention_ttl, limits.max_total_bytes, keep);
+            .purge(limits.retention_ttl, limits.max_total_bytes, &keep);
     }
 
     /// Finalize a recorder that already exited by itself (finished or crashed).
@@ -622,7 +706,6 @@ impl Shared {
         };
         let Some(done) = slot.take() else { return };
         done.timer.abort();
-        self.pgid.store(0, Ordering::Release);
         if status.success() && self.store.size_of(&done.id) > 0 {
             self.note(format!("recording {} finished on its own", done.id));
         } else {
@@ -644,7 +727,7 @@ impl Shared {
         mode: StopMode,
         abort_timer: bool,
         reason: &str,
-    ) -> Result<(String, u64), CaptureError> {
+    ) -> Result<(String, u64, bool), CaptureError> {
         let mut slot = self.active.lock().await;
         self.reap_exited(&mut slot);
         let matches = slot
@@ -662,8 +745,7 @@ impl Shared {
         let id = active.id.clone();
         match mode {
             StopMode::Keep => {
-                let status = active.running.finish().await;
-                self.pgid.store(0, Ordering::Release);
+                let finish = active.running.finish().await;
                 let bytes = self.store.size_of(&id);
                 if bytes == 0 {
                     let _ = self.store.delete(&id);
@@ -675,17 +757,22 @@ impl Shared {
                 if let Ok(path) = self.store.path_for(&id) {
                     CaptureStore::restrict(&path);
                 }
-                let _ = status;
-                self.note(format!("recording {id} stopped ({reason})"));
-                self.purge(Some(&id));
-                Ok((id, bytes))
+                let forced = finish == Finish::Forced;
+                self.note(if forced {
+                    format!(
+                        "recording {id} stopped forcibly ({reason}); the file may be unplayable"
+                    )
+                } else {
+                    format!("recording {id} stopped ({reason})")
+                });
+                self.purge_keeping(Some(&id));
+                Ok((id, bytes, forced))
             }
             StopMode::Discard => {
                 active.running.kill().await;
-                self.pgid.store(0, Ordering::Release);
                 let _ = self.store.delete(&id);
                 self.note(format!("recording {id} cancelled and removed"));
-                Ok((id, 0))
+                Ok((id, 0, false))
             }
         }
     }
@@ -694,9 +781,16 @@ impl Shared {
 impl Drop for Shared {
     /// Session end: no orphan recorder, no partial file, and optionally no captures.
     fn drop(&mut self) {
-        signal_group(self.pgid.swap(0, Ordering::AcqRel), SIGKILL);
+        // Held until cleanup ends: `shared_for` takes the same lock, so a new
+        // instance cannot start (and have its files deleted) mid-cleanup.
+        let mut map = REGISTRY
+            .get_or_init(Registry::default)
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        map.retain(|_, weak| weak.strong_count() > 0);
         if let Some(active) = self.active.get_mut().take() {
             active.timer.abort();
+            // Dropping `active` kills the recorder's process group.
             let _ = self.store.delete(&active.id);
         }
         if self.limits().delete_on_session_end {
@@ -739,7 +833,7 @@ fn shared_for(
         backend,
         limits: std::sync::Mutex::new(limits),
         active: Mutex::new(None),
-        pgid: AtomicI32::new(0),
+        inflight: std::sync::Mutex::new(Vec::new()),
         last_event: std::sync::Mutex::new(None),
     });
     map.insert(key, Arc::downgrade(&shared));
@@ -835,10 +929,15 @@ impl CaptureTool {
         let target = Self::parse_target(args)?;
         let shared = &self.shared;
         shared.backend.preflight()?;
-        // Never purge the file an in-progress recording is writing.
-        let recording = shared.active.lock().await.as_ref().map(|a| a.id.clone());
-        shared.purge(recording.as_deref());
         let id = CaptureStore::new_id(Kind::Shot);
+        // Purge under the `active` lock so an in-progress recording (or a recording
+        // another call is starting) is never removed, and mark this screenshot
+        // in flight so a concurrent purge cannot remove it either.
+        let _inflight = {
+            let slot = shared.active.lock().await;
+            shared.purge_locked(&slot);
+            InflightGuard::register(&shared.inflight, &id)
+        };
         let path = shared.store.path_for(&id)?;
         shared.store.create_private(&path)?;
         let mut partial = PartialFile(Some(path.clone()));
@@ -894,7 +993,7 @@ impl CaptureTool {
             return Err(CaptureError::AlreadyRecording);
         }
         shared.backend.preflight()?;
-        shared.purge(None);
+        shared.purge_locked(&slot);
         let id = CaptureStore::new_id(Kind::Rec);
         let path = shared.store.path_for(&id)?;
         shared.store.create_private(&path)?;
@@ -910,7 +1009,6 @@ impl CaptureTool {
                 return Err(error);
             }
         };
-        shared.pgid.store(running.pgid, Ordering::Release);
         let weak: Weak<Shared> = Arc::downgrade(shared);
         let timer_id = id.clone();
         let timer = zeroclaw_spawn::spawn!(async move {
@@ -956,7 +1054,18 @@ impl CaptureTool {
         } else {
             StopMode::Keep
         };
-        let (id, bytes) = self.shared.stop(expected, mode, true, "requested").await?;
+        let (id, bytes, forced) = self.shared.stop(expected, mode, true, "requested").await?;
+        if forced {
+            // The movie was kept but the recorder had to be killed: not a clean stop.
+            return Ok(ToolResult {
+                success: false,
+                output: ToolOutput::default(),
+                error: Some(format!(
+                    "Recording {id} stopped forcibly after the grace period; the file \
+                     (size={bytes} bytes) may be unplayable."
+                )),
+            });
+        }
         Ok(Self::text_ok(if discard {
             format!("Recording {id} cancelled; the partial file was removed.")
         } else {
@@ -969,9 +1078,9 @@ impl CaptureTool {
         let recording = {
             let mut slot = shared.active.lock().await;
             shared.reap_exited(&mut slot);
+            shared.purge_locked(&slot);
             slot.as_ref().map(|a| (a.id.clone(), a.started.elapsed()))
         };
-        shared.purge(recording.as_ref().map(|(id, _)| id.as_str()));
         let entries = shared.store.entries();
         let limits = shared.limits();
         let total: u64 = entries.iter().map(|e| e.bytes).sum();
@@ -1002,8 +1111,10 @@ impl CaptureTool {
 
     async fn list(&self) -> Result<ToolResult, CaptureError> {
         let shared = &self.shared;
-        let keep = shared.active.lock().await.as_ref().map(|a| a.id.clone());
-        shared.purge(keep.as_deref());
+        {
+            let slot = shared.active.lock().await;
+            shared.purge_locked(&slot);
+        }
         let now = SystemTime::now();
         let mut entries = shared.store.entries();
         entries.sort_by_key(|e| e.modified);
@@ -1126,5 +1237,6 @@ impl Tool for CaptureTool {
     }
 }
 
-#[cfg(test)]
+// The fakes are `sh` scripts and the process-group checks are unix-only.
+#[cfg(all(test, unix))]
 mod tests;
