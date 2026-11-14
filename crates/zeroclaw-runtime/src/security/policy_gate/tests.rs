@@ -990,6 +990,38 @@ mod audit {
     const READ: ToolCapability = ToolCapability::FsRead;
 
     #[tokio::test]
+    async fn records_name_the_governance_mode_that_decided() {
+        let i = inputs(None, None, None);
+        let profile = profile_from_inputs(&i);
+        let args = json!({"path": "a"});
+        for (mode, expected) in [
+            (GovernanceMode::Standalone, "standalone"),
+            (GovernanceMode::Managed, "managed"),
+        ] {
+            let sink = Arc::new(MemorySink::default());
+            let g = PolicyGate::enforcing(
+                mode,
+                "main",
+                i.autonomy,
+                standalone_authority_with_parents(profile.clone(), Vec::new()),
+                profile.clone(),
+                Vec::new(),
+            )
+            .with_sink(sink.clone());
+            // An allow and a local deny both carry the session's mode.
+            decide(&g, &mock("file_read", READ), &args, "a").await;
+            decide(&g, &mock("mystery", ToolCapability::Unknown), &args, "d").await;
+            let modes: Vec<_> = sink
+                .0
+                .lock()
+                .iter()
+                .map(|r| r.authority.mode.clone())
+                .collect();
+            assert_eq!(modes, [expected, expected]);
+        }
+    }
+
+    #[tokio::test]
     async fn allow_deny_and_ask_each_produce_one_record() {
         let sink = Arc::new(MemorySink::default());
         let g = audited_gate(sink.clone());
