@@ -8,6 +8,8 @@ use zeroclaw_macros::Configurable;
 
 const MAX_ENTRY_LEN: usize = 200;
 const MAX_ENTRIES: usize = 32;
+/// A one-letter title needle would match nearly any window.
+const MIN_TITLE_LEN: usize = 3;
 const SEPARATOR: &str = "::";
 
 /// One allowlisted app or window: `"<app or bundle id>"` or
@@ -35,9 +37,11 @@ impl WindowRule {
             return Err("the app or bundle id must be non-empty and contain no `*`".into());
         }
         if let Some(title) = title
-            && (title.is_empty() || title.contains('*'))
+            && (title.chars().count() < MIN_TITLE_LEN || title.contains('*'))
         {
-            return Err("the title part must be non-empty and contain no `*`".into());
+            return Err(format!(
+                "the title part must be at least {MIN_TITLE_LEN} characters and contain no `*`"
+            ));
         }
         Ok(Self {
             app: app.to_owned(),
@@ -163,7 +167,9 @@ mod tests {
 
     #[test]
     fn rules_reject_wildcards_and_empty_halves() {
-        for bad in ["", "  ", "*", "App*", "App::", "App::*", "::title", "a\nb"] {
+        for bad in [
+            "", "  ", "*", "App*", "App::", "App::*", "App::ab", "::title", "a\nb",
+        ] {
             assert!(WindowRule::parse(bad).is_err(), "{bad:?}");
         }
         assert!(WindowRule::parse(&"a".repeat(201)).is_err());
