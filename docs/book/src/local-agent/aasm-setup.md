@@ -34,7 +34,7 @@ mode = "standalone"
 
    It is Unix only. Without the feature, a managed configuration cannot work (see [Misconfigured](#managed-examples-denial-and-disconnect)).
 
-2. **Choose a socket location you own.** Create a private directory (`0700` is recommended; the code enforces only that it is not group or world writable), and have the AASM runtime place its socket there. Name it `aa-runtime-<agent_id>.sock`, where `<agent_id>` should match what the runtime derives its key from. The adapter accepts any non-empty name; it takes the id from the file name, so a mismatch is not caught by Local Agent.
+2. **Choose a socket location you own.** Create a private directory (`0700` is recommended; the code enforces only that it is not group or world writable), and use an AASM runtime configured or patched to bind its socket there. A stock AASM v0.0.1 runtime cannot: it hard-codes `/tmp`. Name it `aa-runtime-<agent_id>.sock`, where `<agent_id>` should match what the runtime derives its key from. The adapter accepts any non-empty name; it takes the id from the file name, so a mismatch is not caught by Local Agent.
 
    ```sh
    mkdir -m 700 "$HOME/aasm-run"
