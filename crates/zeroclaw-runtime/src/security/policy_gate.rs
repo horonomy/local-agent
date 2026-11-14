@@ -84,6 +84,12 @@ fn fold_set<'a>(items: impl IntoIterator<Item = &'a String>) -> BTreeSet<String>
         .collect()
 }
 
+/// Tools that are an Ask on every call whatever `always_ask` says: desktop
+/// control must be approved per action, with the approval bound to that
+/// call's arguments (HORO-2400). Not keyed on capability: other `Desktop`
+/// tools (hardware, screenshot) keep their configured behaviour.
+const ALWAYS_ASK_TOOLS: &[&str] = &["computer_use"];
+
 /// Raw policy inputs for one agent, as configured.
 pub struct AgentPolicyInputs<'a> {
     pub autonomy: AutonomyLevel,
@@ -106,7 +112,10 @@ pub fn profile_from_inputs(inputs: &AgentPolicyInputs<'_>) -> PolicyProfile {
         allowed_tools,
         excluded_tools: fold_set(inputs.excluded_tools.unwrap_or_default()),
         mcp_grants: fold_set(inputs.mcp_servers),
-        ask_tools: fold_set(inputs.always_ask),
+        ask_tools: fold_set(inputs.always_ask)
+            .into_iter()
+            .chain(ALWAYS_ASK_TOOLS.iter().map(|name| (*name).to_owned()))
+            .collect(),
         autonomy_ceiling: inputs.autonomy,
     }
 }
