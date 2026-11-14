@@ -41,8 +41,9 @@ pub(crate) struct StreamToolCall {
     pub(crate) tool_provenance: Option<ToolProvenance>,
 }
 
-/// Arguments as they may appear in logs. Typed desktop text is never logged.
-pub(crate) fn loggable_args(tool_name: &str, args: &serde_json::Value) -> String {
+/// Arguments as they may appear in logs, events and persisted records. Typed
+/// desktop text is never exported.
+pub(crate) fn loggable_args_value(tool_name: &str, args: &serde_json::Value) -> serde_json::Value {
     if tool_name == "computer_use"
         && let Some(object) = args.as_object()
         && object.contains_key("text")
@@ -52,9 +53,13 @@ pub(crate) fn loggable_args(tool_name: &str, args: &serde_json::Value) -> String
             "text".into(),
             serde_json::Value::String("[redacted]".into()),
         );
-        return serde_json::Value::Object(redacted).to_string();
+        return serde_json::Value::Object(redacted);
     }
-    args.to_string()
+    args.clone()
+}
+
+pub(crate) fn loggable_args(tool_name: &str, args: &serde_json::Value) -> String {
+    loggable_args_value(tool_name, args).to_string()
 }
 
 fn tool_call_signature(tool_name: &str, tool_args: &serde_json::Value) -> (String, String) {
