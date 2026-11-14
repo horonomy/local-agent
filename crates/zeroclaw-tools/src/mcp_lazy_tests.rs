@@ -172,6 +172,9 @@ async fn zero_idle_window_does_not_race_the_next_call() {
     // respawning, never by writing to a child the reaper is tearing down.
     for _ in 0..5 {
         registry.call_tool("srv__echo", json!({})).await.unwrap();
+        // Let the zero-delay reaper run before the next call; otherwise the
+        // next call bumps activity first and the child is legitimately reused.
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(
         fixture.spawns().len() >= 2,
