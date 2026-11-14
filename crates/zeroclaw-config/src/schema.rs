@@ -11604,6 +11604,22 @@ fn validate_mcp_config(config: &McpConfig) -> Result<()> {
                 }
             }
         }
+
+        if server.spawn == McpSpawnMode::OnDemand {
+            if server.transport != McpTransport::Stdio {
+                anyhow::bail!("mcp.servers[{i}].spawn = on_demand requires transport=stdio");
+            }
+            if !server.declared_tools.iter().any(|t| !t.trim().is_empty()) {
+                anyhow::bail!(
+                    "mcp.servers[{i}].spawn = on_demand requires non-empty declared_tools"
+                );
+            }
+            if !server.pinned_resources.is_empty() {
+                anyhow::bail!(
+                    "mcp.servers[{i}].spawn = on_demand cannot use pinned_resources (they would start the server at startup)"
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -42266,6 +42282,39 @@ high_entropy_tokens = false
             ..Default::default()
         };
         assert!(validate_mcp_config(&cfg).is_ok());
+    }
+
+    #[test]
+    async fn validate_mcp_config_on_demand_requires_stdio_tools_and_no_pins() {
+        let on_demand = |mut s: McpServerConfig| {
+            s.spawn = McpSpawnMode::OnDemand;
+            s
+        };
+        let check = |s: McpServerConfig| {
+            validate_mcp_config(&McpConfig {
+                enabled: true,
+                servers: vec![s],
+                ..Default::default()
+            })
+        };
+        let mut ok = on_demand(stdio_server("fs", "/usr/bin/mcp-fs"));
+        ok.declared_tools = vec!["read".into()];
+        assert!(check(ok.clone()).is_ok());
+
+        let mut no_tools = ok.clone();
+        no_tools.declared_tools = vec![" ".into()];
+        assert!(check(no_tools).is_err());
+
+        let mut pinned = ok.clone();
+        pinned.pinned_resources = vec!["file:///x".into()];
+        assert!(check(pinned).is_err());
+
+        let mut http = on_demand(http_server("svc", "http://localhost:8080/mcp"));
+        http.declared_tools = vec!["read".into()];
+        assert!(check(http).is_err());
+
+        // Eager servers ignore the on-demand fields.
+        assert!(check(stdio_server("fs", "/usr/bin/mcp-fs")).is_ok());
     }
 
     #[test]
