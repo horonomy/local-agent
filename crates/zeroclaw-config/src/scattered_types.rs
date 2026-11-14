@@ -1085,7 +1085,8 @@ mod capture_config_tests {
 
     #[test]
     fn absent_section_in_root_config_is_default() {
-        let config: crate::schema::Config = toml::from_str("schema_version = 3\nlocale = \"en\"\n").unwrap();
+        let config: crate::schema::Config =
+            toml::from_str("schema_version = 3\nlocale = \"en\"\n").unwrap();
         assert!(!config.capture.enabled);
         assert!(!config.capture.attach_images_to_provider);
         config.validate().unwrap();

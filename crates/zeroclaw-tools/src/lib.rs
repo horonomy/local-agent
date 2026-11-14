@@ -19,6 +19,8 @@ pub mod browser_delegate;
 pub mod browser_open;
 pub mod calculator;
 pub mod canvas;
+#[cfg(any(feature = "tools-external", feature = "local-desktop"))]
+pub mod capture;
 pub mod channel_room;
 #[cfg(feature = "tool-claude-code")]
 pub mod claude_code;
