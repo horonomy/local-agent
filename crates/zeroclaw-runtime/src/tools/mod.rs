@@ -1994,7 +1994,7 @@ fn all_tools_with_runtime_on_thread(
                 root_config
                     .data_dir
                     .join("browser-profile")
-                    .join(agent_alias),
+                    .join(zeroclaw_tools::browser::profile_component(agent_alias)),
             )
         })
         // Builds without `tools-external` are the local profile: no wildcard domains,
