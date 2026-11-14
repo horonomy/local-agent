@@ -226,11 +226,11 @@ fn parse_request(args: &Value) -> Result<Request, String> {
             if text.is_empty() || text.chars().count() > MAX_TYPED_CHARS {
                 return Err(format!("`text` must be 1..={MAX_TYPED_CHARS} characters"));
             }
-            if text
-                .chars()
-                .any(|c| c.is_control() && c != '\n' && c != '\t')
-            {
-                return Err("`text` must not contain control characters".into());
+            if text.chars().any(is_hostile_text_char) {
+                return Err(
+                    "`text` must not contain control, private-use, unassigned or invisible formatting characters"
+                        .into(),
+                );
             }
             DesktopAction::Type {
                 text: text.to_owned(),
@@ -257,13 +257,35 @@ fn parse_request(args: &Value) -> Result<Request, String> {
     Ok(Request { app, action })
 }
 
+/// Characters that could act as key events (control, AppKit function-key
+/// private use), or hide content from the approver (bidi, zero-width,
+/// separators, unassigned). `\n` and `\t` are allowed. Std only: Unicode
+/// category Cf and Cn are covered by explicit ranges, not a full table.
+fn is_hostile_text_char(c: char) -> bool {
+    if c == '\n' || c == '\t' {
+        return false;
+    }
+    c.is_control()
+        || matches!(c,
+            '\u{00AD}' | '\u{061C}' | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{E000}'..='\u{F8FF}'
+            | '\u{FEFF}'
+            | '\u{FFF0}'..='\u{FFFF}'
+            | '\u{E0000}'..='\u{E0FFF}'
+            | '\u{F0000}'..='\u{10FFFF}')
+}
+
 fn validate_key(key: &str) -> Result<(), String> {
     let lowered = key.to_ascii_lowercase();
     let single = key.len() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric());
-    let function = lowered
-        .strip_prefix('f')
-        .and_then(|n| n.parse::<u8>().ok())
-        .is_some_and(|n| (1..=12).contains(&n));
+    // Canonical `f1`..`f12` only: no sign, no leading zero.
+    let function = matches!(
+        lowered.as_str(),
+        "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12"
+    );
     if single || function || NAMED_KEYS.contains(&lowered.as_str()) {
         Ok(())
     } else {
@@ -662,6 +684,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "test spawns the call so it can be aborted mid-flight"
+    )]
     async fn cancelling_the_call_cancels_the_backend_action() {
         let backend = Arc::new(Fake {
             hang_on_click: true,
@@ -740,6 +766,14 @@ mod tests {
             json!({"action": "key", "app": "Notes", "key": "left_cmd"}),
             json!({"action": "key", "app": "Notes", "key": "lcmd"}),
             json!({"action": "key", "app": "Notes", "key": "Spotlight"}),
+            json!({"action": "key", "app": "Notes", "key": "F+5"}),
+            json!({"action": "key", "app": "Notes", "key": "F05"}),
+            json!({"action": "key", "app": "Notes", "key": "F13"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{2028}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{FEFF}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{200B}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{FFFF}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{E0001}b"}),
             json!({"action": "type", "app": "Notes", "text": "a\u{F702}"}),
             json!({"action": "type", "app": "Notes", "text": "a\u{202E}b"}),
             json!({"action": "type", "app": "Notes", "text": "x\u{1b}[2J"}),
@@ -758,6 +792,15 @@ mod tests {
             .unwrap();
         assert!(error_of(&shot).contains("capture tool"));
         assert!(backend.calls().is_empty());
+    }
+
+    #[test]
+    fn allowed_keys_and_text_pass_parsing() {
+        for key in ["a", "Z", "7", "Enter", "tab", "F1", "f12", "PageDown"] {
+            assert!(validate_key(key).is_ok(), "{key}");
+        }
+        let ok = json!({"action": "type", "app": "Notes", "text": "caf\u{e9} \u{4f60}\n\tok"});
+        assert!(parse_request(&ok).is_ok());
     }
 
     #[test]
