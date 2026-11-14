@@ -1988,22 +1988,21 @@ fn all_tools_with_runtime_on_thread(
             browser_config.allowed_private_hosts.clone(),
         )
         .and_then(|tool| {
-            // Agent-owned profile under the state dir; no config key can point the tool
-            // at the user's own browser profile.
-            tool.with_profile_dir(
-                root_config
-                    .data_dir
-                    .join("browser-profile")
-                    .join(zeroclaw_tools::browser::profile_component(agent_alias)),
-            )
-        })
-        // Builds without `tools-external` are the local profile: no wildcard domains,
-        // no production sign-in pages, no credential entry, loopback-only endpoints.
-        .map(|tool| {
+            // Builds without `tools-external` are the local profile: agent-owned profile
+            // under the state dir (no config key can point the tool at the user's own
+            // browser profile), no wildcard domains, no production sign-in pages, no
+            // credential entry, loopback-only endpoints, guarded page URL. Standard
+            // builds keep their existing behaviour.
             if cfg!(feature = "tools-external") {
-                tool
+                Ok(tool)
             } else {
-                tool.with_strict_local_policy()
+                tool.with_profile_dir(
+                    root_config
+                        .data_dir
+                        .join("browser-profile")
+                        .join(zeroclaw_tools::browser::profile_component(agent_alias)),
+                )
+                .map(BrowserTool::with_strict_local_policy)
             }
         }) {
             Ok(tool) => {

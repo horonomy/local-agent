@@ -86,6 +86,10 @@ pub struct BrowserTool {
     /// allowed set; every action except `open`/`close` is refused until an allowed
     /// `open` succeeds.
     session_poisoned: std::sync::atomic::AtomicBool,
+    /// Serializes guard + action + re-check in the strict agent-browser path.
+    action_lock: tokio::sync::Mutex<()>,
+    /// Overall bound for one guarded action (pre-check, action, post-check, reset, close).
+    action_deadline: Duration,
     #[cfg(feature = "browser-native")]
     native_headless: bool,
     #[cfg(feature = "browser-native")]
@@ -266,7 +270,10 @@ impl BrowserTool {
                 "browser.allowed_domains",
             )?,
             allowed_private_hosts: domain_guard::normalize_allowed_domains(
-                allowed_private_hosts,
+                allowed_private_hosts
+                    .iter()
+                    .map(|entry| strip_port(entry).to_string())
+                    .collect(),
                 "browser.allowed_private_hosts",
             )?,
             raw_private_hosts,
@@ -279,6 +286,8 @@ impl BrowserTool {
             attach_screenshots: true,
             command_timeout: DEFAULT_COMMAND_TIMEOUT,
             session_poisoned: std::sync::atomic::AtomicBool::new(false),
+            action_lock: tokio::sync::Mutex::new(()),
+            action_deadline: DEFAULT_ACTION_DEADLINE,
             #[cfg(feature = "browser-native")]
             native_headless,
             #[cfg(feature = "browser-native")]
@@ -535,28 +544,20 @@ impl BrowserTool {
         }
     }
 
-    /// Local profile: an allow-listed private host with pinned ports (`host:port`
-    /// entries) is reachable only on those ports; an unpinned entry still refuses
-    /// devtools and driver ports.
+    /// Local profile: an allow-listed private host (loopback included) is reachable only
+    /// on ports pinned with a `host:port` entry; a bare host entry grants nothing, so a
+    /// devtools or driver port needs its own explicit entry.
     fn check_private_port(&self, host: &str, port: Option<u16>) -> anyhow::Result<()> {
         let bare = host.trim_matches(['[', ']']);
-        let pinned: Vec<u16> = self
-            .raw_private_hosts
-            .iter()
-            .filter(|entry| {
-                domain_guard::normalize_domain(entry).is_some_and(|h| h == bare)
-                    && entry_port(entry).is_some()
-            })
-            .filter_map(|entry| entry_port(entry))
-            .collect();
         let port = port.unwrap_or(0);
-        let allowed = if pinned.is_empty() {
-            !SENSITIVE_LOCAL_PORTS.contains(&port)
-        } else {
-            pinned.contains(&port)
-        };
-        if !allowed {
-            anyhow::bail!("Blocked port {port} on {host} in the local browser profile");
+        let pinned = self.raw_private_hosts.iter().any(|entry| {
+            domain_guard::normalize_domain(strip_port(entry)).is_some_and(|h| h == bare)
+                && entry_port(entry) == Some(port)
+        });
+        if !pinned {
+            anyhow::bail!(
+                "Blocked port {port} on {host}: the local browser profile needs a host:port allow-list entry"
+            );
         }
         Ok(())
     }
@@ -700,7 +701,7 @@ impl BrowserTool {
         if output.status.success() {
             Ok(AgentBrowserResponse {
                 success: true,
-                data: Some(json!({ "output": stdout.trim() })),
+                data: Some(json!({ "output": scrub_secrets(stdout.trim(), &secrets) })),
                 error: None,
             })
         } else {
@@ -710,11 +711,6 @@ impl BrowserTool {
                 error: Some(scrub_secrets(stderr.trim(), &secrets)),
             })
         }
-    }
-
-    /// The command with the legacy (non-isolated) environment.
-    fn agent_browser_command(&self) -> Command {
-        Command::from(self.agent_browser_std_command(None))
     }
 
     /// Build the agent-browser invocation. With `isolated_profile` (strict local
@@ -760,7 +756,15 @@ impl BrowserTool {
         cmd.env_clear();
         for (key, value) in std::env::vars_os() {
             let name = key.to_string_lossy();
-            if AGENT_BROWSER_ENV_ALLOW.contains(&name.as_ref()) || name.starts_with("LC_") {
+            // Windows environment names are case-insensitive.
+            let allowed = AGENT_BROWSER_ENV_ALLOW.iter().any(|a| {
+                if cfg!(windows) {
+                    a.eq_ignore_ascii_case(&name)
+                } else {
+                    *a == name
+                }
+            });
+            if allowed || name.starts_with("LC_") {
                 cmd.env(&key, value);
             }
         }
@@ -780,13 +784,19 @@ impl BrowserTool {
         cmd
     }
 
-    /// Point `agent_browser_command` at a fake binary for tests. The only
+    /// Point `agent_browser_std_command` at a fake binary for tests. The only
     /// setter for [`Self::agent_browser_bin`]: production keeps `None` and
     /// launches the installed `agent-browser`. Unix-only because every
     /// caller drives a `#!/bin/sh` fake binary.
     #[cfg(all(test, unix))]
     fn set_agent_browser_bin_for_tests(&mut self, bin: std::path::PathBuf) {
         self.agent_browser_bin = Some(bin);
+    }
+
+    /// Shorten the overall per-action deadline.
+    #[cfg(all(test, unix))]
+    fn set_action_deadline_for_tests(&mut self, deadline: Duration) {
+        self.action_deadline = deadline;
     }
 
     /// Shorten the per-command bound so the timeout path is testable without waiting.
@@ -1548,47 +1558,41 @@ impl BrowserTool {
             }
         }
 
-        // Agent-browser page-URL guard. The page can navigate on its own (redirects,
-        // scripts, a previous click), so the current URL is validated before any action
-        // runs or returns content, and again afterwards whatever the outcome.
-        // NOTE: the rust-native (WebDriver) backend has no such guard; it only compiles
-        // with `browser-native`, which pulls in `tools-external` and is not part of the
-        // local profile. Documented limitation, not implemented for that backend.
-        let guarded = backend == ResolvedBackend::AgentBrowser
-            && !matches!(action, BrowserAction::Open { .. } | BrowserAction::Close);
-        let is_open = matches!(action, BrowserAction::Open { .. });
-        if guarded {
-            if self
-                .session_poisoned
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                return Ok(denial(
-                    "Browser session is locked after leaving the allowed set; open an allowed URL first",
-                ));
+        // NOTE: the rust-native (WebDriver) backend has no page-URL guard; it only
+        // compiles with `browser-native`, which pulls in `tools-external` and is not part
+        // of the local profile. Documented limitation, not implemented for that backend.
+        let mut post_denied = false;
+        let result = match backend {
+            ResolvedBackend::AgentBrowser if self.strict_local_policy => {
+                // One guarded action at a time per tool: a parallel call must not read a
+                // page another call is about to reset, and the poison flag changes
+                // under the same lock.
+                let _serial = self.action_lock.lock().await;
+                match tokio::time::timeout(self.action_deadline, self.run_guarded(action)).await {
+                    Ok((result, denied)) => {
+                        post_denied = denied;
+                        result
+                    }
+                    Err(_) => {
+                        // The page state is unknown after an overall deadline. The
+                        // in-flight command's drop guard has asked the session to close.
+                        self.session_poisoned
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                        Ok(denial(
+                            "Browser action exceeded its deadline; session closed and locked until an allowed open",
+                        ))
+                    }
+                }
             }
-            if let Some(denied) = self.deny_if_navigated_away().await {
-                return Ok(denied);
-            }
-        }
-
-        let mut result = match backend {
             ResolvedBackend::AgentBrowser => self.execute_agent_browser_action(action).await,
             ResolvedBackend::RustNative => self.execute_rust_native_action(action).await,
             ResolvedBackend::ComputerUse => anyhow::bail!(
                 "Internal error: computer_use backend must be handled before BrowserAction parsing"
             ),
         };
-
-        // Re-check after every action, success, failure or error: a failing click can
-        // still have navigated. An `open` rejected before reaching the browser (Err)
-        // did nothing, so it is not re-checked.
-        if backend == ResolvedBackend::AgentBrowser && (guarded || (is_open && result.is_ok())) {
-            if let Some(denied) = self.deny_if_navigated_away().await {
-                result = Ok(denied);
-            } else if is_open && matches!(&result, Ok(r) if r.success) {
-                self.session_poisoned
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
-            }
+        // The denied page was already screenshotted to disk; do not leave it behind.
+        if post_denied && let Some(target) = &screenshot_target {
+            let _ = tokio::fs::remove_file(target).await;
         }
 
         // A screenshot the backend wrote to the validated target is a
@@ -1608,6 +1612,52 @@ impl BrowserTool {
             }
             (result, _) => result,
         }
+    }
+
+    /// Strict-mode agent-browser path. The page can navigate on its own (redirects,
+    /// scripts, a previous click), so the current URL is validated before any action runs
+    /// or returns content, and again afterwards whatever the outcome. The second element
+    /// is true when the post-action check denied the page.
+    ///
+    /// Residual risks, by design of a post-hoc check: the browser has already made the
+    /// request to a disallowed host (including a GET with side effects) before the
+    /// re-check sees it, and the denied page's pixels were produced before being
+    /// discarded.
+    async fn run_guarded(&self, action: BrowserAction) -> (anyhow::Result<ToolResult>, bool) {
+        let guarded = !matches!(action, BrowserAction::Open { .. } | BrowserAction::Close);
+        let is_open = matches!(action, BrowserAction::Open { .. });
+        if guarded {
+            if self
+                .session_poisoned
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return (
+                    Ok(denial(
+                        "Browser session is locked after leaving the allowed set; open an allowed URL first",
+                    )),
+                    false,
+                );
+            }
+            if let Some(denied) = self.deny_if_navigated_away().await {
+                return (Ok(denied), false);
+            }
+        }
+
+        let result = self.execute_agent_browser_action(action).await;
+
+        // Re-check after every action, success, failure or error: a failing click can
+        // still have navigated. An `open` rejected before reaching the browser (Err)
+        // did nothing, so it is not re-checked.
+        if guarded || (is_open && result.is_ok()) {
+            if let Some(denied) = self.deny_if_navigated_away().await {
+                return (Ok(denied), true);
+            }
+            if is_open && matches!(&result, Ok(r) if r.success) {
+                self.session_poisoned
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        (result, false)
     }
 
     async fn current_page_url(&self) -> Option<String> {
@@ -3022,6 +3072,7 @@ fn endpoint_reachable(endpoint: &reqwest::Url, timeout: Duration) -> bool {
 }
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_ACTION_DEADLINE: Duration = Duration::from_secs(90);
 
 /// Placeholder logged and scrubbed in place of text typed into a page.
 const REDACTED: &str = "<redacted>";
@@ -3134,17 +3185,29 @@ fn prepare_profile_dir(dir: &std::path::Path) -> anyhow::Result<std::path::PathB
         .with_context(|| format!("failed to resolve browser profile {}", dir.display()))?;
     validate_agent_profile_dir(&canonical)?;
     if let Some(control_dir) = canonical.parent() {
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(control_dir.join(EMPTY_CONFIG_NAME))
-        {
-            Ok(mut file) => std::io::Write::write_all(&mut file, b"{}")?,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e.into()),
-        }
+        write_empty_config(&control_dir.join(EMPTY_CONFIG_NAME))?;
     }
     Ok(canonical)
+}
+
+/// Make `path` an agent-owned (0600) config containing exactly `{}`, rewriting anything
+/// else, so default config discovery can never weaken the isolation.
+fn write_empty_config(path: &std::path::Path) -> anyhow::Result<()> {
+    if let Ok(meta) = std::fs::symlink_metadata(path)
+        && !meta.file_type().is_file()
+    {
+        anyhow::bail!("agent-browser config path must be a regular file");
+    }
+    if std::fs::read(path).is_ok_and(|current| current == b"{}") {
+        return Ok(());
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    std::io::Write::write_all(&mut file, b"{}")?;
+    Ok(())
 }
 
 /// Environment variables the isolated agent-browser child may inherit (plus `LC_*`).
@@ -3185,20 +3248,16 @@ const AGENT_BROWSER_ENV_ALLOW: &[&str] = &[
 /// daemon of the same session name (and then ignores `--profile`), so sharing a name
 /// with the user's default session or another agent's would silently reuse their browser.
 fn isolated_session_name(profile: &std::path::Path) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    profile.hash(&mut hasher);
     let label = profile
         .file_name()
         .map(|n| profile_component(&n.to_string_lossy()))
         .unwrap_or_default();
-    format!("zc-{label}-{:08x}", hasher.finish() as u32)
+    format!("zc-{label}-{}", short_hash(&profile.to_string_lossy()))
 }
 
 /// A path- and session-safe form of an agent alias: only `[A-Za-z0-9_-]`; anything else
 /// is replaced and a hash of the original keeps distinct aliases distinct.
 pub fn profile_component(alias: &str) -> String {
-    use std::hash::{Hash, Hasher};
     let clean: String = alias
         .chars()
         .map(|c| {
@@ -3212,10 +3271,14 @@ pub fn profile_component(alias: &str) -> String {
     if clean == alias && !clean.is_empty() {
         return clean;
     }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    alias.hash(&mut hasher);
     let base = if clean.is_empty() { "agent" } else { &clean };
-    format!("{base}-{:08x}", hasher.finish() as u32)
+    format!("{base}-{}", short_hash(alias))
+}
+
+/// Stable (build- and run-independent) 8-hex-digit digest prefix.
+fn short_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(&Sha256::digest(text.as_bytes())[..4])
 }
 
 /// Asks the agent-browser session to close when a call is dropped before finishing
@@ -3267,10 +3330,6 @@ fn scrub_secrets(text: &str, secrets: &[String]) -> String {
         .fold(text.to_string(), |acc, s| acc.replace(s.as_str(), REDACTED))
 }
 
-/// Ports an unpinned loopback allow-list entry must not reach: browser devtools,
-/// WebDriver and the computer-use sidecar.
-const SENSITIVE_LOCAL_PORTS: &[u16] = &[9222, 9223, 9229, 9515, 4444, 8787];
-
 /// The `:port` of a configured host entry (`127.0.0.1:8080`, `[::1]:8080`).
 fn entry_port(entry: &str) -> Option<u16> {
     let entry = entry.trim();
@@ -3282,6 +3341,22 @@ fn entry_port(entry: &str) -> Option<u16> {
         return None;
     };
     tail.trim_end_matches('/').parse().ok()
+}
+
+/// The host part of a configured entry with any `:port` removed, so the shared
+/// normaliser (which drops or rejects ports for `localhost` and `[::1]`) sees a bare host.
+fn strip_port(entry: &str) -> &str {
+    let entry = entry.trim();
+    if entry_port(entry).is_none() {
+        return entry;
+    }
+    if entry.starts_with('[') {
+        entry
+            .rsplit_once("]:")
+            .map_or(entry, |(host, _)| &entry[..=host.len()])
+    } else {
+        entry.rsplit_once(':').map_or(entry, |(host, _)| host)
+    }
 }
 
 /// The local profile only talks to a WebDriver that listens on loopback.
@@ -3507,11 +3582,10 @@ mod tests {
         let headed_key = std::ffi::OsStr::new("AGENT_BROWSER_HEADED");
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec!["example.com".into()], None).unwrap();
-        let cmd = tool.agent_browser_command();
+        let cmd = tool.agent_browser_std_command(None);
 
         assert_eq!(
-            cmd.as_std()
-                .get_envs()
+            cmd.get_envs()
                 .find(|(key, _)| *key == headed_key)
                 .map(|(_, value)| value),
             None
@@ -3535,11 +3609,10 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
-        let cmd = tool.agent_browser_command();
+        let cmd = tool.agent_browser_std_command(None);
 
         assert_eq!(
-            cmd.as_std()
-                .get_envs()
+            cmd.get_envs()
                 .find(|(key, _)| *key == headed_key)
                 .map(|(_, value)| value),
             Some(None)
@@ -3563,11 +3636,10 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
-        let cmd = tool.agent_browser_command();
+        let cmd = tool.agent_browser_std_command(None);
 
         assert_eq!(
-            cmd.as_std()
-                .get_envs()
+            cmd.get_envs()
                 .find(|(key, _)| *key == headed_key)
                 .and_then(|(_, value)| value)
                 .and_then(|value| value.to_str()),
@@ -4466,7 +4538,6 @@ mod tests {
             "#!/bin/sh\n\
              set -e\n\
              if [ \"$1\" = --profile ]; then shift 2; fi\n\
-             if [ \"$1\" = get ] && [ \"$2\" = url ]; then printf '{{\"success\":true,\"data\":{{\"url\":\"about:blank\"}}}}\\n'; exit 0; fi\n\
              # fake agent-browser: `screenshot <path> --json` writes a real PNG\n\
              case \"$2\" in -*|'') echo 'fake agent-browser: expected a path argument' >&2; exit 1 ;; esac\n\
              printf '{png}' > \"$2\"\n\
@@ -4656,7 +4727,6 @@ mod tests {
             "#!/bin/sh\n\
              set -e\n\
              if [ \"$1\" = --profile ]; then shift 2; fi\n\
-             if [ \"$2\" = url ]; then printf '{{\"success\":true,\"data\":{{\"url\":\"about:blank\"}}}}\\n'; exit 0; fi\n\
              # fake agent-browser: `get title --json` echoes a fixed title\n\
              printf '{{\"success\":true,\"data\":{{\"title\":\"%s\"}}}}\\n' '{title}'\n"
         );
@@ -5698,7 +5768,13 @@ mod isolation_tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         assert_eq!(args, ["--session", "mine"]);
-        assert_eq!(cmd.get_envs().count(), 0);
+        // Ambient INVOCATION_ID/JOURNAL_STREAM/HOME may add browser env; nothing else.
+        assert!(
+            cmd.get_envs()
+                .all(|(k, _)| matches!(k.to_str(), Some("HOME" | "CHROMIUM_FLAGS"))),
+            "standard builds must not add isolation env"
+        );
+        assert!(cmd.get_current_dir().is_none());
     }
 
     #[test]
@@ -5760,126 +5836,48 @@ mod isolation_tests {
     }
 
     #[test]
-    fn loopback_ports_can_be_pinned_and_devtools_ports_need_an_explicit_entry() {
+    fn loopback_requires_a_pinned_port_in_every_host_form() {
         let tmp = tempfile::TempDir::new().unwrap();
+        // A bare entry grants nothing.
         let bare = strict_tool(tmp.path(), &["fixture.example"], &["127.0.0.1"]);
-        assert!(bare.validate_url("http://127.0.0.1:8080/").is_ok());
-        for port in [9222, 9229, 9515, 4444] {
+        for port in [80, 8080, 9222, 9229, 9515, 4444] {
             assert!(
-                bare.validate_url(&format!("http://127.0.0.1:{port}/json/version"))
+                bare.validate_url(&format!("http://127.0.0.1:{port}/"))
                     .is_err(),
-                "{port} must be denied for a bare loopback entry"
+                "bare entry must deny {port}"
             );
         }
-        let pinned = strict_tool(tmp.path(), &["fixture.example"], &["127.0.0.1:8080"]);
-        assert!(pinned.validate_url("http://127.0.0.1:8080/").is_ok());
-        assert!(pinned.validate_url("http://127.0.0.1:9222/").is_err());
-        assert!(pinned.validate_url("http://127.0.0.1:3000/").is_err());
+        for (entry, ok, denied) in [
+            (
+                "127.0.0.1:8080",
+                "http://127.0.0.1:8080/x",
+                "http://127.0.0.1:9222/",
+            ),
+            (
+                "localhost:8080",
+                "http://localhost:8080/x",
+                "http://localhost:3000/",
+            ),
+            ("[::1]:8080", "http://[::1]:8080/x", "http://[::1]:9222/"),
+        ] {
+            let tool = strict_tool(tmp.path(), &["fixture.example"], &[entry]);
+            assert!(tool.validate_url(ok).is_ok(), "{entry} must allow {ok}");
+            assert!(
+                tool.validate_url(denied).is_err(),
+                "{entry} must deny {denied}"
+            );
+        }
+        // Devtools needs its own explicit entry.
         let explicit = strict_tool(tmp.path(), &["fixture.example"], &["127.0.0.1:9222"]);
         assert!(explicit.validate_url("http://127.0.0.1:9222/").is_ok());
+        assert!(explicit.validate_url("http://127.0.0.1:9229/").is_err());
         assert_eq!(entry_port("[::1]:8080"), Some(8080));
+        assert_eq!(entry_port("localhost:80"), Some(80));
         assert_eq!(entry_port("127.0.0.1"), None);
-    }
-
-    // ---- domain and action control -----------------------------------------
-
-    #[test]
-    fn local_profile_empty_or_wildcard_allowlist_denies_open() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        for domains in [&[][..], &["*"][..]] {
-            let tool = strict_tool(tmp.path(), domains, &[]);
-            let err = tool.validate_url("https://fixture.example/").unwrap_err();
-            assert!(err.to_string().contains("no allowed_domains"), "{err}");
-        }
-        // Standard builds keep the wildcard meaning.
-        let standard = BrowserTool::new(security(tmp.path()), vec!["*".into()], None).unwrap();
-        assert!(standard.validate_url("https://fixture.example/").is_ok());
-    }
-
-    #[test]
-    fn local_profile_denies_unlisted_domain_and_wildcard_private_hosts() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let tool = strict_tool(tmp.path(), &["fixture.example"], &["*"]);
-        assert!(tool.validate_url("https://fixture.example/page").is_ok());
-        assert!(tool.validate_url("https://sub.fixture.example/").is_ok());
-        assert!(tool.validate_url("https://evil.example/").is_err());
-        // `["*"]` private hosts grants nothing in the local profile.
-        assert!(tool.validate_url("http://127.0.0.1:8080/").is_err());
-        assert!(tool.validate_url("http://169.254.169.254/").is_err());
-        assert!(tool.validate_url("file:///etc/passwd").is_err());
-    }
-
-    #[test]
-    fn local_profile_refuses_production_login_even_when_listed() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let tool = strict_tool(
-            tmp.path(),
-            &[
-                "google.com",
-                "microsoftonline.com",
-                "github.com",
-                "okta.com",
-                "fixture.example",
-            ],
-            &["127.0.0.1"],
-        );
-        for url in [
-            "https://accounts.google.com/signin",
-            "https://login.microsoftonline.com/common/oauth2",
-            "https://github.com/login",
-            "https://github.com/users/sign_in",
-            "https://acme.okta.com/sso/saml",
-            "https://fixture.example/login",
-        ] {
-            let err = tool.validate_url(url).unwrap_err();
-            assert!(err.to_string().contains("production login"), "{url}: {err}");
-        }
-        assert!(
-            tool.validate_url("https://fixture.example/dashboard")
-                .is_ok()
-        );
-        // A loopback synthetic site may serve its own login form.
-        assert!(tool.validate_url("http://127.0.0.1:8080/login").is_ok());
-    }
-
-    #[test]
-    fn local_profile_requires_loopback_endpoints() {
-        for ok in [
-            "http://127.0.0.1:9515",
-            "http://localhost:9515",
-            "http://[::1]:9515",
-        ] {
-            assert!(ensure_loopback_endpoint(ok).is_ok(), "{ok}");
-        }
-        for bad in [
-            "http://0.0.0.0:9515",
-            "http://192.168.1.20:9515",
-            "http://10.0.0.5:9515",
-            "https://driver.example.com",
-            "not a url",
-        ] {
-            assert!(ensure_loopback_endpoint(bad).is_err(), "{bad}");
-        }
-        let tmp = tempfile::TempDir::new().unwrap();
-        let config = ComputerUseConfig {
-            endpoint: "http://192.168.1.20:8787/v1/actions".into(),
-            ..ComputerUseConfig::default()
-        };
-        let tool = BrowserTool::new_with_backend(
-            security(tmp.path()),
-            vec![],
-            None,
-            "computer_use".into(),
-            None,
-            true,
-            "http://127.0.0.1:9515".into(),
-            None,
-            config,
-            vec![],
-        )
-        .unwrap()
-        .with_strict_local_policy();
-        assert!(tool.computer_use_endpoint_url().is_err());
+        assert_eq!(entry_port("::1"), None);
+        assert_eq!(strip_port("[::1]:8080"), "[::1]");
+        assert_eq!(strip_port("localhost:8080"), "localhost");
+        assert_eq!(strip_port("example.com"), "example.com");
     }
 
     #[cfg(unix)]
@@ -5978,18 +5976,19 @@ mod isolation_tests {
              open) if [ \"$2\" = about:blank ] && [ -e \"$state.breakreset\" ]; then printf '{{\"success\":true,\"data\":{{}}}}\\n'; exit 0; fi; printf '%s' \"$2\" > \"$state.url\"; printf '{{\"success\":true,\"data\":{{\"url\":\"%s\",\"title\":\"Synthetic Fixture\"}}}}\\n' \"$2\" ;;\n\
              snapshot) printf '{{\"success\":true,\"data\":{{\"snapshot\":\"textbox @e2 Name; button @e1 Submit\"}}}}\\n' ;;\n\
              click) case \"$2\" in\n\
-               @leave) printf '%s' 'https://evil.example:8443/landing?x=1' > \"$state.url\" ;;\n\
+               @leave) sleep 0.3; printf '%s' 'https://evil.example:8443/landing?x=1' > \"$state.url\" ;;\n\
                @signin) printf '%s' 'https://accounts.google.com/signin' > \"$state.url\" ;;\n\
                @failleave) printf '%s' 'https://evil.example/boom' > \"$state.url\"; printf '{{\"success\":false,\"error\":\"EVIL-PAGE-TEXT\"}}\\n'; exit 0 ;;\n\
                @stay) printf '%s' 'https://fixture.example/next' > \"$state.url\" ;;\n\
              esac; printf '{{\"success\":true,\"data\":{{\"clicked\":\"%s\",\"text\":\"EVIL-PAGE-TEXT\"}}}}\\n' \"$2\" ;;\n\
              fill|type) case \"$2\" in\n\
                '#err') printf '{{\"success\":false,\"error\":\"cannot type %s\"}}\\n' \"$3\"; exit 0 ;;\n\
+               '#raw') printf 'plain output %s\\n' \"$3\"; exit 0 ;;\n\
                '#stderr') echo \"stderr echo $3\" >&2; exit 1 ;;\n\
              esac; printf '%s\\n' \"$3\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
              find) printf '%s\\n' \"$5\" >> \"$state.typed\"; printf '{{\"success\":true,\"data\":{{\"done\":true}}}}\\n' ;;\n\
-             get) if [ \"$2\" = url ]; then u=$(cat \"$state.url\" 2>/dev/null); printf '{{\"success\":true,\"data\":{{\"url\":\"%s\"}}}}\\n' \"${{u:-about:blank}}\"; else printf '{{\"success\":true,\"data\":{{\"text\":\"Synthetic page body\"}}}}\\n'; fi ;;\n\
-             screenshot) printf '{png}' > \"$2\"; printf '{{\"success\":true,\"data\":{{\"path\":\"%s\"}}}}\\n' \"$2\" ;;\n\
+             get) if [ \"$2\" = url ]; then u=$(cat \"$state.url\" 2>/dev/null); printf '{{\"success\":true,\"data\":{{\"url\":\"%s\"}}}}\\n' \"${{u:-about:blank}}\"; else printf '{{\"success\":true,\"data\":{{\"text\":\"Synthetic page body at %s\"}}}}\\n' \"$(cat \"$state.url\" 2>/dev/null)\"; fi ;;\n\
+             screenshot) printf '{png}' > \"$2\"; if [ -e \"$state.leaveonshot\" ]; then printf '%s' 'https://evil.example/shot' > \"$state.url\"; fi; printf '{{\"success\":true,\"data\":{{\"path\":\"%s\"}}}}\\n' \"$2\" ;;\n\
              close) echo closed >> \"$state.closed\"; printf '{{\"success\":true,\"data\":{{}}}}\\n' ;;\n\
              wait) echo $$ > \"$state.pid\"; exec sleep 30 ;;\n\
              *) echo 'unknown' >&2; exit 2 ;;\n\
@@ -6030,6 +6029,9 @@ mod isolation_tests {
         fn state(&self, ext: &str) -> String {
             std::fs::read_to_string(self.tmp.path().join(format!("state.{ext}")))
                 .unwrap_or_default()
+        }
+        async fn run_guarded_for_test(&self, action: BrowserAction) -> ToolResult {
+            self.run(action).await.unwrap()
         }
         async fn run(&self, action: BrowserAction) -> anyhow::Result<ToolResult> {
             self.tool
@@ -6528,6 +6530,149 @@ mod isolation_tests {
         );
         assert!(extract_url(&json!({"text": "x"})).is_none());
         assert_eq!(host_of("https://evil.example:8443/p?q=1"), "evil.example");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn standard_builds_issue_no_page_url_checks_and_no_profile() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ws = tmp.path().join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        let bin = write_synthetic_site(tmp.path());
+        let mut tool = BrowserTool::new(security(&ws), vec!["*".into()], None).unwrap();
+        tool.set_agent_browser_bin_for_tests(bin);
+        for action in [
+            BrowserAction::Click {
+                selector: "@e1".into(),
+            },
+            BrowserAction::GetText {
+                selector: "body".into(),
+            },
+            BrowserAction::Screenshot {
+                path: None,
+                full_page: false,
+            },
+        ] {
+            tool.execute_action(action, ResolvedBackend::AgentBrowser)
+                .await
+                .unwrap();
+        }
+        let argv = std::fs::read_to_string(tmp.path().join("state.argv")).unwrap();
+        assert!(!argv.contains("get url"), "{argv}");
+        assert!(!argv.contains("--profile"), "{argv}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn concurrent_calls_are_serialized_so_no_disallowed_page_is_read() {
+        let site = site();
+        site.run(BrowserAction::Open {
+            url: "https://fixture.example/".into(),
+        })
+        .await
+        .unwrap();
+        let (leave, read) = tokio::join!(
+            site.run(BrowserAction::Click {
+                selector: "@leave".into()
+            }),
+            site.run(BrowserAction::GetText {
+                selector: "body".into()
+            })
+        );
+        assert!(!leave.unwrap().success);
+        let read = read.unwrap();
+        // Serialized: the read runs after the reset, on about:blank, never on the evil page.
+        assert!(
+            !read.output.as_str().contains("evil.example")
+                && !read.error.clone().unwrap_or_default().contains("landing"),
+            "{read:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn overall_action_deadline_poisons_the_session_and_requests_close() {
+        let mut site = site();
+        site.tool
+            .set_action_deadline_for_tests(Duration::from_millis(800));
+        let result = site
+            .run_guarded_for_test(BrowserAction::Wait {
+                selector: None,
+                ms: Some(60_000),
+                text: None,
+            })
+            .await;
+        assert!(result.error.unwrap().contains("deadline"));
+        let pid = site.state("pid").trim().to_string();
+        assert!(wait_until_dead(&pid).await);
+        assert!(wait_for_close(&site).await);
+        let refused = site.run(BrowserAction::GetTitle).await.unwrap();
+        assert!(refused.error.unwrap().contains("locked"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn screenshot_of_a_page_that_turns_out_disallowed_is_deleted() {
+        let site = site();
+        site.run(BrowserAction::Open {
+            url: "https://fixture.example/".into(),
+        })
+        .await
+        .unwrap();
+        std::fs::write(site.tmp.path().join("state.leaveonshot"), "").unwrap();
+        let result = site
+            .run(BrowserAction::Screenshot {
+                path: None,
+                full_page: false,
+            })
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("host: evil.example)"));
+        let leftovers: Vec<_> = std::fs::read_dir(site.tmp.path().join("ws"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn non_json_stdout_fallback_is_scrubbed() {
+        let site = site();
+        let secret = "zq-plain-secret-9d";
+        let result = site
+            .run(BrowserAction::Type {
+                selector: "#raw".into(),
+                text: secret.into(),
+            })
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(!result.output.as_str().contains(secret));
+        assert!(result.output.as_str().contains("<redacted>"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn empty_config_is_rewritten_to_empty_json_and_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join(EMPTY_CONFIG_NAME);
+        std::fs::write(&path, r#"{"profile":"/Users/u/real"}"#).unwrap();
+        write_empty_config(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+        let fresh = tmp.path().join("fresh.json");
+        write_empty_config(&fresh).unwrap();
+        assert_eq!(
+            std::fs::metadata(&fresh).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn short_hash_is_a_stable_sha256_prefix() {
+        assert_eq!(short_hash("abc"), "ba7816bf");
     }
 
     #[test]
