@@ -228,7 +228,7 @@ fn parse_request(args: &Value) -> Result<Request, String> {
             }
             if text.chars().any(is_hostile_text_char) {
                 return Err(
-                    "`text` must not contain control, private-use, unassigned or invisible formatting characters"
+                    "`text` must not contain control, private-use, noncharacter or invisible formatting characters"
                         .into(),
                 );
             }
@@ -259,15 +259,19 @@ fn parse_request(args: &Value) -> Result<Request, String> {
 
 /// Characters that could act as key events (control, AppKit function-key
 /// private use), or hide content from the approver (bidi, zero-width,
-/// separators, unassigned). `\n` and `\t` are allowed. Std only: Unicode
-/// category Cf and Cn are covered by explicit ranges, not a full table.
+/// separators, unassigned). `\n` and `\t` are allowed. Std only: Cf, Co and
+/// noncharacters are covered by explicit ranges; other unassigned (Cn)
+/// code points are NOT rejected.
 fn is_hostile_text_char(c: char) -> bool {
     if c == '\n' || c == '\t' {
         return false;
     }
     c.is_control()
+        || (c as u32 & 0xFFFE) == 0xFFFE
         || matches!(c,
-            '\u{00AD}' | '\u{061C}' | '\u{180E}'
+            '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{180E}' | '\u{3164}' | '\u{FE0F}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{FDD0}'..='\u{FDEF}'
             | '\u{200B}'..='\u{200F}'
             | '\u{2028}'..='\u{202E}'
             | '\u{2060}'..='\u{206F}'
@@ -774,6 +778,13 @@ mod tests {
             json!({"action": "type", "app": "Notes", "text": "a\u{200B}b"}),
             json!({"action": "type", "app": "Notes", "text": "a\u{FFFF}b"}),
             json!({"action": "type", "app": "Notes", "text": "a\u{E0001}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{34F}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{3164}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{FE0F}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{602}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{FDD5}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{1FFFE}b"}),
+            json!({"action": "type", "app": "Notes", "text": "a\u{10FFFF}b"}),
             json!({"action": "type", "app": "Notes", "text": "a\u{F702}"}),
             json!({"action": "type", "app": "Notes", "text": "a\u{202E}b"}),
             json!({"action": "type", "app": "Notes", "text": "x\u{1b}[2J"}),
