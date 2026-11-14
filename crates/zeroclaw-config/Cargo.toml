@@ -85,6 +85,7 @@ ws-transport = [
 # and validation checks a tool's own settings only when the tool is compiled
 # in, reporting the section as compiled out otherwise.
 tools-external = []
+local-browser = []
 tool-jira = []
 tool-notion = []
 tool-linkedin = []

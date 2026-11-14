@@ -23288,6 +23288,10 @@ impl Config {
             // Only a named adapter is reported. Full selects what this build
             // carries, so the wildcard, and with it the default, stays quiet.
             for name in crate::builtin_tools::EXTERNAL_TOOL_NAMES {
+                // `local-browser` compiles the `browser` tool without `tools-external`.
+                if *name == "browser" && cfg!(feature = "local-browser") {
+                    continue;
+                }
                 if self.tools.optional.iter().any(|entry| entry == name) {
                     warnings.push(crate::validation_warnings::ValidationWarning::new(
                         crate::validation_warnings::TOOL_COMPILED_OUT,

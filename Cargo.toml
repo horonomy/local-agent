@@ -233,6 +233,8 @@ non_row_features = [
     "agent-core",
     "daemon-listeners",
     "aasm-managed",
+    "local-browser",
+    "local-desktop",
 ]
 # Features intentionally added to the lean Cargo defaults for standard
 # distribution artifacts. This list is the complete positive policy beyond
@@ -323,6 +325,18 @@ daemon-listeners = ["agent-core", "zeroclaw-runtime/daemon-listeners"]
 
 # Managed governance mode (ADR-019): AASM adapter over a Unix socket. Opt-in; Unix only.
 aasm-managed = ["agent-core", "zeroclaw-runtime/aasm-managed"]
+
+# Local Agent opt-in capability: the gated `browser` automation tool only. It compiles
+# the browser module without `tools-external`, so none of the egress adapters (weather,
+# web search, browser_open, text_browser, browser_delegate, ...) come with it. Not part
+# of `default` or `local-agent-minimal`; runtime use still needs `[browser]
+# automation_enabled` plus an explicit tool grant (HORO-2399).
+local-browser = ["agent-core", "zeroclaw-runtime/local-browser", "zeroclaw-tools/local-browser"]
+
+# Local Agent opt-in capability: desktop interaction. Feature plumbing only; the
+# desktop tools that use it land with HORO-2400/HORO-2401. Same isolation rules as
+# `local-browser`.
+local-desktop = ["agent-core", "zeroclaw-runtime/local-desktop", "zeroclaw-tools/local-desktop"]
 
 # Local Agent minimal runtime profile (HORO-2381). Build with
 # `--no-default-features --features local-agent-minimal`: the Agent Loop, memory,

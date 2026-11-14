@@ -8,7 +8,7 @@ use zeroclaw_api::tool_attribution;
 
 use crate::ask_user::AskUserTool;
 use crate::backup_tool::BackupTool;
-#[cfg(feature = "tools-external")]
+#[cfg(any(feature = "tools-external", feature = "local-browser"))]
 use crate::browser::BrowserTool;
 #[cfg(feature = "tools-external")]
 use crate::browser_delegate::BrowserDelegateTool;
@@ -97,7 +97,7 @@ use crate::web_search_tool::WebSearchTool;
 
 tool_attribution!(AskUserTool, ToolKind::Wait);
 tool_attribution!(BackupTool, ToolKind::Plugin);
-#[cfg(feature = "tools-external")]
+#[cfg(any(feature = "tools-external", feature = "local-browser"))]
 tool_attribution!(BrowserTool, ToolKind::Plugin);
 #[cfg(feature = "tools-external")]
 tool_attribution!(BrowserDelegateTool, ToolKind::Plugin);

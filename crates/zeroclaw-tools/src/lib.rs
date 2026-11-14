@@ -11,7 +11,7 @@ pub mod util_helpers;
 pub mod a2a_client;
 pub mod ask_user;
 pub mod backup_tool;
-#[cfg(feature = "tools-external")]
+#[cfg(any(feature = "tools-external", feature = "local-browser"))]
 pub mod browser;
 #[cfg(feature = "tools-external")]
 pub mod browser_delegate;
