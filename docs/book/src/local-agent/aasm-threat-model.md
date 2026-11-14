@@ -74,4 +74,4 @@ If you need a control that the user cannot remove, managed mode alone does not p
 2. Provision an `aasm-managed` build and the config only where an AASM runtime runs as the same user, in a private directory, on Unix. Do not request root-owned sockets, open ports or a listener: they are neither needed nor accepted.
 3. Verify against your real AASM version before rollout, since the wire layout has not been checked against a live runtime. Expect `malformed_response` or `authority_unavailable` if it disagrees.
 4. Plan for the availability trade: a stopped runtime or a full log directory stops tool use.
-5. Do not rely on the audit `outcome` and `mode` fields; see [what the record does not tell you](./aasm-policy-ipc.md#what-the-record-does-not-tell-you).
+5. Do not rely on the audit `outcome` and `decision.aasm` fields; see [what the record does not tell you](./aasm-policy-ipc.md#what-the-record-does-not-tell-you).

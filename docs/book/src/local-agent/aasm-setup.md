@@ -25,7 +25,7 @@ mode = "standalone"
 
 Managed mode is for a machine where an AASM runtime already runs under **your own user account** and listens on a socket you can name. This page does not explain how to install or configure AASM, and it is not verified that a stock AASM runtime can listen where Local Agent accepts (see [socket requirements](#socket-requirements)).
 
-1. **Build with the feature.** The managed transport is the Cargo feature `aasm-managed`, outside `default` and outside `local-agent-minimal`. The `src/lib.rs` guard that rejects `local-agent-minimal` combined with ingress features does not list `aasm-managed`, so the combination below is expected to compile. No CI workflow builds it and it was not built for this page.
+1. **Build with the feature.** The managed transport is the Cargo feature `aasm-managed`, outside `default` and outside `local-agent-minimal`. The `src/lib.rs` guard that rejects `local-agent-minimal` combined with ingress features does not list `aasm-managed`, so the combination below is expected to compile. The CI job `Test (AASM managed policy)` compiles it and runs the managed policy tests, but it was not built for this page.
 
    ```sh
    cargo build --release --locked --bin zeroclaw \
@@ -124,4 +124,4 @@ The adapter deliberately does not say why a socket was refused: a missing socket
 | `denied by policy (audit_write_failed)` | The decision log could not be written (disk full, unwritable directory, planted symlink). Fix the directory, or set `[governance.audit] enabled = false` knowingly. Tool use stays blocked until then. |
 | `denied by policy (local_deny)`, `excluded`, `network_not_granted`, `unknown_capability` | The local engine denied before AASM was asked. These come from the agent's risk profile, not AASM. See [reason codes](./aasm-policy-ipc.md#reason-codes). |
 | `denied by policy (contract_version_mismatch)` | A request carried a contract version other than 1. Not expected from Local Agent itself. |
-| A config validation warning mentions `governance` | Config loading logs validation errors as a warning and continues so you can repair the config, so a bad managed block does not stop startup; it denies tool calls instead. Fix the key named in the message. |
+| A config validation warning mentions `governance` | `Config::load_or_init`, which `zeroclaw agent` uses (read in `src/main.rs`, not run), logs validation errors as a warning and continues so you can repair the config. A bad managed block, including managed in a build without `aasm-managed`, therefore does not stop startup: every tool call is denied `authority_unavailable`, with no standalone fallback. The daemon is not in the minimal profile and its load path was not checked. Fix the key named in the message. |

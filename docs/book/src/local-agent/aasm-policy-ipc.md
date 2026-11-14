@@ -73,20 +73,20 @@ There is no command to delete or export the log in this build; it is ordinary fi
 An illustrative record (a managed call that AASM denied; the digest is the SHA-256 of `{}`):
 
 ```json
-{"v":1,"ts":"2026-11-14T10:00:00.000Z","session_id":"turn-1","turn_id":"turn-1","call_id":"call-1","agent_alias":"main","parent_agent_alias":null,"capability":"fs_read","tool_name":"file_read","via_skill":null,"mcp_server":null,"args_sha256":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","decision":{"local":"deny","aasm":null,"effective":"deny","reason":"aasm_deny"},"authority":{"mode":"standalone","contract_version":1,"aasm_decision_id":null},"outcome":{"executed":false,"success":false,"cancelled":false,"duration_ms":0}}
+{"v":1,"ts":"2026-11-14T10:00:00.000Z","session_id":"turn-1","turn_id":"turn-1","call_id":"call-1","agent_alias":"main","parent_agent_alias":null,"capability":"fs_read","tool_name":"file_read","via_skill":null,"mcp_server":null,"args_sha256":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","decision":{"local":"deny","aasm":null,"effective":"deny","reason":"aasm_deny"},"authority":{"mode":"managed","contract_version":1,"aasm_decision_id":null},"outcome":{"executed":false,"success":false,"cancelled":false,"duration_ms":0}}
 ```
 
-The `decision_id` and `approval` fields are omitted when absent. The values of `mode` and `local` above are what the current source writes; see the next section.
+The `decision_id` and `approval` fields are omitted when absent. The value of `local` above is what the current source writes (it carries the effective verdict); see the next section.
 
 ### What the record does not tell you
 
 The record is a **decision log**, not an execution log. Read the following before using it as evidence:
 
 - `outcome` is written with fixed zero values at decision time and is not updated after the tool runs. Do not infer from it whether a call ran, succeeded or was cancelled. Cancellation shows only as a `cancelled` approval receipt.
-- `authority.mode` is written as `standalone` in every record, managed or not, and `decision.aasm` is always `null`. `decision.local` and `decision.effective` both carry the final verdict. To tell an AASM-involved decision apart, use `decision.reason` (`aasm_deny`, `timeout`, `malformed_response`, `authority_unavailable`) and `authority.aasm_decision_id`, which is filled when AASM returned a well-formed id. An allow from AASM is not distinguishable by reason.
+- `authority.mode` is `standalone` or `managed` according to the session's mode, but `decision.aasm` is always `null`. `decision.local` and `decision.effective` both carry the final verdict. To tell an AASM-involved decision apart, use `decision.reason` (`aasm_deny`, `timeout`, `malformed_response`, `authority_unavailable`) and `authority.aasm_decision_id`, which is filled when AASM returned a well-formed id. An allow from AASM is not distinguishable by reason.
 - The log cannot show what AASM was told beyond the digest, nor why AASM decided as it did.
 
-These fields exist in the record type but are not yet populated by the gate. That is a gap in the current source, not a documented guarantee.
+`decision.aasm` and `outcome` exist in the record type but are not yet populated by the gate. That is a gap in the current source, not a documented guarantee.
 
 ## IPC contract and supported versions
 
